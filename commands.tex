@@ -1,0 +1,12 @@
+
+% a new command which severs arbitrary section number
+\newcommand{\asection}[2]{
+  \setcounter{section}{#1}
+  \addtocounter{section}{-1}
+  \section{#2}
+}
+
+% a new command which simplify \lstinline
+\newcommand{\acode}[1]{
+  \lstinline[basicstyle=\ttfamily]{#1}
+}

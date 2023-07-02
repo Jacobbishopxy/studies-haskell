@@ -1,0 +1,84 @@
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{tikz}
+
+\graphicspath{\subfix{./images/}}
+
+\usepackage{blindtext}
+\usepackage{subfiles} % Best loaded last in the preamble
+
+\title{Learn Me a Haskell}
+\author{Jacob Bishop}
+\date{2023-07-01}
+
+% adding style
+\usepackage{../style}
+\lstset{style=mystyle}
+
+% adding commands
+\input{../commands}
+
+\begin{document}
+
+\maketitle
+\newpage
+
+\section{Introduction}
+\subfile{Ch01 Introduction}
+\newpage
+
+\section{Starting Out}
+\subfile{Ch02 Starting Out}
+\newpage
+
+\section{Types and Typeclasses}
+\subfile{Ch03 Types and Typeclasses}
+\newpage
+
+\section{Syntax in Functions}
+\subfile{Ch04 Syntax in Functions}
+\newpage
+
+\section{Recursion}
+\subfile{Ch05 Recursion}
+\newpage
+
+\section{Higher Order Functions}
+\subfile{Ch06 Higher Order Functions}
+\newpage
+
+\section{Modules}
+\subfile{Ch07 Modules}
+\newpage
+
+\section{Making Our Own Types and Typeclasses}
+\subfile{Ch08 Making Our Own Types and Typeclasses}
+\newpage
+
+\section{Input and Output}
+\subfile{Ch09 Input and Output}
+\newpage
+
+\section{Functionally Solving Problems}
+\subfile{Ch10 Functionally Solving Problems}
+\newpage
+
+\section{Functors, Applicative Functors and Monoids}
+\subfile{Ch11 Functors, Applicative Functors and Monoids}
+\newpage
+
+\section{A Fistful of Monads}
+\subfile{Ch12 A Fistful of Monads}
+\newpage
+
+\section{For a Few Monads More}
+\subfile{Ch13 For a Few Monads More}
+\newpage
+
+\section{Zippers}
+\subfile{Ch14 Zippers}
+\newpage
+
+\end{document}
