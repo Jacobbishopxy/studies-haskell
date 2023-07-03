@@ -2,6 +2,173 @@
 
 \begin{document}
 
-WIP
+\subsection*{第一个函数}
+
+在 \acode{./test/} 文件夹下创建一个 \acode{baby.hs} 的文件，写入：
+
+\begin{lstlisting}[language=Haskell]
+  doubleMe x = x + x
+\end{lstlisting}
+
+使用 \acode{ghci} 加载该文件（在本项目根目录时使用 \acode{:l tests/baby}）：
+
+\begin{lstlisting}
+  ghci> :l baby
+  [1 of 1] Compiling Main             ( baby.hs, interpreted )
+  Ok, modules loaded: Main.
+  ghci> doubleMe 9
+  18
+  ghci> doubleMe 8.3
+  16.6
+\end{lstlisting}
+
+一个带有 \acode{if} 的函数：
+
+\begin{lstlisting}[language=Haskell]
+  doubleSmallNumber x =
+    if x > 100
+      then x
+      else x * 2
+\end{lstlisting}
+
+Haskell 中的 \acode{if} 声明是一个 \textit{表达式}，那么 \acode{else} 是强制性的，因为表达式一定要有所返回。
+因此加上述函数可以改写为：
+
+\begin{lstlisting}[language=Haskell]
+  doubleSmallNumber' x = (if x > 100 then x else x * 2) + 1
+\end{lstlisting}
+
+这里的 \acode{'} 符号是 Haskell 中的有效字符，且在 Haskell 中并没有特殊的意义，因此可以用作于函数名。通常情况下，
+使用 \acode{'} 代表着一个函数（非懒加载的函数）的严格版本，或是一个有细微变化的函数或者变量。又因为 \acode{'} 是一个
+有效字符，那么可以创建以下函数：
+
+\begin{lstlisting}[language=Haskell]
+  conanO'Brien = "It's a-me, Conan O'Brien!"
+\end{lstlisting}
+
+这里又有两点值得注意的地方。首先，函数名不能以大写开头，稍后会进行说明；其次，该函数并没有任何入参。当一个函数没有入参，
+我们通常称其为一个 \textit{定义 definition}，因为一旦定义了它便不能修改其名称，以及其返回。
+
+\subsection*{list 的介绍}
+
+Haskell 中的 list 是 \textbf{同质的 homogenous} 数据结构。
+
+\begin{anote}
+  在 \acode{GHCI} 中可以使用 \acode{let} 关键字定义一个名称。换言之，\acode{GHCI} 中的 \acode{let a = 1}
+  等同于脚本中的 \acode{a = 1}。
+\end{anote}
+
+通常使用 \acode{++} 操作符将两个数组进行合并：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> [1,2,3,4] ++ [9,10,11,12]
+  [1,2,3,4,9,10,11,12]
+  ghci> "hello" ++ " " ++ "world"
+  "hello world"
+  ghci> ['w','o'] ++ ['o','t']
+  "woot"
+\end{lstlisting}
+
+可以使用 \acode{:} 操作符将元素直接添加至数组头部：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> 'A':" SMALL CAT"
+  "A SMALL CAT"
+  ghci> 5:[1,2,3,4,5]
+  [5,1,2,3,4,5]
+\end{lstlisting}
+
+实际上，\acode{[1, 2, 3]} 是 \acode{1:2:3:[]} 的语法糖，其中 \acode{[]} 为一个空数组。如果头部追加 \acode{3}，
+\acode{[]} 就变成了 \acode{[3]}，再次进行头部追加 \acode{2}，则变为 \acode{[2, 3]}，以此类推。
+
+如果希望通过索引获取数组中的元素，那么可以使用 \acode{!!} 操作符：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> "Steve Buscemi" !! 6
+  'B'
+  ghci> [9.4,33.2,96.2,11.2,23.25] !! 1
+  33.2
+\end{lstlisting}
+
+超出索引时则会报错。
+
+数组还可以通过操作符 \acode{<}，\acode{<=}，\acode{==}，\acode{>} 以及 \acode{>=} 操作符来进行比较，
+而比较的方式则是顺序比较。当进行头部比较元素相等时，再进行下一个元素进行比较。
+
+数组的四种基础操作 \acode{head}，\acode{tail}，\acode{last} 以及 \acode{init}：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> head [5,4,3,2,1]
+  5
+  ghci> tail [5,4,3,2,1]
+  [4,3,2,1]
+  ghci> last [5,4,3,2,1]
+  1
+  ghci> init [5,4,3,2,1]
+  [5,4,3,2]
+\end{lstlisting}
+
+当使用上述四种操作时，需要注意是否应用于空数组，这样的错误在编译期并不能被发现。
+
+其它的操作：
+
+\begin{enumerate}
+  \item \acode{length} 获取数组长度；
+  \item \acode{null} 检查数组是否为空；
+  \item \acode{reverse} 翻转数组；
+  \item \acode{take} 获取数组的头几个元素的数组；
+  \item \acode{drop} 移除数组的头几个元素，并返回剩余元素的数组；
+  \item \acode{maximum} 获取最大值；
+  \item \acode{minimum} 获取最小值；
+  \item \acode{sum} 求和；
+  \item \acode{product} 求积；
+  \item \acode{elem} 元素是否存在于数组中。
+\end{enumerate}
+
+\begin{lstlisting}[language=Haskell]
+  ghci> length [5,4,3,2,1]
+  5
+
+  ghci> null [1,2,3]
+  False
+  ghci> null []
+  True
+
+  ghci> reverse [5,4,3,2,1]
+  [1,2,3,4,5]
+
+  ghci> take 3 [5,4,3,2,1]
+  [5,4,3]
+  ghci> take 1 [3,9,3]
+  [3]
+  ghci> take 5 [1,2]
+  [1,2]
+  ghci> take 0 [6,6,6]
+  []
+
+  ghci> drop 3 [8,4,2,1,5,6]
+  [1,5,6]
+  ghci> drop 0 [1,2,3,4]
+  [1,2,3,4]
+  ghci> drop 100 [1,2,3,4]
+  []
+
+  ghci> minimum [8,4,2,1,5,6]
+  1
+  ghci> maximum [1,9,2,3,4]
+  9
+
+  ghci> sum [5,2,1,6,3,2,5,7]
+  31
+  ghci> product [6,2,1,2]
+  24
+  ghci> product [1,2,5,6,7,9,2,0]
+  0
+
+  ghci> 4 `elem` [3,4,5,6]
+  True
+  ghci> 10 `elem` [3,4,5,6]
+  False
+\end{lstlisting}
 
 \end{document}

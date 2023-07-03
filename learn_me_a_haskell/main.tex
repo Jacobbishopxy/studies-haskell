@@ -1,13 +1,21 @@
-\documentclass{article}
+\PassOptionsToPackage{quiet}{fontspec}
+\documentclass[UTF8]{ctexart}
+
+\usepackage[a4paper, total={6in, 8in}]{geometry}
+\usepackage{lmodern}
+\usepackage{amsfonts}
 \usepackage{graphicx}
 \usepackage{listings}
 \usepackage{xcolor}
 \usepackage{tikz}
+\usepackage{framed}
 
 \graphicspath{\subfix{./images/}}
 
 \usepackage{blindtext}
 \usepackage{subfiles} % Best loaded last in the preamble
+
+
 
 \title{Learn Me a Haskell}
 \author{Jacob Bishop}
