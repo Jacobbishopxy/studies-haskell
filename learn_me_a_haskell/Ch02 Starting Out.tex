@@ -171,4 +171,170 @@ Haskell 中的 list 是 \textbf{同质的 homogenous} 数据结构。
   False
 \end{lstlisting}
 
+\subsection*{Texas 排列}
+
+\begin{lstlisting}[language=Haskell]
+  ghci> [1..20]
+  [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]
+  ghci> ['a'..'z']
+  "abcdefghijklmnopqrstuvwxyz"
+  ghci> ['K'..'Z']
+  "KLMNOPQRSTUVWXYZ"
+\end{lstlisting}
+
+带有 step 的排列：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> [2,4..20]
+  [2,4,6,8,10,12,14,16,18,20]
+  ghci> [3,6..20]
+  [3,6,9,12,15,18]
+\end{lstlisting}
+
+而对于浮点数的排列需要注意精度问题：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> [0.1, 0.3 .. 1]
+  [0.1,0.3,0.5,0.7,0.8999999999999999,1.0999999999999999]
+\end{lstlisting}
+
+以下是若干用于生产无限长度数组的函数：
+
+\acode{cycle} 循环周期：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> take 10 (cycle [1,2,3])
+  [1,2,3,1,2,3,1,2,3,1]
+  ghci> take 12 (cycle "LOL ")
+  "LOL LOL LOL "
+\end{lstlisting}
+
+\acode{repeat} 重复：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> take 10 (repeat 5)
+  [5,5,5,5,5,5,5,5,5,5]
+\end{lstlisting}
+
+另外就是 \acode{replicate} 函数可以重复单个元素：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> replicate 3 10
+  [10,10,10]
+\end{lstlisting}
+
+\subsection*{列表表达式}
+
+数学里的 \textit{集合表达式 set comprehensions} 例如 $S = { 2 \cdot x | x \in \mathbb{N}, x \le 10 }$；
+Haskell 中的列表表达式，例如 1 至 10 数组中每个元素乘以 2：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> [x*2 | x <- [1..10]]
+  [2,4,6,8,10,12,14,16,18,20]
+\end{lstlisting}
+
+为列表表达式添加条件（或称谓语 predicate）：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> [x*2 | x <- [1..10], x*2 >= 12]
+  [12,14,16,18,20]
+  ghci> [ x | x <- [50..100], x `mod` 7 == 3]
+  [52,59,66,73,80,87,94]
+\end{lstlisting}
+
+将列表表达式置于一个函数中便于复用：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> boomBangs xs = [ if x < 10 then "BOOM!" else "BANG!" | x <- xs, odd x]
+  ghci> boomBangs [7..13]
+  ["BOOM!","BOOM!","BANG!","BANG!"]
+\end{lstlisting}
+
+多个谓语也是可以的：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> [ x | x <- [10..20], x /= 13, x /= 15, x /= 19]
+  [10,11,12,14,16,17,18,20]
+\end{lstlisting}
+
+除此之外，还可以处理若干数组：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> [ x*y | x <- [2,5,10], y <- [8,10,11]]
+  [16,20,22,40,50,55,80,100,110]
+\end{lstlisting}
+
+当然也可以加上谓语：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> [ x*y | x <- [2,5,10], y <- [8,10,11], x*y > 50]
+  [55,80,100,110]
+\end{lstlisting}
+
+那么对于字符串也可以使用列表表达式：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let nouns = ["hobo","frog","pope"]
+  ghci> let adjectives = ["lazy","grouchy","scheming"]
+  ghci> [adjective ++ " " ++ noun | adjective <- adjectives, noun <- nouns]
+  ["lazy hobo","lazy frog","lazy pope","grouchy hobo","grouchy frog",
+  "grouchy pope","scheming hobo","scheming frog","scheming pope"]
+\end{lstlisting}
+
+现在让我们编写一个自己的 \acode{length}，命名 \acode{lenght'}（这里的 \acode{_} 意为无需使用的变量）：
+
+\begin{lstlisting}[language=Haskell]
+  length' xs = sum [1 | _ <- xs]
+\end{lstlisting}
+
+由于字符串是数组，因此我们可以使用列表表达式处理并生产字符串。以下是一个移除所有字符但保留大写字符的函数：
+
+\begin{lstlisting}[language=Haskell]
+  removeNonUppercase st = [ c | c <- st, c `elem` ['A'..'Z']]
+  removeUppercase st = [ c | c <- st, c `notElem` ['A'..'Z']]
+\end{lstlisting}
+
+\subsection*{元组}
+
+在某种程度上，元组类似于数组 -- 存储若干值至单个变量上。然而有一些基础的差异：数组长度可以无限，元组长度固定；数组中元素类型
+是同质的，而元组则可以是异质的 heterogenous。
+
+对于对元组（当且仅当包含两个元素）有以下操作：
+
+\acode{fst} 获取对元组的第一个元素：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> fst (8,11)
+  8
+  ghci> fst ("Wow", False)
+  "Wow"
+\end{lstlisting}
+
+\acode{snd} 获取对元组的第二个元素：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> snd (8,11)
+  11
+  ghci> snd ("Wow", False)
+  False
+\end{lstlisting}
+
+另外一个有意思的函数则是 \acode{zip}，它可以将两个数组按对拼接成对元组的数组
+
+\begin{lstlisting}[language=Haskell]
+  ghci> zip [1,2,3,4,5] [5,5,5,5,5]
+  [(1,5),(2,5),(3,5),(4,5),(5,5)]
+  ghci> zip [1 .. 5] ["one", "two", "three", "four", "five"]
+  [(1,"one"),(2,"two"),(3,"three"),(4,"four"),(5,"five")]
+\end{lstlisting}
+
+当两个数组的长度不一时，\acode{zip} 则按最短的那个进行对齐，长的数组剩余部分则被丢弃，这是因为 Haskell 是懒加载的缘故。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> zip [5,3,2,6,2,7,2,5,4,6,6] ["im","a","turtle"]
+  [(5,"im"),(3,"a"),(2,"turtle")]
+  ghci> zip [1..] ["apple", "orange", "cherry", "mango"]
+  [(1,"apple"),(2,"orange"),(3,"cherry"),(4,"mango")]
+\end{lstlisting}
+
 \end{document}
