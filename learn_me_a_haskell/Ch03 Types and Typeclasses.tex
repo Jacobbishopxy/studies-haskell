@@ -2,6 +2,203 @@
 
 \begin{document}
 
-WIP
+\subsection*{相信类型}
+
+通过 \acode{:t} 命令可以得知类型：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t 'a'
+  'a' :: Char
+  ghci> :t True
+  True :: Bool
+  ghci> :t "HELLO!"
+  "HELLO!" :: [Char]
+  ghci> :t (True, 'a')
+  (True, 'a') :: (Bool, Char)
+  ghci> :t 4 == 5
+  4 == 5 :: Bool
+\end{lstlisting}
+
+函数同样拥有类型：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t doubleSmallNumber
+  doubleSmallNumber :: (Ord a, Num a) => a -> a
+\end{lstlisting}
+
+而对于有多个入参的函数而言：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> addThree x y z = x + y + z
+  ghci> :t addThree
+  addThree :: Num a => a -> a -> a -> a
+\end{lstlisting}
+
+参数由 \acode{->} 符分开，并且入参与返回的类型并无差异，之后我们讨论到为什么是由 \acode{->} 分割而不是
+\acode{Int, Int, Int -> Int} 或者其他样式的类型。
+
+接下来是一些常规的类型：
+
+\acode{Int}：对于 32 位的机器而言最大值大概是 $2147483647$ 而最小值则是 $2147483647$。
+
+\acode{Integer}：同样也是整数，只不过范围会大很多，而 \acode{Int} 则更高效率。
+
+\acode{Float}：单精度。
+
+\acode{Double}：双精度。
+
+\acode{Bool}：布尔值。
+
+\acode{Char}：字符。
+
+\subsection*{类型变量}
+
+那么 \acode{head} 函数的类型是什么呢？
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t head
+  head :: [a] -> a
+\end{lstlisting}
+
+这里的 \acode{a} 则是一个 \textbf{类型变量 type variable}，这意味着 \acode{a} 可以是任意类型。这非常像其他语言的泛型，
+但唯有在 Haskell 中它更为强大，因为它允许我们可以轻易的编写通用的函数，且不使用任何特定的行为的类型。带有类型变量的函数也被
+称为 \textbf{多态函数 polymorphic functions}。
+
+\subsection*{Typeclasses 101}
+
+typeclass 类似于一个接口用于定义一些行为。如果一个类型是 typeclass 的一部分，这就意味着它支持并且实现了 typeclass 中所
+描述的行为。
+
+那么 \acode{==} 函数的类型签名是什么呢？
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t (==)
+  (==) :: Eq a => a -> a -> Bool
+\end{lstlisting}
+
+\begin{anote}
+  \acode{==} 操作符是一个函数，\acode{+}，\acode{*}，\acode{-}，\acode{/} 以及其它的操作符也都是。如果一个函数只包含
+  特殊字符，那么默认情况下它被认做是一个中缀函数。如果想要检查它的类型，将其传递给另一个函数或作为前缀函数调用它，那么则需要用
+  括号将其包围。
+\end{anote}
+
+这里有趣的是 \acode{=>} 符号，在该符号之前的被称为一个 \textbf{类约束 class constraint}。那么上述的类型声明可以被这么
+理解：等式函数接受任意两个相同类型的值，并返回一个 \acode{Bool}，而这两个值必须是 \acode{Eq} 类的成员（即类约束）。
+
+\acode{Eq} typeclass 提供了一个用于测试是否相等的接口。
+
+而 \acode{elem} 函数则拥有 \acode{(Eq a) => a -> [a] -> Bool} 这样的类型，因为其在数组中使用了 \acode{==} 用于检查
+元素是否为期望的值。
+
+一些基础的 typeclasses：
+
+\acode{Eq} 如上所述。
+
+\acode{Ord} 覆盖了所有标准的比较函数例如\acode{>}，\acode{<}，\acode{>=} 以及 \acode{<=}。\acode{compare} 函数接受
+两个同类型的 \acode{Ord} 成员，并返回一个 ordering。\acode{Ordering} 是一个可作为 \acode{GT}，\acode{LT} 或是 \acode{EQ}
+的类型，分别意为 \textit{大于}，\textit{小于}以及\textit{等于}。
+
+\acode{Show} 可以表示为字符串。
+
+\acode{Read} 有点类似于 \acode{Show} 相反的 typeclass，\acode{read} 函数接受一个字符串并返回一个 \acode{Read} 的成员。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> read "True" || False
+  True
+  ghci> read "8.2" + 3.8
+  12.0
+  ghci> read "5" - 2
+  3
+  ghci> read "[1,2,3,4]" ++ [3]
+  [1,2,3,4,3]
+\end{lstlisting}
+
+但是如果尝试一下 \acode{read "4"} 呢？
+
+\begin{lstlisting}[language=Haskell]
+  ghci> read "4"
+  <interactive>:1:0:
+      Ambiguous type variable `a' in the constraint:
+        `Read a' arising from a use of `read' at <interactive>:1:0-7
+      Probable fix: add a type signature that fixes these type variable(s)
+\end{lstlisting}
+
+这里 GHCI 告知它并不知道想要返回什么，通过检查 \acode{read} 的类型签名：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t read
+  read :: Read a => String -> a
+\end{lstlisting}
+
+也就是说其返回的是 \acode{Read} 所约束的类型，那么如果在之后没有使用到它，则没有办法知晓其类型。我们可以显式的使用\textbf{类型注解}，
+即在表达式后面加上 \acode{::} 与指定的一个类型：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> read "5" :: Int
+  5
+  ghci> read "5" :: Float
+  5.0
+  ghci> (read "5" :: Float) * 4
+  20.0
+  ghci> read "[1,2,3,4]" :: [Int]
+  [1,2,3,4]
+  ghci> read "(3, 'a')" :: (Int, Char)
+  (3, 'a')
+\end{lstlisting}
+
+大多数表达式可以被编译器推导出其类型，但是有时编译器并不知道返回值的类型，例如 \acode{read "5"} 时该为 \acode{Int} 还是 \acode{Float}。
+那么为了知道其类型，Haskell 会解析 \acode{read "5"}。然而 Haskell 是一个静态类型语言，因此它需要在代码编译前知道所有类型。
+
+\acode{Enum} 成员是序列化的有序类型 -- 它们可被枚举。\acode{Enum} typeclass 的主要优势是可以使用在列表区间；它们也同样定义了
+successors 与 predecessors，即可使用 \acode{succ} 以及 \acode{pred} 函数。在这个类中的类型有：\acode{()}，\acode{Bool}
+\acode{Char}，\acode{Ordering}，\acode{Int}，\acode{Integer}，\acode{Float} 以及 \acode{Double}.
+
+\acode{Bounded} 成员拥有上下界：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> minBound :: Int
+  -2147483648
+  ghci> maxBound :: Char
+  '\1114111'
+  ghci> maxBound :: Bool
+  True
+  ghci> minBound :: Bool
+  False
+\end{lstlisting}
+
+元组的成员如果为 \acode{Bounded} 的一部分，那么元组也是：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> maxBound :: (Bool, Int, Char)
+  (True,2147483647,'\1114111')
+\end{lstlisting}
+
+\acode{Num} 是一个数值类：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t 20
+  20 :: (Num t) => t
+  ghci> 20 :: Int
+  20
+  ghci> 20 :: Integer
+  20
+  ghci> 20 :: Float
+  20.0
+  ghci> 20 :: Double
+  20.0
+\end{lstlisting}
+
+这些类型都在 \acode{Num} typeclass 内。如果检查 \acode{*} 的类型，将会看到：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t (*)
+  (*) :: (Num a) => a -> a -> a
+\end{lstlisting}
+
+\acode{Integral} 同样也是数值 typeclass。
+
+\acode{Floating} 包含 \acode{Float} 与 \acode{Double}。
+
+\acode{fromIntegral} 是一个处理数值的常用函数，而其类型为 \acode{fromIntegral :: (Num b, Integral a) => a -> b}。
 
 \end{document}

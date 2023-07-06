@@ -12,6 +12,24 @@
 
 5. `ghcup set stack` to enable `stack` command
 
+## VsCode settings
+
+`settings.json`:
+
+```json
+  ...
+  "haskell.manageHLS": "GHCup",
+  "haskell.toolchain": {
+    "ghc": "9.2.8",
+    "hls": "2.0.0.1",
+    "cabal": "recommended"
+  },
+  "haskell.serverEnvironment": {
+    "PATH": "${HOME}/.ghcup/bin:$PATH"
+  },
+  ...
+```
+
 ## Notes
 
 - [Learn me a haskell](./Learn%20Me%20a%20Haskell.pdf): original from "Learn you a haskell" [ [link](http://learnyouahaskell.com/) ]
