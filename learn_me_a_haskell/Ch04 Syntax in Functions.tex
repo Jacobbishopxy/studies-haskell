@@ -106,6 +106,255 @@
 
 最后，用户在模式匹配中不能使用 \acode{++} 符号。
 
-% TODO
+\subsection*{守护！}
+
+守护是一种检测值的某些属性是否为真，看上去像是\acode{if}语句，但是其可读性更强：
+
+\begin{lstlisting}[language=Haskell]
+  bmiTell :: (RealFloat a) => a -> String
+  bmiTell bmi
+    | bmi <= 18.5 = "You're underweight, you emo, you!"
+    | bmi <= 25.0 = "You're supposedly normal. Pffft, I bet you're ugly!"
+    | bmi <= 30.0 = "You're fat! Lose some weight, fatty!"
+    | otherwise = "You're a whale, congratulations!"
+\end{lstlisting}
+
+守护是由管道符并接着一个函数名以及函数参数进行定义的。守护本质上就是一个布尔表达式，如果为\acode{True}，那么其关联的函数体被执行；
+如果为\acode{False}，那么检查则会移至下一个守护，以此类推。
+
+大多数时候最后一个守护是\acode{otherwise}，其被简单的定义为\acode{otherwise = True}并捕获所有情况。
+
+当然我们可以使用任意参数的函数来守护：
+
+\begin{lstlisting}[language=Haskell]
+  bmiTell' :: (RealFloat a) => a -> a -> String
+  bmiTell' weight height
+    | weight / height ^ 2 <= 18.5 = "You're underweight, you emo, you!"
+    | weight / height ^ 2 <= 25.0 = "You're supposedly normal. Pffft, I bet you're ugly!"
+    | weight / height ^ 2 <= 30.0 = "You're fat! Lose some weight, fatty!"
+    | otherwise = "You're a whale, congratulations!"
+\end{lstlisting}
+
+另外我们可以实现自己的\acode{max}与\acode{compare}函数：
+
+\begin{lstlisting}[language=Haskell]
+  max' :: (Ord a) => a -> a -> a
+  max' a b
+    | a > b = a
+    | otherwise = b
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  compare' :: (Ord a) => a -> a -> Ordering
+  a `compare'` b
+    | a > b = GT
+    | a == b = EQ
+    | otherwise = LT
+\end{lstlisting}
+
+\begin{anote}
+  我们不仅可以通过引号来调用函数，也可以使用引号来定义他们，有时这样会更加便于阅读。
+\end{anote}
+
+\subsection*{Where!?}
+
+上一节的\acode{bmiTell'}函数中的\acode{weight / height ^ 2}被重复了三遍，可以只计算一次并通过名称来绑定计算结果：
+
+\begin{lstlisting}[language=Haskell]
+  bmiTell'' :: (RealFloat a) => a -> a -> String
+  bmiTell'' weight height
+    | bmi <= 18.5 = "You're underweight, you emo, you!"
+    | bmi <= 25.0 = "You're supposedly normal. Pffft, I bet you're ugly!"
+    | bmi <= 30.0 = "You're fat! Lose some weight, fatty!"
+    | otherwise = "You're a whale, congratulations!"
+    where
+      bmi = weight / height ^ 2
+\end{lstlisting}
+
+我们在守护的结尾添加了\acode{where}并定义了\acode{bmi}这个名称，这里定义的名称对整个守护可见，这样就无需再重复同样代码了。
+那么我们可以进行更多的定义：
+
+\begin{lstlisting}[language=Haskell]
+  bmiTell''' :: (RealFloat a) => a -> a -> String
+  bmiTell''' weight height
+    | bmi <= skinny = "You're underweight, you emo, you!"
+    | bmi <= normal = "You're supposedly normal. Pffft, I bet you're ugly!"
+    | bmi <= fat = "You're fat! Lose some weight, fatty!"
+    | otherwise = "You're a whale, congratulations!"
+    where
+      bmi = weight / height ^ 2
+      skinny = 18.5
+      normal = 25.0
+      fat = 30.0
+\end{lstlisting}
+
+当然我们可以通过\textbf{模式匹配}来进行变量绑定！上面\acode{where}中的代码可以改写为：
+
+\begin{lstlisting}[language=Haskell]
+    ...
+    where
+      bmi = weight / height ^ 2
+      (skinny, normal, fat) = (18.5, 25.0, 30.0)
+\end{lstlisting}
+
+现在让我们编写另一个相当简单的函数用作获取名字首字母：
+
+\begin{lstlisting}[language=Haskell]
+  initials :: String -> String -> String
+  initials first_name last_name = [f] ++ ". " ++ [l] ++ "."
+    where
+      (f : _) = first_name
+      (l : _) = last_name
+\end{lstlisting}
+
+我们可以直接将模式匹配应用于函数参数。
+
+另外，正如我们可以在\acode{where}块中定义约束，我们也可以定义函数：
+
+\begin{lstlisting}[language=Haskell]
+  calcBmis :: (RealFloat a) => [(a, a)] -> [a]
+  calcBmis xs = [bmi w h | (w, h) <- xs]
+    where
+      bmi weight height = weight / height ^ 2
+\end{lstlisting}
+
+\acode{where}绑定也可以是嵌套的，这在编写函数中很常见：定义一些辅助函数在函数\acode{where}子句，然后这些函数的辅助函数又在
+其自身的\acode{where}子句中。
+
+\subsection*{Let 的用法}
+
+与\acode{where}绑定很相似的是\acode{let}绑定。前者是一个语法构造器用于在函数的尾部进行变量绑定，这些变量可供整个函数使用，
+包括守护；而后者则是在任意处绑定一个变量，其自身为表达式，不过只在作用域生效，因此不能被守护中访问。与 Haskell 其他任意的构造
+一样，\acode{let}绑定也可使用模式匹配：
+
+\begin{lstlisting}[language=Haskell]
+  cylinder :: (RealFloat a) => a -> a -> a
+  cylinder r h =
+    let sideArea = 2 * pi * r * h
+        topArea = pi * r ^ 2
+     in sideArea + 2 * topArea
+\end{lstlisting}
+
+这里的结构是\acode{let <bindings> in <expression>}。在\textit{let}中定义的名称可以在\textit{in}之后的表达式中访问。
+这里同样要注意缩进。现在看来\acode{let}仅仅将绑定提前，与\acode{where}的作用无异。
+
+不同点在于\acode{let}绑定是表达式自身，而\acode{where}仅为语法构造。还记得之前提到过的\acode{if else}语句是表达式，可以
+在任意处构造：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> [if 5 > 3 then "Woo" else "Boo", if 'a' > 'b' then "Foo" else "Bar"]
+  ["Woo", "Bar"]
+  ghci> 4 * (if 10 > 5 then 10 else 0) + 2
+  42
+\end{lstlisting}
+
+那么\acode{let}绑定也可以：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> 4 * (let a = 9 in a + 1) + 2
+  42
+\end{lstlisting}
+
+同样可以在当前作用域引入函数：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> [let square x = x * x in (square 5, square 3, square 2)]
+  [(25,9,4)]
+\end{lstlisting}
+
+如果想要绑定若干变量，我们显然不能再列上对齐它们。这就是为什么需要用分号进行分隔：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> (let a = 100; b = 200; c = 300 in a*b*c, let foo="Hey "; bar = "there!" in foo ++ bar)
+  (6000000,"Hey there!")
+\end{lstlisting}
+
+正如之前提到的，可以将模式匹配应用于\textit{let}绑定：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> (let (a,b,c) = (1,2,3) in a+b+c) * 100
+  600
+\end{lstlisting}
+
+当然也可以将\textit{let}绑定置入列表表达式中：
+
+\begin{lstlisting}[language=Haskell]
+  calcBmis' :: (RealFloat a) => [(a, a)] -> [a]
+  calcBmis' xs = [bmi | (w, h) <- xs, let bmi = w / h ^ 2]
+\end{lstlisting}
+
+将\acode{let}置入列表表达式中类似于一个子句，不过它不会对列表进行筛选，而仅仅绑定名称。该名称可被列表表达式的输出函数可见
+（即在符号\acode{|}前的部分），以及所有的子句，以及绑定后的部分。因此我们可以让函数继续进行筛选：
+
+\begin{lstlisting}[language=Haskell]
+  calcBmis'' :: (RealFloat a) => [(a, a)] -> [a]
+  calcBmis'' xs = [bmi | (w, h) <- xs, let bmi = w / h ^ 2, bmi >= 25.0]
+\end{lstlisting}
+
+我们不能在\acode{(w, h) <- xs}中使用\acode{bmi}，因为它在\textit{let}绑定之前。
+
+在列表表达式中使用\textit{let}绑定可以省略\textit{in}的那部分，这是因为名称的可视范围已经被预定义好了。不过我们还是可以
+在一个子句中使用\textit{let in}绑定，该名称仅可在该子句中可见。在 GHCi 中定义函数与常数时，\textit{in}部分同样也可以
+省略。如果这么做了，那么该名称可以被整个交互过程中可见。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let zoot x y z = x * y + z
+  ghci> zoot 3 9 2
+  29
+  ghci> let boot x y z = x * y + z in boot 3 4 2
+  14
+  ghci> boot
+  <interactive>:1:0: Not in scope: `boot'
+\end{lstlisting}
+
+\subsection*{Case 表达式}
+
+以下两端代码表达的是同样一件事，它们互为可替换的。
+
+\begin{lstlisting}[language=Haskell]
+  head' :: [a] -> a
+  head' [] = error "No head for empty lists!"
+  head' (x:_) = x
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  head' :: [a] -> a
+  head' xs = case xs of [] -> error "No head for empty lists!"
+                        (x:_) -> x
+\end{lstlisting}
+
+正如所见的那样，case 表达式的语法特别简单：
+
+\begin{lstlisting}[language=Haskell]
+  case expression of pattern -> result
+  pattern -> result
+  pattern -> result
+  ...
+\end{lstlisting}
+
+\acode{expression}与模式匹配。模式匹配的行为正如预期那样：首个匹配上表达式的那个模式将被使用。如果直到最后都没有合适的模式
+被找到，那么将会抛出运行时错误。
+
+函数参数的模式匹配只能在定义函数时完成，而 case 表达式则可以在任意处使用。例如：
+
+\begin{lstlisting}[language=Haskell]
+  describeList :: [a] -> String
+  describeList xs =
+    "The list is " ++ case xs of
+      [] -> "empty."
+      [x] -> "a singleton list."
+      xs -> "a longer list."
+\end{lstlisting}
+
+case 表达式可以对表达式中间的模型内容进行模式匹配。函数定义中的模式匹配是 case 表达式的语法糖，因此我们也可以这样定义：
+
+\begin{lstlisting}[language=Haskell]
+  describeList' :: [a] -> String
+  describeList' xs = "The list is " ++ what xs
+    where
+      what [] = "empty."
+      what [x] = "a singleton list."
+      what xs = "a longer list."
+\end{lstlisting}
 
 \end{document}
