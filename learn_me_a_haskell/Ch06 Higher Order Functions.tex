@@ -2,6 +2,147 @@
 
 \begin{document}
 
-WIP
+\subsection*{柯里化函数}
+
+在 Haskell 中每个函数实质上仅接受一个参数。那么迄今为止定义的那么多函数是怎么接受多个参数的呢？这是就是\textbf{柯里化函数 curried functions}。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> max 4 5
+  5
+  ghci> (max 4) 5
+  5
+\end{lstlisting}
+
+两个参数间用空格间隔就是简单的\textbf{函数应用 function application}。空格类似于一个操作符，其拥有最高的优先级。例如\acode{max}，其签名为
+\acode{max :: (Ord a) => a -> a -> a}，可以被重写为\acode{max :: (Ord a) => a -> (a -> a)}，可以这么理解：\acode{max}接受一个
+\acode{a}并返回（即\acode{->}）一个函数，该函数接受一个\acode{a}并返回一个\acode{a}。这就是为什么返回值类型以及函数的参数都是由箭头符
+进行分隔的。
+
+那么这样做有什么便利？简单来说如果调用一个仅几个参数的函数，我们得到的是一个\textbf{部分应用 partially applied}的函数，即一个函数接受的参数
+与留下未填的参数一样多。
+
+来观测一个简单的函数：
+
+\begin{lstlisting}[language=Haskell]
+  multThree :: (Num a) => a -> a -> a -> a
+  multThree x y z = x * y * z
+\end{lstlisting}
+
+当使用\acode{multThree 3 5 9}或者\acode{((multThree 3) 5) 9}时到底发生了什么？首先，\acode{3}应用至\acode{multThree}，因为它们由空格
+进行了分隔（最高优先级）。这就创建了一个接受一个参数的函数，并返回了一个函数。接下来\acode{5}被应用至该函数，以此类推。记住我们的函数类型同样也
+可以重写成\acode{multThree :: (Num a) => a -> (a -> (a -> a))}。接下来观察：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let multTwoWithNine = multThree 9
+  ghci> multTwoWithNine 2 3
+  54
+  ghci> let multWithEighteen = multTwoWithNine 2
+  ghci> multWithEighteen 10
+  180
+\end{lstlisting}
+
+调用函数时输入不足的参数，实际上实在创造新的函数。那么如果希望创建一个函数接受一个值并将其与\acode{100}进行比较呢？
+
+\begin{lstlisting}[language=Haskell]
+  compareWithHundred :: (Num a, Ord a) => a -> Ordering
+  compareWithHundred x = compare 100 x
+\end{lstlisting}
+
+如果带着\acode{99}调用它，返回一个\acode{GT}。注意\acode{x}同时位于等式的右侧。那么调用\acode{compare 100}返回的是什么呢？它返回一个接受
+一个数值参数并将其与\acode{100}进行比较的函数。现在将其重写：
+
+\begin{lstlisting}[language=Haskell]
+  compareWithHundred :: (Num a, Ord a) => a -> Ordering
+  compareWithHundred = compare 100
+\end{lstlisting}
+
+类型声明仍然相同，因为\acode{compare 100}返回一个函数。\acode{compare}的类型是\acode{(Ord a) -> a -> (a -> Ordering)}，带着
+\acode{100}调用它返回一个\acode{(Num a, Ord a) => a -> Ordering}。这里额外的类约束溜走了，这是因为\acode{100}同样也是\acode{Num}
+类的一部分。
+
+中缀函数同样可以通过使用分割被部分应用。要分割中缀函数，只需将其用圆括号括起来，并只在一侧提供参数：
+
+\begin{lstlisting}[language=Haskell]
+  divideByTen :: (Floating a) => a -> a
+  divideByTen = (/10)
+\end{lstlisting}
+
+调用\acode{divideByTen 200}等同于\acode{200 / 10}，等同于\acode{(/10) 200}。
+
+那么如果在 GHCI 中尝试\acode{multThree 3 4}而不是通过\textit{let}将其与名称绑定，或是将其传递至另一个函数呢？
+
+\begin{lstlisting}[language=Haskell]
+  ghci> multThree 3 4
+  <interactive>:1:0:
+      No instance for (Show (t -> t))
+        arising from a use of `print' at <interactive>:1:0-12
+      Possible fix: add an instance declaration for (Show (t -> t))
+      In the expression: print it
+      In a 'do' expression: print it
+\end{lstlisting}
+
+GHCI 会提示我们表达式生成了一个类型为\acode{a -> a}的函数，但是并不知道该如何将其打印至屏幕。函数并不是\acode{Show} typeclass 的实例，
+因此我们并不会得到一个函数的展示。
+
+\subsection*{一些高级是在于顺序}
+
+函数可以接受函数作为其参数，也可以返回函数。
+
+\begin{lstlisting}[language=Haskell]
+  applyTwice :: (a -> a) -> a -> a
+  applyTwice f x = f (f x)
+\end{lstlisting}
+
+首先注意的是类型声明。之前我们是不需要圆括号的，因为\acode{->}是自然地右结合。然而在这里却是强制性的，它们表明了第一个参数是一个接受某物并
+返回某物的函数，第二个参数同上所述。我们可以用柯里化函数的方式来进行解读，不过为了避免头疼，我们仅需要说该函数接受两个参数并返回一个值。
+这里第一个参数是一个函数（即类型\acode{a -> a}），而第二个参数则是\acode{a}。
+
+函数体非常的简单，仅需要使用参数\acode{f}作为一个函数，通过一个空格将\acode{x}应用至其，接着再应用一次\acode{f}。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> applyTwice (+3) 10
+  16
+  ghci> applyTwice (++ " HAHA") "HEY"
+  "HEY HAHA HAHA"
+  ghci> applyTwice ("HAHA " ++) "HEY"
+  "HAHA HAHA HEY"
+  ghci> applyTwice (multThree 2 2) 9
+  144
+  ghci> applyTwice (3:) [1]
+  [3,3,1]
+\end{lstlisting}
+
+可以看到单个高阶函数可以被用以多种用途。而在命令式编程中，通常使用的是 for 循环、while 循环、将某物设置为一个变量、检查其状态等等，为了达到
+某些行为，还需要用接口将其封装，类似于函数；而函数式编程则使用高阶函数来抽象出相同的模式。
+
+现在让我们实现一个名为\acode{flip}的标准库已经存在的函数，其接受一个函数并返回一个类似于原来函数的函数，仅前两个参数被翻转。简单的实现：
+
+\begin{lstlisting}[language=Haskell]
+  filp' :: (a -> b -> c) -> (b -> a -> c)
+  filp' f = g
+    where
+      g x y = f y x
+\end{lstlisting}
+
+观察类型声明，\acode{flip'}接受一个函数，该函数接受一个\acode{a}与\acode{b}，并返回一个函数，该返回的函数接受一个\acode{b}与\acode{a}。
+然而默认情况下函数是柯里化的，第二个圆括号是没有必要的，因为\acode{->}默认是右结合的。\acode{(a -> b -> c) -> (b -> a -> c)}等同于
+\acode{(a -> b -> c) -> (b -> (a -> c))}，等同于\acode{(a -> b -> c) -> b -> a -> c}。我们可以用更简单方式来定义该函数：
+
+\begin{lstlisting}[language=Haskell]
+  filp'' :: (a -> b -> c) -> b -> a -> c
+  filp'' f y x = f x y
+\end{lstlisting}
+
+这里我们利用了函数都是柯里化的便利。当不带参数\acode{y}与\acode{x}时调用\acode{flip'' f}时，它将返回一个\acode{f}，该函数接受两个参数，
+只不过它们的位置是翻转的。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> flip' zip [1,2,3,4,5] "hello"
+  [('h',1),('e',2),('l',3),('l',4),('o',5)]
+  ghci> zipWith (flip' div) [2,2..] [10,8,6,4,2]
+  [5,4,3,2,1]
+\end{lstlisting}
+
+% TODO
 
 \end{document}
