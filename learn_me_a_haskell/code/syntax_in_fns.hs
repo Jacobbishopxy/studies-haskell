@@ -1,3 +1,8 @@
+-- file: syntax_in_fns.hs
+-- author: Jacob Xie
+-- date: 2023/07/08 10:10:21 Saturday
+-- brief:
+
 lucky :: (Integral a) => a -> String
 lucky 7 = "LUCKY NUMBER SEVEN!"
 lucky x = "Sorry, you're out of luck, pal!"

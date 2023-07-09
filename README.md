@@ -12,7 +12,7 @@
 
 5. `ghcup set stack` to enable `stack` command
 
-## VsCode settings
+## VsCode Setting
 
 `settings.json`:
 
@@ -30,9 +30,9 @@
   ...
 ```
 
-## Notes
+## Study Material
 
-- [Learn me a haskell](./Learn%20Me%20a%20Haskell.pdf): original from "Learn you a haskell" [ [link](http://learnyouahaskell.com/) ]
+- [Learn me a haskell](./Learn%20Me%20a%20Haskell.pdf): reading notes from "Learn you a haskell" [ [link](http://learnyouahaskell.com/) ]
 
 ## Reference
 
