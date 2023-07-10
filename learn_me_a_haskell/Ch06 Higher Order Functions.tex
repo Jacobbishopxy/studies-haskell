@@ -143,6 +143,182 @@ GHCI 会提示我们表达式生成了一个类型为\acode{a -> a}的函数，�
   [5,4,3,2,1]
 \end{lstlisting}
 
+\subsection*{Maps \& filters}
+
+\acode{map}接受一个函数以及一个列表，将该函数应用至列表中的每一个元素中，生产一个新的列表。让我们来看一下类型签名：
+
+\begin{lstlisting}[language=Haskell]
+  map :: (a -> b) -> [a] -> [b]
+  map _ [] = []
+  map f (x : xs) = f x : map f xs
+\end{lstlisting}
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> map (+3) [1,3,5,1,6]
+  [4,6,8,4,9]
+  ghci> map (-1) [1,3,5,1,6]
+
+  <interactive>:2:1: error:
+      • Could not deduce (Num a0)
+          arising from a type ambiguity check for
+          the inferred type for ‘it’
+        from the context: (Num a, Num (a -> b))
+          bound by the inferred type for ‘it’:
+                     forall {a} {b}. (Num a, Num (a -> b)) => [b]
+          at <interactive>:2:1-20
+        The type variable ‘a0’ is ambiguous
+        These potential instances exist:
+          instance Num Integer -- Defined in ‘GHC.Num’
+          instance Num Double -- Defined in ‘GHC.Float’
+          instance Num Float -- Defined in ‘GHC.Float’
+          ...plus two others
+          ...plus one instance involving out-of-scope types
+          (use -fprint-potential-instances to see them all)
+      • In the ambiguity check for the inferred type for ‘it’
+        To defer the ambiguity check to use sites, enable AllowAmbiguousTypes
+        When checking the inferred type
+          it :: forall {a} {b}. (Num a, Num (a -> b)) => [b]
+  ghci> map (subtract 1) [1,3,5,1,6]
+  [0,2,4,0,5]
+  ghci> map (++ "!") ["BIFF", "BANG", "POW"]
+  ["BIFF!","BANG!","POW!"]
+  ghci> map (replicate 3) [3..6]
+  [[3,3,3],[4,4,4],[5,5,5],[6,6,6]]
+  ghci> map (map (^2)) [[1,2], [3,4,5,6], [7,8]]
+  [[1,4],[9,16,25,36],[49,64]]
+  ghci> map fst [(1,2),(3,5),(6,3),(2,6),(2,5)]
+  [1,3,6,2,2]
+\end{lstlisting}
+
+原书上一章有提到过\acode{-1}这样的情况，报错的原因是 Haskell 将\acode{-1}识别为负数而不是减法，需要显式调用\acode{subtract}
+才能识别为 partial 函数并应用至列表中的各个元素上。
+
+\acode{filter}接受一个子句（该子句是一个函数，用于告知某物是否为真），以及一个列表，并返回满足该子句的元素列表。类型签名如下：
+
+\begin{lstlisting}[language=Haskell]
+  filter :: (a -> Bool) -> [a] -> [a]
+  filter _ [] = []
+  filter p (x : xs)
+    | p x = x : filter p xs
+    | otherwise = filter p xs
+\end{lstlisting}
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> filter (>3) [1,5,3,2,1,6,4,3,2,1]
+  [5,6,4]
+  ghci> filter (==3) [1,2,3,4,5]
+  [3]
+  ghci> filter even [1..10]
+  [2,4,6,8,10]
+  ghci> let notNull x = not (null x) in filter notNull [[1,2,3],[],[3,4,5],[2,2],[],[],[]]
+  [[1,2,3],[3,4,5],[2,2]]
+  ghci> filter (`elem` ['a'..'z']) "u LaUgH aT mE BeCaUsE I aM diFfeRent"
+  "uagameasadifeent"
+  ghci> filter (`elem` ['A'..'Z']) "i lauGh At You BecAuse u r aLL the Same"
+  "GAYBALLS"
+\end{lstlisting}
+
+将上一章的\acode{quicksort}中的列表表达式替换为\acode{filter}：
+
+\begin{lstlisting}[language=Haskell]
+  quicksort :: (Ord a) => [a] -> [a]
+  quicksort [] = []
+  quicksort (x : xs) =
+    let smallerSorted = quicksort (filter (<= x) xs)
+        biggerSorted = quicksort (filter (> x) xs)
+     in smallerSorted ++ [x] ++ biggerSorted
+\end{lstlisting}
+
+现在尝试一下\textbf{找到 100,100 以下最大能被 3829 的值}：
+
+\begin{lstlisting}[language=Haskell]
+  largestDivisible :: (Integral a) => a
+  largestDivisible = head (filter p [100000, 99999 ..])
+    where
+      p x = x `mod` 3829 == 0
+\end{lstlisting}
+
+接下来尝试一下\textbf{找到所有奇数平方在 10,000 以下的和}，不过首先要介绍一下\acode{takeWhile}函数。该函数接受一个子句以及一个列表，
+接着从列表头向后遍历，在子句返回真时返回元素，一旦子句返回假则结束遍历。可以在 GHCI 上用一行来完成任务：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> sum (takeWhile (<10000) (filter odd (map (^2) [1..])))
+  166650
+\end{lstlisting}
+
+当然也可以用列表表达式：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> sum (takeWhile (<10000) [n^2 | n <- [1..], odd (n^2)])
+  166650
+\end{lstlisting}
+
+接下来一个问题是处理考拉兹猜想 Collatz sequences，其数学表达为：
+
+\begin{equation*}
+  f(n) =
+  \begin{cases}
+    n / 2  & \text{if $n \equiv 0$ ($\mod 2$)} \\
+    3n + 1 & \text{if $n \equiv 1$ ($\mod 2$)} \\
+  \end{cases}
+\end{equation*}
+
+我们希望知道的是：\textbf{对于从 1 至 100 的所有数开始，有多少链的长度是大于 15 的？}首先编写一个函数用于生成链：
+
+\begin{lstlisting}[language=Haskell]
+  chain :: (Integral a) => a -> [a]
+  chain 1 = [1]
+  chain n
+    | even n = n : chain (n `div` 2)
+    | odd n = n : chain (n * 3 + 1)
+\end{lstlisting}
+
+因为链的最后一位肯定是 1，也就是边界，那么这就是一个简单的递归函数了。测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> chain 10
+  [10,5,16,8,4,2,1]
+  ghci> chain 1
+  [1]
+  ghci> chain 30
+  [30,15,46,23,70,35,106,53,160,80,40,20,10,5,16,8,4,2,1]
+\end{lstlisting}
+
+看起来能正常工作，接下来就是获取长度：
+
+\begin{lstlisting}[language=Haskell]
+  numLongChains :: Int
+  numLongChains = length (filter isLong (map chain [1 .. 100]))
+    where
+      isLong xs = length xs > 15
+\end{lstlisting}
+
+我们将\acode{chain}函数映射至\acode{[1..100]}来获取一个链的列表，接着根据检查长度是否超过 15 的子句来过滤它们、一旦完成过滤，我们就可以看到
+结果的列表中还剩多少链。
+
+\begin{anote}
+  该函数的类型是\acode{numLongChains :: Int}，因为历史原因\acode{length}返回一个\acode{Int}而不是一个\acode{Num a}。如果我们需要返回一个
+  更通用的\acode{Num a}，可以对返回的长度使用\acode{fromIntegral}。
+\end{anote}
+
+使用\acode{map}，我们还可以这样做\acode{map (*) [0..]}，如果不是因为别的原因要解释柯里化以及偏函数是实值，那么可以将其传递至其它函数，
+或者置入列表中（仅仅不能将其变为字符串）。迄今为止，我们只映射了单参数的函数至列表，例如\acode{map (*2) [0..]}类型是\acode{(Num a) => [a]}，
+我们同样可以这么做\acode{map (*) [0..]}。这里将会对列表中的每个数值应用函数\acode{*}，即类型为\acode{(Num a) => a -> a -> a}。将一个参数
+应用于需要两个参数的函数将会返回需要一个参数的函数。如果将\acode{*}映射至列表\acode{[0..]}，得到的则是一个接受单个参数的函数的列表，即
+\acode{(Num a) => [a -> a]}。也就是说\acode{map (*) [0..]}生产一个这样的列表\acode{[(0*),(1*),(2*),(3*),(4*),(5*)..]}。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let listOfFuns = map (*) [0..]
+  ghci> (listOfFuns !! 4) 5
+  20
+\end{lstlisting}
+
+\subsection*{Lambdas}
+
 % TODO
 
 \end{document}
