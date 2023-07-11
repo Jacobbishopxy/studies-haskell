@@ -404,6 +404,12 @@ lambdas 通常都被圆括号包围，除非我们想让它一直延伸到最右
   map' f xs = foldr (\x acc -> f x : acc) [] xs
 \end{lstlisting}
 
+如果将\acode{(+3)}映射至\acode{[1,2,3]}，则是从列表右侧开始，获取最后一个元素，即\acode{3}，再应用函数得出\acode{6}，接着将其放入 accumulator
+头部，即将\acode{[]}变为\acode{6:[]}，这样\acode{[6]}现在变成了新的 accumulator（这里的\acode{:}就是将元素添加至头部）。
+
+当然了，我们也可以用左折叠来实现：\acode{map' f xs = foldl (\\acc x -> acc ++ [f x]) [] xs}，只不过\acode{++}函数比\acode{:}而言更加昂贵，
+因此我们通常从一个列表构建一个新的列表时，会使用右折叠。
+
 \textbf{折叠可以用于实现任意一个想要一次性遍历列表中所有元素的函数，并基于此进行返回。任何时候想要遍历一个列表来返回一些东西时，那么这个时候
   就很可能需要一个 fold。}这也是为什么在函数式编程中，连同 maps 与 filters，fold 是最有用的函数类型。
 
@@ -433,10 +439,45 @@ lambdas 通常都被圆括号包围，除非我们想让它一直延伸到最右
   last' = foldl1 (\_ x -> x)
 \end{lstlisting}
 
-% TODO
+\acode{head}更好的实现当然是模式匹配，这里只是使用\acode{fold}进行展示。这里的\acode{reverse'}定义很聪明，从左遍历列表，每次将得到的元素
+插入至 accumulator 的头部。\acode{\acc x -> x : acc}看起来像是\acode{:}函数，只不过翻转了参数，这也是为什么可以将\acode{reverse}函数改写
+为\acode{foldl (flip (:)) []}。
+
+\acode{scanl}与\acode{scanr}很像\acode{foldl}与\acode{foldr}，不同之处在于后者用列表来存储 accumulator 的状态变化；同样\acode{scanl1}
+与\acode{scanr1}类似于\acode{foldl1}与\acode{foldr1}。
 
 \begin{lstlisting}[language=Haskell]
-
+  ghci> scanl (+) 0 [3,5,2,1]
+  [0,3,8,10,11]
+  ghci> scanr (+) 0 [3,5,2,1]
+  [11,8,3,1,0]
+  ghci> scanl1 (\acc x -> if x > acc then x else acc) [3,4,5,3,7,9,2,1]
+  [3,4,5,5,7,9,9,9]
+  ghci> scanl (flip (:)) [] [3,2,1]
+  [[],[3],[2,3],[1,2,3]]
 \end{lstlisting}
+
+Scans 可以被认为是一个函数可被 fold 的过程监控。让我们回答这样一个问题：\textbf{需要多少个元素才能让所有自然数的根之和超过 1000？}获取所有
+自然数平方根只需要\acode{map sqrt [1..]}，那么想要和，可以使用 fold，但是又因为我们感兴趣的是求和的这个过程，那么这里就可以使用 scan。一旦
+完成了 scan，我们就可以看到有多少和是少于 1000 的了。
+
+\begin{lstlisting}[language=Haskell]
+  sqrtSums :: Int
+  sqrtSums = length (takeWhile (<1000) (scanl1 (+) (map sqrt [1..]))) + 1
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  ghci> sqrtSums
+  131
+  ghci> sum (map sqrt [1..131])
+  1005.0942035344083
+  ghci> sum (map sqrt [1..130])
+  993.6486803921487
+\end{lstlisting}
+
+这里使用了\acode{takeWhile}而不是\acode{filter}，因为后者不能作用于无限列表。尽管我们知道列表是递增的，而\acode{filter}并不知道，因此这里
+的\acode{takeWhile}在第一个 sum 大于 1000 时将截断 scan 列表。
+
+% TODO
 
 \end{document}
