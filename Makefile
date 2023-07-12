@@ -7,5 +7,9 @@ clean-out:
 	echo done
 
 cp-pdf:
-	cp learn_me_a_haskell/out/main.pdf ./Learn\ Me\ a\ Haskell.pdf
+	cp learn_me_a_haskell/out/main.pdf "./Learn Me a Haskell.pdf"
 
+commit:
+	git add .
+	git commit -m "$m"
+	git push -u origin main
