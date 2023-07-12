@@ -2,6 +2,116 @@
 
 \begin{document}
 
-WIP
+\subsection*{加载模块}
+
+Haskell 模块是一系列关联的函数，类型以及 typeclasses 的集合。一个 Haskell 的程序是模块的集合，其中主模块加载若干模块并使用这些模块。
+
+Haskell 的标准库也被分成了若干模块，每个模块所包含的函数与类型服务于某些共同的目的。迄今为止我们所有接触到的函数，类型，typeclasses
+都位于\acode{Prelude}模块，也是默认加载的模块。
+
+Haskell 加载模块的语法就是\acode{import <module name>}。现在尝试一下加载\acode{Data.List}这个模块：
+
+\begin{lstlisting}[language=Haskell]
+  import Data.List
+
+  numUniques :: (Eq a) => [a] -> Int
+  numUniques = length . nub
+\end{lstlisting}
+
+当\acode{import Data.List}后，所有在\acode{Data.List}中的函数在公共命名空间中变为可用，也就是说可以在脚本中任意处调用这些函数。
+\acode{nub}是一个定义在\acode{Data.List}中的函数，接受一个列表并去除其中的重复元素。将\acode{length}与\acode{num}组合起来
+\acode{length . nub}产生的函数等同于\acode{\xs -> length (nub xs)}。
+
+在使用 GHCI 的时候同样也可以加载模块至全局命名空间内，只需：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :m + Data.List
+\end{lstlisting}
+
+如果想要加载多个模块，仅需：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :m + Data.List Data.Map Data.Set
+\end{lstlisting}
+
+如果加载的脚本（通过\acode{:l <xxx script>}）中已经加载过模块了，那么便不再需要通过\acode{:m +}进行加载。
+
+如果只是想要从模块中加载几个函数，那么可以这样做：
+
+\begin{lstlisting}[language=Haskell]
+  import Data.List (nub, sort)
+\end{lstlisting}
+
+如果想加载模块，却不包括某些函数，可以这样：
+
+\begin{lstlisting}[language=Haskell]
+  import Data.List hiding (nub)
+\end{lstlisting}
+
+为了避免重名，可以使用\acode{qualified}，譬如这样：
+
+\begin{lstlisting}[language=Haskell]
+  import qualified Data.Map
+\end{lstlisting}
+
+这样的话如果想要调用\acode{Data.Map}的\acode{filter}函数时，就必须要\acode{Data.Map.filter}，这样的话\acode{filter}仍然会引用
+普通的\acode{filter}。不过每次都要写\acode{Data.Map}就很麻烦，因此可以这么写：
+
+\begin{lstlisting}[language=Haskell]
+  import qualified Data.Map as M
+\end{lstlisting}
+
+现在再要调用\acode{Data.Map}的\acode{filter}时，仅需\acode{M.filter}。
+
+可以在\href{https://downloads.haskell.org/ghc/latest/docs/libraries/}{这里}找到标准库中有哪些模块。
+
+通过\href{https://hoogle.haskell.org/}{Hoogle}可以查看函数的位置，这是一个非常棒的 Haskell 搜索引擎，可以通过名称，模块名称甚至
+是类型签名来进行搜索。
+
+\subsection*{Data.List}
+
+\acode{Data.List}模块显然都是关于列表的，它提供了些很有用的函数用于列表处理。我们已经学习到了一些（例如\acode{map}与\acode{filter}）
+这是因为\acode{Prelude}已经从\acode{Data.List}中加载了不少函数。无需再通过 qualified import 导入\acode{Data.List}，因为它并不会
+与任何的\acode{Prelude}名称重名（除开那些已经被\acode{Prelude}从\acode{Data.List}中偷走的）。现在让我们看一下其中一些还没有用到过的
+函数：
+
+\acode{intersperse}接受一个元素以及一个列表，将该元素插入至列表中每个元素之间：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> intersperse '.' "MONKEY"
+  "M.O.N.K.E.Y"
+  ghci> intersperse 0 [1..6]
+  [1,0,2,0,3,0,4,0,5,0,6]
+\end{lstlisting}
+
+\acode{intercalate}接受一个列表以及一个列表的列表，将前者插入至后者之间在打平结果：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> intercalate " " ["hey","there","guys"]
+  "hey there guys"
+  ghci> intercalate [0,0,0] [[1,2,3],[4,5,6],[7,8,9]]
+  [1,2,3,0,0,0,4,5,6,0,0,0,7,8,9]
+\end{lstlisting}
+
+\acode{transpose}接受一个列表的列表，如果将其视为一个二维的矩阵，那么就是列变为行，行变位列：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> transpose [[1,2,3],[4,5,6],[7,8,9]]
+  [[1,4,7],[2,5,8],[3,6,9]]
+  ghci> transpose ["hey", "there", "guys"]
+  ["htg","ehu","yey","rs","e"]
+\end{lstlisting}
+
+假设我们有一些多项式 $3x^2 + 5x + 9, 10x^3 + 9$ 以及 $ 8x^3 + 5x^2 + x - 1$，我们希望对它们求和，那么可以使用列表\acode{[0,3,5,9]}，
+\acode{[10,0,0,9]}以及\acode{[8,5,1,-1]}来代表它们的系数（分别为 $x^3,x^2,x^1,x^0$ 的系数），那么可以这样：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> map sum $ transpose [[0,3,5,9],[10,0,0,9],[8,5,1,-1]]
+  [18,8,6,17]
+\end{lstlisting}
+
+首先转置它们，代表着每个同幂的系数在一个列表中，在将\acode{sum}映射至这个转置后的列表中的每个元素（列表）。
+
+% TODO
 
 \end{document}

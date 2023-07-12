@@ -14,7 +14,7 @@
 
 ## VsCode Setting
 
-`settings.json`:
+`settings.json` (use `ghcup tui` to get versions):
 
 ```json
   ...
@@ -29,6 +29,10 @@
   },
   ...
 ```
+
+## Misc
+
+- While using GHCI, it might show `libgmp.so: cannot open shared object file: No such file or directory`, and to solve this we can `apt install libgmp-dev`.
 
 ## Study Material
 
