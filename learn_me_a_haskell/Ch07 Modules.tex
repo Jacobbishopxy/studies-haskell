@@ -480,31 +480,222 @@ Haskell 加载模块的语法就是\acode{import <module name>}。现在尝试�
   [1,2,3,4,3,2,1]
 \end{lstlisting}
 
-% \acode{genericLength}\acode{genericTake}\acode{genericDrop}\acode{genericSplitAt}\acode{genericIndex}\acode{genericReplicate}
+因为历史的原因\acode{length}，\acode{take}，\acode{drop}，\acode{splitAt}，\acode{!!}以及\acode{replicate}接受的都是\acode{Int}
+类型，即使它们可以更加的泛用接受\acode{Integral}或\acode{Num} typeclasses（取决于函数本身），但是修改它们则会影响大量已经存在的代码。
+这就是为什么在\acode{Data.List}中引入了\acode{genericLength}，\acode{genericTake}，\acode{genericDrop}，\acode{genericSplitAt}，
+\acode{genericIndex}以及\acode{genericReplicate}作为泛化的版本。例如\acode{length}的类型签名是\acode{length :: [a] -> Int}，那么
+如果想要一个列表的均值\acode{let xs = [1..6] in sum xs / length xs}，这么做会得到一个类型错误，因为我们不能对\acode{Int}使用
+\acode{/}。而\acode{genericLength}的类型签名是\acode{genericLength :: (Num a) => [b] -> a}。因为一个\acode{Num}可以是一个浮点数，
+那么\acode{let xs = [1..6] in sum xs / genericLength xs}这样做就没有问题了。
 
-% \begin{lstlisting}[language=Haskell]
+对于\acode{nub}，\acode{delete}，\acode{union}，\acode{intersect}以及\acode{group}而言，它们的泛化版本则是\acode{nubBy}，
+\acode{deleteBy}，\acode{unionBy}，\acode{intersectBy}以及\acode{groupBy}。它们的不同之处在于前一批使用的函数是\acode{==}用于比较，
+而后一批则是使用输入的比较函数进行比较。\acode{group}等同于\acode{groupBy (==)}。
 
-% \end{lstlisting}
+例如，假设我们有一个描述函数美妙值的列表。我们希望基于正负数，将其它们分别分段形成子列表。如果用普通的\acode{group}那就只能将相同的相邻元素
+分组在一起，而使用\acode{groupBy}则可以通过\textit{By}函数进行同样类型的判断，当认为是同样类型的即返回\acode{True}：
 
-% \acode{nubBy}\acode{deleteBy}\acode{unionBy}\acode{intersectBy}\acode{groupBy}
+\begin{lstlisting}[language=Haskell]
+  ghci> let values = [-4.3, -2.4, -1.2, 0.4, 2.3, 5.9, 10.5, 29.1, 5.3, -2.4, -14.5, 2.9, 2.3]
+  ghci> groupBy (\x y -> (x > 0) == (y > 0)) values
+  [[-4.3,-2.4,-1.2],[0.4,2.3,5.9,10.5,29.1,5.3],[-2.4,-14.5],[2.9,2.3]]
+\end{lstlisting}
 
-% \begin{lstlisting}[language=Haskell]
+一个更简单的方法是从\acode{Data.Function}中加载\acode{on}函数，其定义：
 
-% \end{lstlisting}
+\begin{lstlisting}[language=Haskell]
+  ghci> :t on
+  on :: (b -> b -> c) -> (a -> b) -> a -> a -> c
+\end{lstlisting}
 
-% \acode{on}
+那么使用\acode{(==) `on` (> 0)}返回的函数类似于\acode{\\x y -> (x > 0) == (y > 0)}。\acode{on}在\textit{By}函数中运用的很广：
 
-% \begin{lstlisting}[language=Haskell]
+\begin{lstlisting}[language=Haskell]
+  ghci> groupBy ((==) `on` (> 0)) values
+  [[-4.3,-2.4,-1.2],[0.4,2.3,5.9,10.5,29.1,5.3],[-2.4,-14.5],[2.9,2.3]]
+\end{lstlisting}
 
-% \end{lstlisting}
+确实非常有可读性！我们可以大声的念出来：根据元素是否大于零进行相等分组。
 
-% \acode{sortBy}\acode{insertBy}\acode{maximumBy}\acode{minimumBy}
+\acode{sort}，\acode{insert}，\acode{maximum}以及\acode{minimum}也同样拥有更泛用的版本：\acode{sortBy}，\acode{insertBy}，
+\acode{maximumBy}以及\acode{minimumBy}。\acode{sortBy}的类型签名是\acode{sortBy :: (a -> a -> Ordering) -> [a] -> [a]}。
+如果还记得之前的\acode{Ordering}类型可以是\acode{LT}\acode{EQ}或\acode{GT}。\acode{sort}等同于\acode{sortBy compare}，因为
+compare 只接受两个类型为 Ord typeclass，并返回它们的排序关系。
 
-% \begin{lstlisting}[language=Haskell]
+列表可以被比较，一旦可以比较，它们则是根据字典顺序进行比较。那么如果我们有一个列表的列表，并想要不根据内部列表的内容，而是根据长度来进行排序呢？
+这就可以使用\acode{sortBy}函数：
 
-% \end{lstlisting}
+\begin{lstlisting}[language=Haskell]
+  ghci> let xs = [[5,4,5,4,4],[1,2,3],[3,5,4,3],[],[2],[2,2]]
+  ghci> sortBy (compare `on` length) xs
+  [[],[2],[2,2],[1,2,3],[3,5,4,3],[5,4,5,4,4]]
+\end{lstlisting}
+
+这里的\acode{on}等同于\acode{\\x y -> length x `compare` length y}。也就是说处理\textit{By}函数时，需要等式时可以使用
+\acode{(==) `on` something}，需要排序时可以\acode{compare `on` something}。
 
 \subsection*{Data.Char}
+
+\acode{Data.Char}正如其名，是一个用于处理字符的模块，同样对过滤或映射字符串有很大的帮助，因为字符串本身就是字符的列表。
+
+\acode{Data.Char}提供了很多关于字符范围的函数。也就是函数接受一个字符，并告诉我们哪些假设为真或为假：
+
+\acode{isControl}判断一个字符是否是控制字符
+
+\acode{isSpace}判断一个字符是否是空格字符，包括空格，tab，换行符等
+
+\acode{isLower}判断一个字符是否为小写
+
+\acode{isUpper}判断一个字符是否为大写
+
+\acode{isAlpha}判断一个字符是否为字母
+
+\acode{isAlphaNum}判断一个字符是否为字母或数字
+
+\acode{isPrint}判断一个字符是否可打印
+
+\acode{isDigit}判断一个字符是否为数字
+
+\acode{isOctDigit}判断一个字符是否为八进制数字
+
+\acode{isHexDigit}判断一个字符是否为十六进制数字
+
+\acode{isLetter}判断一个字符是否为字母
+
+\acode{isMark}判断一个字符是否为 unicode 注意字符（法语）
+
+\acode{isNumber}判断一个字符是否为数字
+
+\acode{isPuncuation}判断一个字符是否为标点符号
+
+\acode{isSymbol}判断一个字符是否为货币符号
+
+\acode{isSeparator}判断一个字符是否为 unicode 空格或分隔符
+
+\acode{isAscii}判断一个字符是否在 unicode 字母表的前 128 位
+
+\acode{isLatin1}判断一个字符是否为 unicode 字母表的前 256 位
+
+\acode{isAsciiUpper}判断一个字符是否为大写的 Ascii
+
+\acode{isAsciiLower}判断一个字符是否为小写的 Ascii
+
+以上所有判断函数的类型声明都是\acode{Char -> Bool}，大多数时候我们会用它们来过滤字符串或者其它。例如假设我们做一个程序用来获取用户名，
+而用户名只能由字母与数字构成，我们可以使用\acode{Data.List}里的\acode{all}函数与\acode{Data.Char}里的子句用于判断用户名是否正确：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> all isAlphaNum "bobby283"
+  True
+  ghci> all isAlphaNum "eddy the fish!"
+  False
+\end{lstlisting}
+
+同样可以通过\acode{isSpace}来模拟\acode{Data.List}中的\acode{words}函数：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> words "hey guys its me"
+  ["hey","guys","its","me"]
+  ghci> groupBy ((==) `on` isSpace) "hey guys its me"
+  ["hey"," ","guys"," ","its"," ","me"]
+\end{lstlisting}
+
+呃这看起来像是\acode{words}不过我们留下来空格，那么再用一次\acode{filter}
+
+\begin{lstlisting}[language=Haskell]
+  ghci> filter (not . any isSpace) . groupBy ((==) `on` isSpace) $ "hey guys its me"
+  ["hey","guys","its","me"]
+\end{lstlisting}
+
+\acode{Data.Char}同样提供了一个类似\acode{Ordering}的数据类型。\acode{Ordering}类型可以是\acode{LT}，\acode{EQ}或\acode{GT}，
+类似于枚举。而\acode{GeneralCategory}同样也是枚举，它提供了字符所处的范围\acode{generalCategory :: Char -> GeneralCategory}，
+由 31 个种类，这里只列举部分：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> generalCategory ' '
+  Space
+  ghci> generalCategory 'A'
+  UppercaseLetter
+  ghci> generalCategory 'a'
+  LowercaseLetter
+  ghci> generalCategory '.'
+  OtherPunctuation
+  ghci> generalCategory '9'
+  DecimalNumber
+  ghci> map generalCategory " \t\nA9?|"
+  [Space,Control,Control,UppercaseLetter,DecimalNumber,OtherPunctuation,MathSymbol]
+\end{lstlisting}
+
+由于\acode{GeneralCategory}类型属于\acode{Eq} typeclass，也就可以这样进行测试\acode{generalCategory c == Space}。
+
+\acode{toUpper}转换一个字符成为大写。空格、数字等不变。
+
+\acode{toLower}转换一个字符成为小写。
+
+\acode{toTitle}转换一个字符成为 title-case，大多数字符就是大写。
+
+\acode{digitToInt}将一个字符转为 Int 值，这个字符必须在\acode{'1'..'9','a'..'f'}或是\acode{‘A’..'F'}的范围之内。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> map digitToInt "34538"
+  [3,4,5,3,8]
+  ghci> map digitToInt "FF85AB"
+  [15,15,8,5,10,11]
+\end{lstlisting}
+
+\acode{intToDigit}则与\acode{digitToInt}相反。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> intToDigit 15
+  'f'
+  ghci> intToDigit 5
+  '5'
+\end{lstlisting}
+
+\acode{ord}与\acode{chr}函数将字符转换成相应的数值，反之亦然：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> ord 'a'
+  97
+  ghci> chr 97
+  'a'
+  ghci> map ord "abcdefgh"
+  [97,98,99,100,101,102,103,104]
+\end{lstlisting}
+
+下面是\acode{encode}与\acode{decode}：
+
+\begin{lstlisting}[language=Haskell]
+  encode :: Int -> String -> String
+  encode shift msg
+      let ords = map ord msg
+          shifted = map (+ shift) ords
+      in  map chr shifted
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  ghci> encode 3 "Heeeeey"
+  "Khhhhh|"
+  ghci> encode 4 "Heeeeey"
+  "Liiiii}"
+  ghci> encode 1 "abcd"
+  "bcde"
+  ghci> encode 5 "Marry Christmas! Ho ho ho!"
+  "Rfww~%Hmwnxyrfx&%Mt%mt%mt&"
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  decode :: Int -> String -> String
+  decode shift msg = encode (negate shift) msg
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  ghci> encode 3 "Im a little teapot"
+  "Lp#d#olwwoh#whdsrw"
+  ghci> decode 3 "Lp#d#olwwoh#whdsrw"
+  "Im a little teapot"
+  ghci> decode 5 . encode 5 $ "This is a sentence"
+  "This is a sentence"
+\end{lstlisting}
 
 % TODO
 
