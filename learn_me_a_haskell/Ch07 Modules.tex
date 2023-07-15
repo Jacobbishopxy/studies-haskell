@@ -887,6 +887,239 @@ import qualified Data.Map as Map
 
 \subsection*{Data.Set}
 
-% TODO
+由于\acode{Data.Set}中的名称会与\acode{Prelude}与\acode{Data.List}重复，因此需要 qualified import：
+
+\begin{lstlisting}[language=Haskell]
+  import qualified Data.Set as Set
+\end{lstlisting}
+
+\acode{fromList}将列表转换为集合：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let set1 = Set.fromList text1
+  ghci> let set2 = Set.fromList text2
+  ghci> set1
+  fromList " .?AIRadefhijlmnorstuy"
+  ghci> set2
+  fromList " !Tabcdefghilmnorstuvwy"
+\end{lstlisting}
+
+\acode{intersection}取交集：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> Set.intersection set1 set2
+  fromList " adefhilmnorstuy"
+\end{lstlisting}
+
+\acode{difference}取在第一个集合却不在第二个集合的元素：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> Set.difference set1 set2
+  fromList ".?AIRj"
+  ghci> Set.difference set2 set1
+  fromList "!Tbcgvw"
+\end{lstlisting}
+
+\acode{union}取并集：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> Set.union set1 set2
+  fromList " !.?AIRTabcdefghijlmnorstuvwy"
+\end{lstlisting}
+
+\acode{null}，\acode{size}，\acode{member}，\acode{empty}，\acode{singleton}，\acode{insert}以及\acode{delete}
+函数与预期一致：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> Set.null Set.empty
+  True
+  ghci> Set.null $ Set.fromList [3,4,5,5,4,3]
+  False
+  ghci> Set.size $ Set.fromList [3,4,5,3,4,5]
+  3
+  ghci> Set.singleton 9
+  fromList [9]
+  ghci> Set.insert 4 $ Set.fromList [9,3,8,1]
+  fromList [1,3,4,8,9]
+  ghci> Set.insert 8 $ Set.fromList [5..10]
+  fromList [5,6,7,8,9,10]
+  ghci> Set.delete 4 $ Set.fromList [3,4,5,4,3,4,5]
+  fromList [3,5]
+\end{lstlisting}
+
+也可以检查子集等：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> Set.fromList [2,3,4] `Set.isSubsetOf` Set.fromList [1,2,3,4,5]
+  True
+  ghci> Set.fromList [1,2,3,4,5] `Set.isSubsetOf` Set.fromList [1,2,3,4,5]
+  True
+  ghci> Set.fromList [1,2,3,4,5] `Set.isProperSubsetOf` Set.fromList [1,2,3,4,5]
+  False
+  ghci> Set.fromList [2,3,4,8] `Set.isSubsetOf` Set.fromList [1,2,3,4,5]
+  False
+\end{lstlisting}
+
+\acode{map}与\acode{filter}：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> Set.filter odd $ Set.fromList [3,4,5,6,7,2,3,4]
+  fromList [3,5,7]
+  ghci> Set.map (+1) $ Set.fromList [3,4,5,6,7,2,3,4]
+  fromList [3,4,5,6,7,8]
+\end{lstlisting}
+
+\acode{toList}转为列表，按字典顺序进行排序：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let setNub xs = Set.toList $ Set.fromList xs
+  ghci> setNub "HEY WHATS CRACKALACKIN"
+  " ACEHIKLNRSTWY"
+  ghci> nub "HEY WHATS CRACKALACKIN"
+  "HEY WATSCRKLIN"
+\end{lstlisting}
+
+\subsection*{构建自己的模块}
+
+首先我们创建一个名为\acode{Geometry.hs}的文件。
+
+当我们提到模块\textit{exports}函数，即当导入一个模块时，可以使用该模块导出的函数。
+
+在模块的开头，需要指定模块名称，接着指定想要导出的函数：
+
+\begin{lstlisting}[language=Haskell]
+  module Geometry
+    ( sphereVolume,
+      sphereArea,
+      cubeVolume,
+      cubeArea,
+      cuboidArea,
+      cuboidVolume,
+    )
+  where
+\end{lstlisting}
+
+接下来就是定义函数：
+
+\begin{lstlisting}[language=Haskell]
+  module Geometry
+    ( sphereVolume,
+      sphereArea,
+      cubeVolume,
+      cubeArea,
+      cuboidArea,
+      cuboidVolume,
+    )
+  where
+
+  import Control.Monad
+
+  sphereVolume :: Float -> Float
+  -- sphereVolume radius = (4.0 / 3.0) * pi * (radius ^3)
+  sphereVolume = (* (4.0 / 3.0 * pi)) . (^ 3)
+
+  sphereArea :: Float -> Float
+  -- sphereArea radius = 4 * pi * (radius ^ 2)
+  sphereArea = (* (4 * pi)) . (^ 3)
+
+  cubeVolume :: Float -> Float
+  -- cubeVolume side = cuboidVolume side side side
+  cubeVolume = join (join cuboidVolume)
+
+  cubeArea :: Float -> Float
+  -- cubeArea side = cuboidArea side side side
+  cubeArea = join (join cuboidArea)
+
+  cuboidVolume :: Float -> Float -> Float -> Float
+  -- cuboidVolume a b c = rectangleArea a b * c
+  cuboidVolume = ((*) .) . rectangleArea
+
+  cuboidArea :: Float -> Float -> Float -> Float
+  cuboidArea a b c = rectangleArea a b * 2 + rectangleArea a c * 2 + rectangleArea c b * 2
+
+  rectangleArea :: Float -> Float -> Float
+  -- rectangleArea a b = a * b
+  rectangleArea = (*)
+\end{lstlisting}
+
+我们仅需像下面这样就能使用模块：
+
+\begin{lstlisting}[language=Haskell]
+import Geometry
+\end{lstlisting}
+
+需要注意的是\acode{Geometry.hs}需要在加载模块的程序同一文件夹下。
+
+模块童谣可以被给予等级结构。每个模块可以拥有若干子模块，子模块里还可以有子模块。
+
+首先创建一个名为\acode{Geometry}的文件夹，接着是下面的三个文件夹：\acode{Sphere.hs}，\acode{Cuboid.hs}以及\acode{Cube.hs}
+
+\acode{Sphere.hs}：
+
+\begin{lstlisting}[language=Haskell]
+  module Geometry.Sphere
+  ( volume,
+    area,
+  )
+  where
+
+  volume :: Float -> Float
+  volume = (* (4.0 / 3.0 * pi)) . (^ 3)
+
+  area :: Float -> Float
+  area = (* (4 * pi)) . (^ 3)
+\end{lstlisting}
+
+\acode{Cuboid.hs}：
+
+\begin{lstlisting}[language=Haskell]
+  module Geometry.Cuboid
+    ( volume,
+      area,
+    )
+  where
+
+  volume :: Float -> Float -> Float -> Float
+  volume = ((*) .) . rectangleArea
+
+  area :: Float -> Float -> Float -> Float
+  area a b c = rectangleArea a b * 2 + rectangleArea a c * 2 + rectangleArea c b * 2
+
+  rectangleArea :: Float -> Float -> Float
+  rectangleArea = (*)
+\end{lstlisting}
+
+以及\acode{Cube.hs}：
+
+\begin{lstlisting}[language=Haskell]
+  module Geometry.Cube
+    ( volume,
+      area,
+    )
+  where
+
+  import Control.Monad
+  import Geometry.Cuboid qualified as Cuboid
+
+  volume :: Float -> Float
+  volume = join (join Cuboid.volume)
+
+  area :: Float -> Float
+  area = join (join Cuboid.area)
+\end{lstlisting}
+
+那么在与文件夹同级的目录下就可以这样加载模块中的子模块：
+
+\begin{lstlisting}[language=Haskell]
+import Geometry.Sphere
+\end{lstlisting}
+
+为了避免命名冲突可以使用 qualified import：
+
+\begin{lstlisting}[language=Haskell]
+  import qualified Geometry.Sphere as Sphere
+  import qualified Geometry.Cuboid as Cuboid
+  import qualified Geometry.Cube as Cube
+\end{lstlisting}
 
 \end{document}
