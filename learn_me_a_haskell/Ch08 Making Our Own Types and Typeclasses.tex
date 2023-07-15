@@ -2,6 +2,338 @@
 
 \begin{document}
 
-WIP
+\subsection*{代数数据类型介绍}
+
+迄今为止我们接触到了不少的类型：\acode{Bool}，\acode{Int}，\acode{Char}，\acode{Maybe}等等。但是我们如何构造自己的类型呢？
+一种方式是使用\textbf{data}关键字来进行定义。让我们来看一下标准库中的\acode{Bool}是怎么定义的：
+
+\begin{lstlisting}[language=Haskell]
+data Bool = False | True
+\end{lstlisting}
+
+\textbf{data}意味着正在定义一个新的数据类型。在\acode{=}之前的部分代表着类型，即\acode{Bool}；而之后的部分则是
+\textbf{类型构造函数value constructors}。它们指定了类型可变的值，这里的\acode{|}读作\textit{或 or}，因此整句代码可以读作：
+\acode{Bool}类型可以是\acode{True}或\acode{False}其中的一个值。
+
+假设这里定义了形状可以是一个圆或是长方形：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> data Shape = Circle Float Float Float | Rectangle Float Float Float Float
+  ghci> :t Circle
+  Circle :: Float -> Float -> Float -> Shape
+  ghci> :t Rectangle
+  Rectangle :: Float -> Float -> Float -> Float -> Shape
+\end{lstlisting}
+
+\acode{Clicle}的值构造函数有三个字段，均接受浮点数；而\acode{Rectangle}的值构造函数有四个字段，均接受浮点数。
+
+值构造函数实际上是最终返回数据类型值的函数。以下是一个接受 shape 并返回 surface 的函数：
+
+\begin{lstlisting}[language=Haskell]
+  surface :: Shape -> Float
+  surface (Circle _ _ r) = pi * r ^ 2
+  surface (Rectangle x1 y1 x2 y2) = abs (x2 - x1) * abs (y2 - y1)
+\end{lstlisting}
+
+首先值得注意的是类型声明。我们不能这样\acode{Circle -> Float}因为\acode{Circle}并非一个类型，\acode{Shape}才是。这就像我们
+不能编写一个类型声明为\acode{True -> Int}的函数。其次需要注意的是我们不能对构造函数进行模式匹配，之前我们匹配过\acode{[]}，
+\acode{False}或是\acode{5}，它们是不包含参数的值构造函数。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> surface $ Circle 10 20 10
+  314.15927
+  ghci> surface $ Rectangle 0 0 100 100
+  10000.0
+\end{lstlisting}
+
+很好成功了！但是如果我们想要打印出\acode{Circle 10 20 5}，则会得到一个错误。这是因为 Haskell 并不知道该如何将我们的数据类型
+转换成字符串，因此我们需要让\acode{Shape}成为\acode{Show} typeclass 的一部分：
+
+\begin{lstlisting}[language=Haskell]
+  data Shape = Circle Float Float Float | Rectangle Float Float Float Float deriving (Show)
+\end{lstlisting}
+
+值构造函数是函数，因此我们可以映射它们并偏应用至任何东西：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> map (Circle 10 20) [4,5,6,6]
+  [Circle 10.0 20.0 4.0,Circle 10.0 20.0 5.0,Circle 10.0 20.0 6.0,Circle 10.0 20.0 6.0]
+\end{lstlisting}
+
+我们的数据类型很棒，不过可以更棒。定义一个中间类型增强可读性：
+
+\begin{lstlisting}[language=Haskell]
+  data Point  = Point Float Float deriving (Show)
+  data Shape = Circle Point Float | Rectangle Point Point deriving (Show)
+\end{lstlisting}
+
+修改\acode{surface}函数：
+
+\begin{lstlisting}[language=Haskell]
+  surface :: Shape -> Float
+  surface (Circle _ r) = pi * r ^ 2
+  surface (Rectangle (Point x1 y1) (Point x2 y2)) =
+    abs (x2 - x1) * abs (y2 - y1)
+\end{lstlisting}
+
+调用时需要考虑模式：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> surface (Rectangle (Point 0 0) (Point 100 100))
+  10000.0
+  ghci> surface (Circle (Point 0 0) 24)
+  1809.5574
+\end{lstlisting}
+
+接下来是\acode{nudge}函数：
+
+\begin{lstlisting}[language=Haskell]
+  nudge :: Shape -> Float -> Float -> Shape
+  nudge (Circle (Point x y) r) a b = Circle (Point (x + a) (y + b)) r
+  nudge (Rectangle (Point x1 y1) (Point x2 y2)) a b =
+    Rectangle (Point (x1 + a) (y1 + b)) (Point (x2 + a) (y2 + b))
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  ghci> nudge (Circle (Point 34 34) 10) 5 10
+  Circle (Point 39.0 44.0) 10.0
+\end{lstlisting}
+
+如果我们不想直接处理点，那么可以辅助函数用于创建初始在零点的形状并将其移动至正确点位：
+
+\begin{lstlisting}[language=Haskell]
+  baseCircle :: Float -> Shape
+  baseCircle = Circle (Point 0 0)
+
+  baseRect :: Float -> Float -> Shape
+  baseRect width height = Rectangle (Point 0 0) (Point width height)
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  ghci> nudge (baseRect 40 100) 60 23
+  Rectangle (Point 60.0 23.0) (Point 100.0 123.0)
+\end{lstlisting}
+
+如果希望将所有的函数与类型导出（注意类型中使用\acode{..}，下文有解释），那么可以这么做：
+
+\begin{lstlisting}[language=Haskell]
+  module Shapes
+    ( Point (..),
+      Shape (..),
+      surface,
+      nudge,
+      baseCircle,
+      baseRect,
+    )
+  where
+\end{lstlisting}
+
+这里的\acode{Shape (..)}导出了所有\acode{Shape}的值构造函数，因此任何加载了该模块的都可以通过\acode{Rectangle}与
+\acode{Circle}的值构造函数来创建形状。
+
+当然也可以选择行的不到处任何\acode{Shape}的值构造函数，仅需在导出声明中这样写\acode{Shape}。这样的话加载该模块的仅能
+使用辅助函数\acode{baseCircle}与\acode{baseRect}来创建形状。\acode{Data.Map}使用了这个技巧。
+
+不到处数据类型的值构造函数会使得它们更为抽象，因为我们隐层了它们的实现；除此之外，使用该模块的将不再能对其使用模式匹配。
+
+\subsection*{Record Syntax}
+
+现在让我们创造一个用于描述人的数据类型，其中信息包括：名，姓，年龄，身高，体重，电话以及喜爱的冰淇淋类型。
+
+\begin{lstlisting}[language=Haskell]
+  data Person = Person String String Int Float String String deriving (Show)
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let guy = Person "Buddy" "Finklestein" 43 184.2 "526-2928" "Chocolate"
+  ghci> guy
+  Person "Buddy" "Finklestein" 43 184.2 "526-2928" "Chocolate"
+\end{lstlisting}
+
+不错，但是不易读。现在让我们创建一个函数来获取信息：
+
+\begin{lstlisting}[language=Haskell]
+  firstName :: Person -> String
+  firstName (Person firstName _ _ _ _ _) = firstName
+
+  lastName :: Person -> String
+  lastName (Person _ lastname _ _ _ _) = lastname
+
+  age :: Person -> Int
+  age (Person _ _ age _ _ _) = age
+
+  height :: Person -> Float
+  height (Person _ _ _ height _ _) = height
+
+  phoneNumber :: Person -> String
+  phoneNumber (Person _ _ _ _ number _) = number
+
+  flavor :: Person -> String
+  flavor (Person _ _ _ _ _ flavor) = flavor
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let guy = Person "Buddy" "Finklestein" 43 184.2 "526-2928" "Chocolate"
+  ghci> firstName guy
+  "Buddy"
+  ghci> height guy
+  184.2
+  ghci> flavor guy
+  "Chocolate"
+\end{lstlisting}
+
+现在让我们使用 record syntax：
+
+\begin{lstlisting}[language=Haskell]
+  data Person = Person
+  { firstName :: String,
+    lastName :: String,
+    age :: Int,
+    height :: Float,
+    phoneNumber :: String,
+    flavor :: String
+  }
+  deriving (Show)
+\end{lstlisting}
+
+我们通过两个冒号\acode{::}来指定类型。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t flavor
+  flavor :: Person -> String
+  ghci> :t firstName
+  firstName :: Person -> String
+\end{lstlisting}
+
+使用 record syntax 的另一个好处就是为类型派生\acode{Show}时，展示的样子会更方便辨认：
+
+\begin{lstlisting}[language=Haskell]
+  data Car = Car String String Int deriving (Show)
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  ghci> Car "Ford" "Mustang" 1967
+  Car "Ford" "Mustang" 1967
+\end{lstlisting}
+
+使用 record syntax：
+
+\begin{lstlisting}[language=Haskell]
+  data Car = Car {company :: String, model :: String, year :: Int} deriving (Show)
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  ghci> Car {company="Ford", model="Mustang", year=1967}
+  Car {company = "Ford", model = "Mustang", year = 1967}
+\end{lstlisting}
+
+\subsection*{类型参数}
+
+一个值构造函数可以接受一些参数然后生产出一个新值。例如\acode{Car}构造函数接受三个值并生产出一个 car 值。
+同样的方式，\textbf{类型构造函数 type constructor}接受值作为参数并生成出一个新类型。首先让我们看一下\acode{Maybe}：
+
+\begin{lstlisting}[language=Haskell]
+  data Maybe a = Nothing | Just a
+\end{lstlisting}
+
+这里的\acode{a}就是一个类型参数，因为类型参数的介入，我们称\acode{Maybe}为一个类型构造函数。取决于我们想要它在不是
+\acode{Nothing}时存储的数据类型，该类型构造函数可以生产\acode{Maybe Int}，\acode{Maybe Car}或者是
+\acode{Maybe String}等等。
+
+你可能不知道的是，在使用\acode{Maybe}之前，我们使用了一个由类型参数的类型。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> Just "Haha"
+  Just "Haha"
+  ghci> Just 84
+  Just 84
+  ghci> :t Just "Haha"
+  Just "Haha" :: Maybe [Char]
+  ghci> :t Just 84
+  Just 84 :: (Num t) => Maybe t
+  ghci> :t Nothing
+  Nothing :: Maybe a
+  ghci> Just 10 :: Maybe Double
+  Just 10.0
+\end{lstlisting}
+
+使用类型参数很方便，不过也得合理的使用。
+
+另一个我们已经遇到过的参数化类型例子就是\acode{Data.Map}中的\acode{Map k v}。如果我们要定义一个 mapping 类型，我们
+可以添加一个 typeclass 约束在\textit{数据}声明中：
+
+\begin{lstlisting}[language=Haskell]
+data (Ord k) => Map k v = ...
+\end{lstlisting}
+
+然而在 Haskell 中，\textbf{永远不要在数据声明中添加 typeclass 约束}，这是一个非常强大的约定。为什么呢？因为我们并不能
+从中得到多大的好处，最终还写了更多的类约束，即使我们不需要它们。\acode{Map k v}要是有\acode{Ord k}的约束，那就相当于
+假定每个 map 的相关函数都认为 k 是可排序的。如果不给数据类型加约束，那么就不用给不关心键是否可排序的函数另加约束了。这类
+函数的一个例子就是\acode{toList}，它只是将 map 转换为关联列表而已，类型声明为\acode{toList :: Map k v -> [(k, v)]}
+如果加上类型约束，那就得\acode{toList :: (Ord k) => Map k a -> [(k, v)]}，很明显没有必要这么做。
+
+让我们实现一个 3D 向量类型，并为其添加一些操作。这里使用一个参数化的类型，虽然通常而言包含的是数值类型，不过这样支持了多种
+数值类型：
+
+\begin{lstlisting}[language=Haskell]
+  data Vector a = Vector a a a deriving (Show)
+
+  vPlus :: (Num t) => Vector t -> Vector t -> Vector t
+  (Vector i j k) `vPlus` (Vector l m n) = Vector (i + l) (j + m) (k + n)
+
+  vMult :: (Num t) => Vector t -> t -> Vector t
+  (Vector i j k) `vMult` m = Vector (i * m) (j * m) (k * m)
+
+  scalarMult :: (Num t) => Vector t -> Vector t -> t
+  (Vector i j k) `scalarMult` (Vector l m n) = i * l + j * m + k * n
+\end{lstlisting}
+
+这三个函数可以作用于\acode{Vector Int}，\acode{Vector Integer}以及\acode{Vector Float}类型上，或者是任何满足
+\acode{Num} typeclass 的\acode{a}。
+
+再次强调，分辨出类型构造函数还是值构造函数是非常重要的。当定义一个数据类型，\acode{=}之前的部分就是类型构造函数，而之后的
+（有可能通过\acode{|}来分隔）则是值构造函数。给这样一个函数类型\acode{Vector t t t -> Vector t t t -> t}是错误的，
+因为我们必须将类型放置在类型声明中，且向量的\textbf{类型}构造函数仅接受一个参数，而值构造函数接受三个。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> Vector 3 5 8 `vplus` Vector 9 2 8
+  Vector 12 7 16
+  ghci> Vector 3 5 8 `vplus` Vector 9 2 8 `vplus` Vector 0 2 3
+  Vector 12 9 19
+  ghci> Vector 3 9 7 `vectMult` 10
+  Vector 30 90 70
+  ghci> Vector 4 9 5 `scalarMult` Vector 9.0 2.0 4.0
+  74.0
+  ghci> Vector 2 9 3 `vectMult` (Vector 4 9 5 `scalarMult` Vector 9 2 4)
+  Vector 148 666 222
+\end{lstlisting}
+
+\subsection*{派生实例}
+
+% TODO
+
+\subsection*{类型同义词}
+
+% TODO
+
+\subsection*{递归数据结构}
+
+% TODO
+
+\subsection*{Typeclasses 102}
+
+% TODO
+
+\subsection*{一个 yes-no typeclass}
+
+% TODO
+
+\subsection*{函子 typeclass}
+
+% TODO
+
+\subsection*{Kinds 以及一些 type-foo}
+
+% TODO
 
 \end{document}
