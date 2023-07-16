@@ -91,3 +91,28 @@ vMult :: (Num t) => Vector t -> t -> Vector t
 
 scalarMult :: (Num t) => Vector t -> Vector t -> t
 (Vector i j k) `scalarMult` (Vector l m n) = i * l + j * m + k * n
+
+-- Derived instances
+
+data Persona = Persona
+  { pFirstName :: String,
+    pLastName :: String,
+    pAge :: Int
+  }
+  deriving (Eq)
+
+--
+data Day = Monday | Tuesday | Wednesday | Thursday | Friday | Saturday | Sunday
+  deriving (Eq, Ord, Show, Read, Bounded, Enum)
+
+--
+-- type PhoneBook = [(String, String)]
+
+type PhoneNumber = String
+
+type Name = String
+
+type PhoneBook = [(Name, PhoneNumber)]
+
+inPhoneBook :: Name -> PhoneNumber -> PhoneBook -> Bool
+inPhoneBook name pNumber pBook = (name, pNumber) `elem` pBook

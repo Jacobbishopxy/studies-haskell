@@ -310,11 +310,258 @@ data (Ord k) => Map k v = ...
 
 \subsection*{派生实例}
 
-% TODO
+在 Typeclasses 101 章节中，我们解释了 Typeclasses 的基础，即一种用于定义某些行为的接口。一个类型可以做该 typeclass
+的\textbf{instance}，如果该类型支持这些行为。
+
+我们也提到了 typeclasses 有别于 Java，Python，C++ 的类；在这些语言中，类是一个蓝图供我们创建包含了状态与一些行动的对象，
+而 Typeclasses 更类似于接口。我们不从 typeclasses 中创造数据，而是先构建数据类型，接着思考其可行的行动。如果它可以像
+等式那样行动，那么我们为其构建一个\acode{Eq} typeclass 的实例；如果它可以进行排序，那么我们为其构建一个\acode{Ord}
+typeclass 的实例。
+
+下一节中，我们将尝试如何通过实现定义在 typeclasses 里的函数，手动创建我们 typeclasses 的类型实例。不过现在让我们看看
+Haskell 是如何自动的将我们的类型创建出以下任何 typeclasses 的实例：\acode{Eq}，\acode{Ord}，\acode{Enum}，
+\acode{Bounded}，\acode{Show}，\acode{Read}。当我们使用\textit{deriving} 关键字时，Haskell 可以为我们的类型
+派生出这些行为。
+
+\begin{lstlisting}[language=Haskell]
+  data Person = Person { firstName :: String
+  , lastName :: String
+  , age :: Int
+  } deriving (Eq)
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let mikeD = Person {firstName = "Michael", lastName = "Diamond", age = 43}
+  ghci> let adRock = Person {firstName = "Adam", lastName = "Horovitz", age = 41}
+  ghci> let mca = Person {firstName = "Adam", lastName = "Yauch", age = 44}
+  ghci> mca == adRock
+  False
+  ghci> mikeD == adRock
+  False
+  ghci> mikeD == mikeD
+  True
+  ghci> mikeD == Person {firstName = "Michael", lastName = "Diamond", age = 43}
+  True
+\end{lstlisting}
+
+当然了，由于\acode{Person}已经在\acode{Eq}了，我们就可以使用那些有类约束\acode{Eq a}的函数了，例如\acode{elem}：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let beastieBoys = [mca, adRock, mikeD]
+  ghci> mikeD `elem` beastieBoys
+  True
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  data Person = Person
+    { firstName :: String,
+      lastName :: String,
+      age :: Int
+    }
+    deriving (Eq, Show, Read)
+\end{lstlisting}
+
+在终端上打印：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let mikeD = Person {firstName = "Michael", lastName = "Diamond", age = 43}
+  ghci> mikeD
+  Person {firstName = "Michael", lastName = "Diamond", age = 43}
+  ghci> "mikeD is: " ++ show mikeD
+  "mikeD is: Person {firstName = \"Michael\", lastName = \"Diamond\", age = 43}"
+\end{lstlisting}
+
+\acode{Read}则与\acode{Show}相反：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> read "Person {firstName =\"Michael\", lastName =\"Diamond\", age = 43}" :: Person
+  Person {firstName = "Michael", lastName = "Diamond", age = 43}
+\end{lstlisting}
+
+我们可以使用代数数据类型来创建枚举，其中\acode{Enum}以及\acode{Bounded} typeclasses 帮了大忙。
+\acode{Enum} typeclass 适用于有前置子和后继子的情况，而\acode{Bounded} typeclass 则代表有最大和最小值。
+例如：
+
+\begin{lstlisting}[language=Haskell]
+  data Day = Monday | Tuesday | Wednesday | Thursday | Friday | Saturday | Sunday
+    deriving (Eq, Ord, Show, Read, Bounded, Enum)
+\end{lstlisting}
+
+因为有\acode{Show}与\acode{Read} typeclasses，我们可以将其与字符串互相转换：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> Wednesday
+  Wednesday
+  ghci> show Wednesday
+  "Wednesday"
+  ghci> read "Saturday" :: Day
+  Saturday
+\end{lstlisting}
+
+因为有\acode{Eq}与\acode{Ord} typeclasses，我们可以进行比较：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> Saturday == Sunday
+  False
+  ghci> Saturday == Saturday
+  True
+  ghci> Saturday > Friday
+  True
+  ghci> Monday `compare` Wednesday
+  LT
+\end{lstlisting}
+
+又因为有\acode{Bounded}，我们可以得到最大与最小天：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> minBound :: Day
+  Monday
+  ghci> maxBound :: Day
+  Sunday
+\end{lstlisting}
+
+最后是\acode{Enum}，我们可以使用前置子与后继子：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> succ Monday
+  Tuesday
+  ghci> pred Saturday
+  Friday
+  ghci> [Thursday .. Sunday]
+  [Thursday,Friday,Saturday,Sunday]
+  ghci> [minBound .. maxBound] :: [Day]
+  [Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday]
+\end{lstlisting}
+
+非常棒。
 
 \subsection*{类型同义词}
 
-% TODO
+之前我们在讨论类型的时候提到过，\acode{[Char]}和\acode{String}类型是相同的也是可互换的。这是因为实现了
+\textbf{类型同义词 type synonyms}。标准库中的定义：
+
+\begin{lstlisting}[language=Haskell]
+  type String = [Char]
+\end{lstlisting}
+
+这里引入了\textit{type}关键字。由于我们并没有创建新的东西（如\textit{data}关键字），\textit{type}
+仅关联已存在的类型的同义词。
+
+\begin{lstlisting}[language=Haskell]
+  type PhoneNumber = String
+  type Name = String
+  type PhoneBook = [(Name,PhoneNumber)]
+\end{lstlisting}
+
+现在可以实现一个函数用于接受名字，号码，并检查名字与号码的组合是否存在于号码簿中：
+
+\begin{lstlisting}[language=Haskell]
+  inPhoneBook :: Name -> PhoneNumber -> PhoneBook -> Bool
+  inPhoneBook name pNumber pBook = (name, pNumber) `elem` pBook
+\end{lstlisting}
+
+这里若是没有使用类型同义词，那么函数的签名则会是\acode{String -> String -> [(String,String)] -> Bool}。
+
+类型同义词同样也可以参数化。
+
+\begin{lstlisting}[language=Haskell]
+  type AssocList k v = [(k,v)]
+\end{lstlisting}
+
+那么通过关联列表中的键获取值的函数类型可以是\acode{(Eq k) => k -> AssocList k v -> Maybe v}。
+
+正如我们可以偏应用函数来获取一个新的函数，我们还可以偏应用类型参数来获取一个新的类型构造函数。正如我们在调用函数时
+缺少一些参数会返回一个新的函数，我们可以指定一个类型构造函数部分参数并返回一个偏应用的类型构造函数。如果我们想要
+一个整数为键的 map，我们可以这么做：
+
+\begin{lstlisting}[language=Haskell]
+  type IntMap v = Map Int v
+\end{lstlisting}
+
+或是这样：
+
+\begin{lstlisting}[language=Haskell]
+  type IntMap = Map Int
+\end{lstlisting}
+
+另外一个酷炫的数据类型是\acode{Either a b}类型，它接受两个类型参数：
+
+\begin{lstlisting}[language=Haskell]
+  data Either a b = Left a | Right b deriving (Eq, Ord, Read, Show)
+\end{lstlisting}
+
+它有两个值构造函数。如果使用了\acode{Left}，那么其内容则是类型\acode{a}，反之则是\acode{b}。因此我们可以封装
+一个拥有两种类型的值，然后使用模式匹配进行取值。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> Right 20
+  Right 20
+  ghci> Left "w00t"
+  Left "w00t"
+  ghci> :t Right 'a'
+  Right 'a' :: Either a Char
+  ghci> :t Left True
+  Left True :: Either Bool b
+\end{lstlisting}
+
+一个例子：一个壁橱拥有代码组合，每次申请一个壁橱的代码如果已经存在了，那么需要告知重新选择。这里使用\acode{Data.Map}
+来代表壁橱：
+
+\begin{lstlisting}[language=Haskell]
+  import Data.Map qualified as Map
+
+  data LockerState = Taken | Free deriving (Show, Eq)
+
+  type Code = String
+
+  type LockerMap = Map.Map Int (LockerState, Code)
+\end{lstlisting}
+
+这里引用了一个新的数据类型来代表一个壁橱是否被占用，同时也为壁橱代码设置了一个类型同义词。现在让我们使用
+\acode{Either String Code}类型来做为查找函数的返回类型，因为查找可能会以两种原因失败 -- 橱柜已被占用或者是没有该
+橱柜。
+
+\begin{lstlisting}[language=Haskell]
+  lockerLookup :: Int -> LockerMap -> Either String Code
+  lockerLookup lockerNumber map =
+    case Map.lookup lockerNumber map of
+      Nothing -> Left $ "Locker number " ++ show lockerNumber ++ " doesn't exist!"
+      Just (state, code) ->
+        if state /= Taken
+          then Right code
+          else Left $ "Locker " ++ show lockerNumber ++ " is already taken!"
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  lockers :: LockerMap
+  lockers =
+    Map.fromList
+      [ (100, (Taken, "ZD39I")),
+        (101, (Free, "JAH3I")),
+        (103, (Free, "IQSA9")),
+        (105, (Free, "QOTSA")),
+        (109, (Taken, "893JJ")),
+        (110, (Taken, "99292"))
+      ]
+\end{lstlisting}
+
+测试一下：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> lockerLookup 101 lockers
+  Right "JAH3I"
+  ghci> lockerLookup 100 lockers
+  Left "Locker 100 is already taken!"
+  ghci> lockerLookup 102 lockers
+  Left "Locker number 102 doesn't exist!"
+  ghci> lockerLookup 110 lockers
+  Left "Locker 110 is already taken!"
+  ghci> lockerLookup 105 lockers
+  Right "QOTSA"
+\end{lstlisting}
+
+我们当然可以使用\acode{Maybe a}来做结果，不过那样的话就不知道为什么不能拿到代码的原因了，而现在这么做，在拿不到代码的时候
+是可以知道是什么原因造成的。
 
 \subsection*{递归数据结构}
 
