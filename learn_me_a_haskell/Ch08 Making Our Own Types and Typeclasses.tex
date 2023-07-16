@@ -565,11 +565,257 @@ Haskell 是如何自动的将我们的类型创建出以下任何 typeclasses �
 
 \subsection*{递归数据结构}
 
-% TODO
+正如我们所见，代数数据类型中的构造函数可以有多个（或零）字段，每个字段必须是某些实际类型。有了这个概念，我们构建的类型可以
+以自身类型为字段！
+
+试想一下列表：\acode{[5]}。这是一个关于\acode{5:[]}的语法糖。\acode{:}的左侧是一个值，而右侧则是一个列表，
+且这个列表是空的。那么\acode{[4,5]}呢？去掉语法糖后就是\acode{4:(5:[])}。观察第一个\acode{:}，其左侧为一个元素，
+而右侧是一个列表\acode{5:[]}。以此类推，\acode{3:(4:(5:6:[]))}，可以写作\acode{3:4:5:6:[]}
+（因为\acode{:}是右结合的）或者是\acode{[3,5,6,7]}。
+
+我们可以说一个列表既能是一个空列表或者是一个与其它列表（无论是否为空列表）用\acode{:}所关联的元素。
+
+现在让我们用代数数据类型来实现我们自己的列表！
+
+\begin{lstlisting}[language=Haskell]
+  data List a = Empty | Cons a (List a) deriving (Show, Read, Eq, Ord)
+\end{lstlisting}
+
+这读起来就像是列表的定义，要么是一个空列表要么是一个头与别的列表的组合。如果感到困惑，那么可以尝试用 record syntax 来理解：
+
+\begin{lstlisting}[language=Haskell]
+  data List a = Empty | Cons { listHead :: a, listTail :: List a} deriving (Show, Read, Eq, Ord)
+\end{lstlisting}
+
+这里可能也会对\acode{Cons}构造函数感到困惑。\textit{cons}就是\acode{:}，在列表中，\acode{:}实际上就是一个构造函数，
+其接受一个值与另一个列表，并返回一个列表。尝试一下：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> Empty
+  Empty
+  ghci> 5 `Cons` Empty
+  Cons 5 Empty
+  ghci> 4 `Cons` (5 `Cons` Empty)
+  Cons 4 (Cons 5 Empty)
+  ghci> 3 `Cons` (4 `Cons` (5 `Cons` Empty))
+  Cons 3 (Cons 4 (Cons 5 Empty))
+\end{lstlisting}
+
+我们可以只用特殊字符来定义函数，这样它们就会自动获得中缀的性质。同样可以使用在构造函数上，因为它们也是返回一个数据类型的函数。
+看看这个：
+
+\begin{lstlisting}[language=Haskell]
+  infixr 5 :-:
+  data List a = Empty | a :-: (List a) deriving (Show, Read, Eq, Ord)
+\end{lstlisting}
+
+首先我们注意到一个新的语法结构，fixity 声明。当我们定义函数为操作符时，我们可以使用 fixity 来指定（但是不是必须的）。一个
+fixity 指定了是左结合还是右结合的，同时还有优先级。比如\acode{*}的 fixity 是\acode{infixl 7 *}，而\acode{+}的
+fixity 是\acode{infixl 6}，说明它们都是左结合的。
+
+现在可以这样\acode{a :-: (List a)}而不用\acode{Cons a (List a)}。那么我们的列表可以这样写：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :{
+  ghci| infixr 5 :-:
+  ghci|
+  ghci| data List a = Empty | a :-: (List a) deriving (Show, Read, Eq, Ord)
+  ghci| :}
+  ghci> 3 :-: 4 :-: 5 :-: Empty
+  3 :-: (4 :-: (5 :-: Empty))
+  ghci> let a = 3 :-: 4 :-: 5 :-: Empty
+  ghci> 100 :-: a
+  100 :-: (3 :-: (4 :-: (5 :-: Empty)))
+\end{lstlisting}
+
+现在来定义一个两列表加法的函数。这里是\acode{++}在普通列表中的定义：
+
+\begin{lstlisting}[language=Haskell]
+  infixr 5
+  (++) :: [a] -> [a] -> [a]
+  []     ++ ys = ys
+  (x:xs) ++ ys = x : (xs ++ ys)
+\end{lstlisting}
+
+我们偷过来使用，这里命名为\acode{.++}：
+
+\begin{lstlisting}[language=Haskell]
+  infixr 5 .++
+
+  (.++) :: List a -> List a -> List a
+  Empty .++ ys = ys
+  (x :-: xs) .++ ys = x :-: (xs .++ ys)
+\end{lstlisting}
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let a = 3 :-: 4 :-: 5 :-: Empty
+  ghci> let b = 6 :-: 7 :-: Empty
+  ghci> a .++ b
+  (:-:) 3 ((:-:) 4 ((:-:) 5 ((:-:) 6 ((:-:) 7 Empty))))
+\end{lstlisting}
+
+注意这里是如何在\acode{(x :-: xs)}上模式匹配的，这是因为模式匹配本身是去匹配构造函数。这里可能匹配\acode{:-:}是因为
+它是我们自设的列表类型的构造函数，我们也可以匹配\acode{:}，因为它是 Haskell 列表内置的构造函数。
+
+现在我们开始实现一个\textbf{二叉搜索树 binary search tree}。
+
+从\acode{Data.Set}与\acode{Data.Map}而来的 sets 与 maps 就是用了树来实现的，不过不是普通的二叉搜索树，而是平衡二叉树。
+
+一个树可以是空树或者是一个元素，其中包含了一些信息以及两个树。这听起来很适合代数数据类型！
+
+\begin{lstlisting}[language=Haskell]
+  data Tree a = EmptyTree | Node a (Tree a) (Tree a) deriving (Show, Read, Eq)
+\end{lstlisting}
+
+接下来是两个构建树的函数：
+
+\begin{lstlisting}[language=Haskell]
+  singleton :: a -> Tree a
+  singleton x = Node x EmptyTree EmptyTree
+
+  treeInsert :: (Ord a) => a -> Tree a -> Tree a
+  treeInsert x EmptyTree = singleton x
+  treeInsert x (Node a left right)
+    | x == a = Node x left right
+    | x < a = Node a (treeInsert x left) right
+    | x > a = Node a left (treeInsert x right)
+\end{lstlisting}
+
+接下来是查看元素是否存在于树中的函数：
+
+\begin{lstlisting}[language=Haskell]
+  treeElem :: (Ord a) => a -> Tree a -> Bool
+  treeElem x EmptyTree = False
+  treeElem x (Node a left right)
+    | x == a = True
+    | x < a = treeElem x left
+    | x > a = treeElem x right
+\end{lstlisting}
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let nums = [8,6,4,1,7,3,5]
+  ghci> let numsTree = foldr treeInsert EmptyTree nums
+  ghci> numsTree
+  Node 5 (Node 3 (Node 1 EmptyTree EmptyTree) (Node 4 EmptyTree EmptyTree)) (Node 7 (Node 6 EmptyTree EmptyTree) (Node 8 EmptyTree EmptyTree))
+\end{lstlisting}
+
+在这个\acode{foldr}中，\acode{treeInsert}是被接受的函数，\acode{EmptyTree}是初始的累加器，而\acode{nums}
+则是需要遍历的列表。
+
+再来查看元素：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> 8 `treeElem` numsTree
+  True
+  ghci> 100 `treeElem` numsTree
+  False
+  ghci> 1 `treeElem` numsTree
+  True
+  ghci> 10 `treeElem` numsTree
+  False
+\end{lstlisting}
 
 \subsection*{Typeclasses 102}
 
+这里是标准库中\acode{Eq}的定义：
+
+\begin{lstlisting}[language=Haskell]
+  class Eq a where
+  (==) :: a -> a -> Bool
+  (/=) :: a -> a -> Bool
+  x == y = not (x /= y)
+  x /= y = not (x == y)
+\end{lstlisting}
+
+哇！新的语法和关键字！不要紧，马上会弄清楚。首先当写下\acode{class Eq a where}时，意味着正在定义一个新的名为\acode{Eq}
+的 typeclass。这里的\acode{a}是类型变量，意为\acode{a}是任何定义实例时的类型，并不一定要叫做\acode{a}，只需要是小写字母。
+接着定义了几个函数，并不一定要实现函数体，只需要指定这些函数的类型声明。
+
+一旦有了一个类，就可以实现该类的类型实例，首先是一个类型：
+
+\begin{lstlisting}[language=Haskell]
+  data TrafficLight = Red | Yellow | Green
+\end{lstlisting}
+
+接着来实现\acode{Eq}的实例：
+
+\begin{lstlisting}[language=Haskell]
+  instance Eq TrafficLight where
+    Red == Red = True
+    Green == Green = True
+    Yellow == Yellow = True
+    _ == _ = False
+\end{lstlisting}
+
+这里使用了\textit{instance}关键字。与定义类时不同的是，我们用\acode{TrafficLight}这个时机类型替换了参数\acode{a}。
+
+由于\acode{==}是用\acode{/=}来定义的，同样的\acode{/=}也是用\acode{==}来定义的。因此我们只需要在实例的定义中复写
+其中一个就好了（我们复写了\acode{==}）。这样叫做定义了一个最小完整定义，即是能让类型符合类行为所需的最小实例化函数数量。
+而如果\acode{Eq}的定义像是这样：
+
+\begin{lstlisting}[language=Haskell]
+  class Eq a where
+    (==) :: a -> a -> Bool
+    (/=) :: a -> a -> Bool
+\end{lstlisting}
+
+那么我们在定义实例的时候就必须将两个函数都实例化，因为 Haskell 并不知道这两个函数是怎么关联在一起的。所以这里的最小完整定义
+是\acode{==}与\acode{/=}。
+
+接下来是\acode{Show}的实例。
+
+\begin{lstlisting}[language=Haskell]
+  instance Show TrafficLight where
+    show Red = "Red light"
+    show Yellow = "Yellow light"
+    show Green = "Green light"
+\end{lstlisting}
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> Red == Red
+  True
+  ghci> Red == Yellow
+  False
+  ghci> Red `elem` [Red, Yellow, Green]
+  True
+  ghci> [Red, Yellow, Green]
+  [Red light,Yellow light,Green light]
+\end{lstlisting}
+
+当我们使用\acode{deriving}关键字来自动生产\acode{Eq}，那么效果是一样的；但是生产\acode{Show}的话，Haskell 会将
+值构造函数转换成字符串。我们需要的类似于\acode{"Red light"}这样的字符串，因此才需要手动进行实现。
+
+我们也可以把 typeclass 定义成其它 typeclass 的子类。\acode{Num}的类声明很冗长，我们先看一个雏形：
+
+\begin{lstlisting}[language=Haskell]
+  class (Eq a) => Num a where
+  ...
+\end{lstlisting}
+
+正如我们之前提到过的，我们可以在很多地方加上类约束。这里是在\acode{class Num a where}中的\acode{a}上，加上就必须
+满足\acode{Eq}实例的限制。也就是说我们在定义一个类型为\acode{Num}之前，必须先为其定义\acode{Eq}的实例。在某个
+类型被视为\acode{Number}之前，必须先被定义可以比较，这其实很合理。这就是子类在做的：帮助类声明加上限制。也就是说，
+在定义 typeclass 中的函数体是，我们可以默认\acode{a}是属于\acode{Eq}的，因此能使用\acode{==}。
+
 % TODO
+
+% \begin{lstlisting}[language=Haskell]
+
+% \end{lstlisting}
+
+% \begin{lstlisting}[language=Haskell]
+
+% \end{lstlisting}
+
+% \begin{lstlisting}[language=Haskell]
+
+% \end{lstlisting}
 
 \subsection*{一个 yes-no typeclass}
 
