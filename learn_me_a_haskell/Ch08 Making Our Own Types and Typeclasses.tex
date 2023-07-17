@@ -803,27 +803,173 @@ fixity 是\acode{infixl 6}，说明它们都是左结合的。
 类型被视为\acode{Number}之前，必须先被定义可以比较，这其实很合理。这就是子类在做的：帮助类声明加上限制。也就是说，
 在定义 typeclass 中的函数体是，我们可以默认\acode{a}是属于\acode{Eq}的，因此能使用\acode{==}。
 
-% TODO
+那么\acode{Maybe}或者列表类型是如何创建 typeclasses 的实例的呢？那么\acode{Maybe}为何与比如说\acode{TrafficLight}
+不同，前者自身并不是一个具体类型而是一个接受一个类型参数（如\acode{char}）的类型构造函数用于生产具体类型（如
+\acode{Maybe Char}）。让我们再看一下\acode{Eq} typeclass：
 
-% \begin{lstlisting}[language=Haskell]
+\begin{lstlisting}[language=Haskell]
+  class Eq a where
+  (==) :: a -> a -> Bool
+  (/=) :: a -> a -> Bool
+  x == y = not (x /= y)
+  x /= y = not (x == y)
+\end{lstlisting}
 
-% \end{lstlisting}
+从类型声明中我们可以看到\acode{a}用作于一个具体类型，因为所有在函数中的类型都必须是具体的（记住，你不可能让一个函数的
+类型是\acode{a -> Maybe}，但是可以是\acode{a -> Maybe a}或是\acode{Maybe Int -> Maybe String}）。这也就是为什么
+我们不能这样做：
 
-% \begin{lstlisting}[language=Haskell]
+\begin{lstlisting}[language=Haskell]
+  instance Eq Maybe where
+    ...
+\end{lstlisting}
 
-% \end{lstlisting}
+正如我们所见，\acode{a}必须是一个具体类型，但是\acode{Maybe}并不是。后者是一个类型构造函数接受一个参数并生产具体类型。
+如果是每个类型都实现一番如\acode{instance Eq (Maybe Int) where}以及\acode{instance Eq (Maybe Char) where}等等，
+就会很冗长。因此我们这样做：
 
-% \begin{lstlisting}[language=Haskell]
+\begin{lstlisting}[language=Haskell]
+  instance Eq (Maybe m) where
+    Just x == Just y = x == y
+    Nothing == Nothing = True
+    _ == _ = False
+\end{lstlisting}
 
-% \end{lstlisting}
+这就像是在说我们希望让\acode{Maybe something}所有类型都实现\acode{Eq}实例。虽然\acode{Maybe}不是具体类型，
+\acode{Maybe m}却是。通过指定类型参数（\acode{m}，小写字母），我们可以让所有以\acode{Maybe m}形式的类型
+（\acode{m}是任意类型）称为\acode{Eq}的实例。
+
+不过还有一个问题。我们使用了\acode{==}在\acode{Maybe}的内容上，但是并没有确保\acode{Maybe}所包含的可以使用
+\acode{Eq}！这就是为什么我们必须像这样修改我们的\textit{实例}声明：
+
+\begin{lstlisting}[language=Haskell]
+  instance (Eq m) => Eq (Maybe m) where
+    Just x == Just y = x == y
+    Nothing == Nothing = True
+    _ == _ = False
+\end{lstlisting}
+
+我们必须添加一个类约束！
+
+最后一件事，如果想要看 typeclass 的实例，仅需在 GHCI 中输入\acode{:info YourTypeClass}。
 
 \subsection*{一个 yes-no typeclass}
 
-% TODO
+尝试一下 JavaScript 那样的一切皆可布尔值的行为，首先是一个\textit{类}声明。
+
+\begin{lstlisting}[language=Haskell]
+  class YesNo a where
+    yesno :: a -> Bool
+\end{lstlisting}
+
+很简单。\acode{YesNo} typeclass 定义一个函数，该函数接受一个类型作为值，其可以被认作是存储了真假的信息。
+注意这里在函数使用的\acode{a}必须是一个具体类型。
+
+接着来定义一些实例，首先是数值：
+
+\begin{lstlisting}[language=Haskell]
+  instance YesNo Int where
+    yesno 0 = False
+    yesno _ = True
+\end{lstlisting}
+
+其次是列表：
+
+\begin{lstlisting}[language=Haskell]
+  instance YesNo [a] where
+    yesno [] = False
+    yesno _ = True
+\end{lstlisting}
+
+再是布尔值：
+
+\begin{lstlisting}[language=Haskell]
+  instance YesNo Bool where
+    yesno = id
+\end{lstlisting}
+
+等等，什么是\acode{id}？它是一个标准库的函数，接受一个参数并返回相同的东西，这里正是我们所要的。
+
+接下来是\acode{Maybe a}实例：
+
+\begin{lstlisting}[language=Haskell]
+  instance YesNo (Maybe a) where
+    yesno (Just _) = True
+    yesno Nothing = False
+\end{lstlisting}
+
+我们不需要一个类约束，因为我们不需要对\acode{Maybe}中内容的做任何假设。我们只需要在\acode{Just}值时为真，而在
+\acode{Nothing}值时为假。
+
+对于用上一章定义过的\acode{Tree}类型：
+
+\begin{lstlisting}[language=Haskell]
+  instance YesNo (Tree a) where
+    yesno EmptyTree = False
+    yesno _ = True
+\end{lstlisting}
+
+以及\acode{TrafficLight}：
+
+\begin{lstlisting}[language=Haskell]
+  instance YesNo TrafficLight where
+    yesno Red = False
+    yesno _ = True
+\end{lstlisting}
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> yesno $ length []
+  False
+  ghci> yesno "haha"
+  True
+  ghci> yesno ""
+  False
+  ghci> yesno $ Just 0
+  True
+  ghci> yesno True
+  True
+  ghci> yesno EmptyTree
+  False
+  ghci> yesno []
+  False
+  ghci> yesno [0,0,0]
+  True
+  ghci> :t yesno
+  yesno :: (YesNo a) => a -> Bool
+\end{lstlisting}
+
+现在创建一个函数来模拟 if 声明：
+
+\begin{lstlisting}[language=Haskell]
+  yesnoIf :: (YesNo y) => y -> a -> a -> a
+  yesnoIf yesnoVal yesResult noResult = if yesno yesnoVal then yesResult else noResult
+\end{lstlisting}
+
+非常的直接，测试一下
+
+\begin{lstlisting}[language=Haskell]
+  ghci> yesnoIf [] "YEAH!" "NO!"
+  "NO!"
+  ghci> yesnoIf [2,3,4] "YEAH!" "NO!"
+  "YEAH!"
+  ghci> yesnoIf True "YEAH!" "NO!"
+  "YEAH!"
+  ghci> yesnoIf (Just 500) "YEAH!" "NO!"
+  "YEAH!"
+  ghci> yesnoIf Nothing "YEAH!" "NO!"
+  "NO!"
+\end{lstlisting}
+
 
 \subsection*{函子 typeclass}
 
 % TODO
+
+% \begin{lstlisting}[language=Haskell]
+
+% \end{lstlisting}
 
 \subsection*{Kinds 以及一些 type-foo}
 
