@@ -12,6 +12,12 @@
 
 5. `ghcup set stack` to enable `stack` command
 
+## Cabal
+
+[User Guide](https://cabal.readthedocs.io/en/stable/index.html)
+
+- Creating a package: <https://cabal.readthedocs.io/en/stable/cabal-package.html#creating-a-package>
+
 ## VsCode Setting
 
 `settings.json` (use `ghcup tui` to get versions):
@@ -33,6 +39,8 @@
 ## Misc
 
 - While using GHCI, it might show `libgmp.so: cannot open shared object file: No such file or directory`, and to solve this we can `apt install libgmp-dev`.
+
+- `Cabal-fmt` installation: `cabal install cabal-fmt`
 
 ## Study Material
 
