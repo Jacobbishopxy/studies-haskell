@@ -13,3 +13,17 @@ instance Functor Tree where
 --
 class Tofu t where
   tofu :: j a -> t a j
+
+-- data Frank a b = Frank {FrankField :: b a} deriving (Show)
+data Frank a b where
+  Frank :: {frankField :: b a} -> Frank a b
+  deriving (Show)
+
+instance Tofu Frank where
+  tofu = Frank
+
+--
+data Barry t k p = Barry {yabba :: p, dabba :: t k}
+
+instance Functor (Barry a b) where
+  fmap f (Barry {yabba = x, dabba = y}) = Barry {yabba = f x, dabba = y}

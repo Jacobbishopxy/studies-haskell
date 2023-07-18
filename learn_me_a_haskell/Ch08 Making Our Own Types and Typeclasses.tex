@@ -1014,7 +1014,7 @@ instance Functor Maybe where
   fmap f Nothing = Nothing
 \end{lstlisting}
 
-再次注意我们没有写\acode{instance Functor (Maybe m) where}而是\acode{instance Functor Maybe where}。\acode{Functor}
+再次注意这里并没有写\acode{instance Functor (Maybe m) where}而是\acode{instance Functor Maybe where}。\acode{Functor}
 想要的是接受一个类型的类型构造函数而不是一个具体类型。
 
 测试：
@@ -1135,18 +1135,78 @@ star 或是 type。
     tofu :: j a -> t a j
 \end{lstlisting}
 
-% TODO
+这看起来很奇怪.让我们看一下它的 kind，因为\acode{j a}看做是一个值的类型被\acode{tofu}函数作为入参，\acode{j a}就必须要
+有\acode{*}作为 kind。我们假设\acode{a}是\acode{*}，这样可以推导出\acode{j}的 kind 是\acode{* -> *}。我们知道\acode{t}
+必须生产一个具体类型，且其接受两个类型。也知道\acode{a}的 kind 是\acode{*}同时\acode{j}的 kind 是\acode{* -> *}，可
+推导\acode{t}的 kind 为\acode{* -> (* -> *) -> *}。因此该函数接受一个具体类型（\acode{a}），一个接受一个具体类型的
+类型构造函数（\acode{j}），并生成一个具体类型。
 
-% \begin{lstlisting}[language=Haskell]
+好，现在让我们创建一个 kind 为\acode{* -> (* -> *) -> *}的类型：
 
-% \end{lstlisting}
+\begin{lstlisting}[language=Haskell]
+  data Jige a b = Jige {jigeField :: b a} deriving (Show)
+\end{lstlisting}
 
-% \begin{lstlisting}[language=Haskell]
+那么我们是怎么知道这个类型的 kind 是\acode{* -> (* -> *) -> *}的呢？ADT 中的字段用于存储值，因此他们必须是\acode{*} kind。
+假设\acode{a}是\acode{*}，意味着\acode{b}接受一个类型参数，因此其 kind 为\acode{* -> *}。现在我们知道了\acode{a}与
+\acode{b}的 kind，同时因为它们都是\acode{Frank}的参数，而我们知道\acode{Frank}的 kind 是\acode{* -> (* -> *) -> *}，
+第一个\acode{*}代表着\acode{a}，\acode{(* -> *)}代表着\acode{b}。检查一下：
 
-% \end{lstlisting}
+\begin{lstlisting}[language=Haskell]
+  ghci> :t Frank {frankField = Just "HAHA"}
+  Frank {frankField = Just "HAHA"} :: Frank String Maybe
+  ghci> :t Frank {frankField = Node 'a' EmptyTree EmptyTree}
+  Frank {frankField = Node 'a' EmptyTree EmptyTree} :: Frank Char Tree
+  ghci> :t Frank {frankField = "YES"}
+  Frank {frankField = "YES"} :: Frank Char []
+\end{lstlisting}
 
-% \begin{lstlisting}[language=Haskell]
+由于\acode{frankField}拥有\acode{a b}样式的类型，其至必须也遵循这样的样式。因此它们可以是\acode{Just "HAHA"}，即类型为
+\acode{Maybe [Char]}，或是\acode{["Y","E","S"]}，即类型为\acode{[Char]}。我们可以看到\acode{Frank}值的类型匹配\acode{Frank}
+的 kind。\acode{[Char]}的 kind 为\acode{*}，\acode{Maybe}的 kind 为\acode{* -> *}。因为必须要有一个值，它必须是具体类型，
+这样才能被全应用，也就是说每个\acode{Frank blah blah}值的 kind 都是\acode{*}。
 
-% \end{lstlisting}
+将\acode{Frank}做\acode{Tofu}的实例很简单。我们知道\acode{tofu}接受一个\acode{j a}（一个例子就是\acode{Maybe Int}）并返回
+一个\acode{t a j}。因此用\acode{Frank}替换\acode{j}，返回类型便是\acode{Frank Int Maybe}。
+
+\begin{lstlisting}[language=Haskell]
+  instance Tofu Frank where
+  tofu = Frank
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  ghci> tofu (Just 'a') :: Frank Char Maybe
+  Frank {frankField = Just 'a'}
+  ghci> tofu ["Hello"] :: Frank [Char] []
+  Frank {frankField = ["Hello"]}
+\end{lstlisting}
+
+这并不好用，不过至少我们做了练习。现在让我们看看下面的类型：
+
+\begin{lstlisting}[language=Haskell]
+  data Barry t k p = Barry {yabba :: p, dabba :: t k}
+\end{lstlisting}
+
+现在想使其称为\acode{Functor}的实例。\acode{Functor}希望的是\acode{* -> *}，但是\acode{Barry}的 kind 并不是这样，它接受
+三个参数\acode{something -> something -> something -> *}。可以说\acode{p}是一个具体类型，因此它的 kind 是\acode{*}，而
+对于\acode{k}，我们假设是\acode{*}，所以\acode{t}的 kind 就会是\acode{* -> *}。现在我们把这些代入 something，所以 kind
+就变成 \acode{(* -> *) -> * -> * -> *}。在 GHCI 上检查一下：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :k Barry
+  Barry :: (* -> *) -> * -> * -> *
+\end{lstlisting}
+
+看起来没问题。现在将这个类型成为\acode{Functor}，我们需要偏应用前两个类型参数，剩下的就是\acode{* -> *}。这就意味着该实例的
+声明为：\acode{instance Functor (Barry a b) where}，如果我们看\acode{fmap}针对\acode{Barry}的类型，那么将会是
+\acode{fmap :: (a -> b) -> Barry c d a -> Barry c d b}，因为这里替换了\acode{Functor}的\acode{f}为\acode{Barry c d}。
+而\acode{Barry}的第三个类型参数是对于任意类型的，所以不需要涉及它：
+
+\begin{lstlisting}[language=Haskell]
+  instance Functor (Barry a b) where
+    fmap f (Barry {yabba = x, dabba = y}) = Barry {yabba = f x, dabba = y}
+\end{lstlisting}
+
+很好，我们将\acode{f}应用到了第一个字段。
 
 \end{document}
