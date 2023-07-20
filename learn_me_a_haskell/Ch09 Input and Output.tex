@@ -2,6 +2,381 @@
 
 \begin{document}
 
-WIP
+\subsection*{Hello, world!}
+
+在文件编辑器中敲下：
+
+\begin{lstlisting}[language=Haskell]
+  main = putStrLn "hello, world"
+\end{lstlisting}
+
+我们定义了一个\acode{main}，其调用了一个名为\acode{putStrLn}的函数，其参数为\acode{"hello, world"}。将其保存为\acode{helloworld.hs}。
+打开终端并 cd 到该文件处，输入命令：
+
+\begin{lstlisting}
+  $ ghc --make helloworld
+  [1 of 1] Compiling Main             ( helloworld.hs, helloworld.o )
+  Linking helloworld ...
+\end{lstlisting}
+
+执行：
+
+\begin{lstlisting}
+  $ ./helloworld
+  hello, world
+\end{lstlisting}
+
+我们第一个编译的程序好了！
+
+测试一下我们所写的。首先是查看\acode{putStrLn}的类型：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t putStrLn
+  putStrLn :: String -> IO ()
+  ghci> :t putStrLn "hello, world"
+  putStrLn "hello, world" :: IO ()
+\end{lstlisting}
+
+我们可以这样解读\acode{putStrLn}：\acode{putStrLn}接受一个字符串并返回一个\textbf{I/O action}，其返回值的类型是\acode{()}（也就是
+空元组，或是 unit 形态）。一个 I/O action 就是在执行时会造成副作用的动作，常常指读取输入或输出到屏幕，同时也代表返回某些值。
+
+那么 I/O action 会在什么时候触发呢？这就是\acode{main}的作用。一个 I/O action 会在我们把它绑定到 \acode{main} 这个名字并执行程序的
+时候触发。
+
+把整个程序限制在只能有一个 I/O action 看起来有限制，这就是为什么需要\textit{do}语法将所有 I/O action 粘合成一个。例如：
+
+\begin{lstlisting}[language=Haskell]
+  main = do
+    putStrLn "Hello, what's your name?"
+    name <- getLine
+    putStrLn ("Hey " ++ name ++ ", you rock!")
+\end{lstlisting}
+
+有趣，新的语法！这读起来非常像是命令式编程。注意我们写了\textit{do}之后接着一连串指令，就像是在写命令式编程那样。
+
+正因如此，\acode{main}的类型签名总会是\acode{main :: IO something}，这里的\acode{something}就是写具体类型。
+
+我们之前没有遇到过的情况是第三行，即\acode{name <- getLine}。它看起来像是从输入中读取一行，并存储至变量\acode{name}中。让我们测试一下
+\acode{getLine}的类型：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t getLine
+  getLine :: IO String
+\end{lstlisting}
+
+好的，\acode{getLine}是一个 I/O action，其包含了\acode{String}返回值类型。这很合理，因为它将等待用户在终端的输入，然后将输入转换为一个
+字符串。那\acode{name <- getLine}是什么呢？你可以将这段代码读作：\textbf{执行一个 I/O action，\acode{getLine}将其结果绑定到
+  \acode{name}这个名字}。\acode{getLine}的类型是\acode{IO String}，因此\acode{name}的类型也就是\acode{String}。当我们从 I/O
+action 中拿取数据时，就一定同时要在另一个 I/O action 中。这就是 Haskell 如何漂亮的区分 pure 和 impure 程序的方法。\acode{getLine}
+在这样的意义下是 impure 的，因为执行两次的时候它没法保证会返回一样的值，这就是为什么它需要在一个 \acode{IO} 的类型构建函数中，这样才能在
+I/O action 中取出数据。任何一段程序一旦依赖 I/O 数据，那么则会被视为 I/O 代码（原文用 tainted）。
+
+当提到污染，并不是说 I/O action 所提供的返回不能在 pure 代码中使用。只要我们绑定它到一个名字，我们便可以暂时使用它。也就是说
+\acode{name <- getLine}的\acode{name}就是一个普通的字符串。
+
+让我们看以下代码是否合法：
+
+\begin{lstlisting}[language=Haskell]
+  nameTag = "Hello, my name is " ++ getLine
+\end{lstlisting}
+
+该代码不合法是因为\acode{++}需要两个参数都是同样参数类型的列表，左参数为\acode{String}（或\acode{[Char]}），而\acode{getLine}则是
+\acode{IO String}。显然不能将两者合并。要从\acode{IO String}中获取值只能在 I/O action 内部做\acode{name <- getLine}。换言之，
+如果要处理 impure 数据，那么就需要再 impure 环境中做。
+
+每个 I/O action 执行都有一个封装后的返回。那么之前的代码同样也可以这么写：
+
+\begin{lstlisting}[language=Haskell]
+  main = do
+    foo <- putStrLn "Hello, what's your name?"
+    name <- getLine
+    putStrLn ("Hey " ++ name ++ ", you rock!")
+\end{lstlisting}
+
+然而\acode{foo}只会得到一个\acode{()}值，因此这么做并无实际意义。注意最后的\acode{putStrLn}并没有绑定至任何事物。这是因为在一个
+\textit{do}代码块中，\acode{最后的 action 不能绑定至一个名称}，如前面两行那样。我们在之后讲解 Monad 的时候会说明为什么。
+
+除了最后一行，\textit{do}代码块中的每一行皆可进行绑定。因此\acode{putStrLn "BLAH"}可以被写成\acode{_ <- putStrLn "BLAH"}，不过
+这并没大用，因此不如不写。
+
+初学者可能会这么想：
+
+\begin{lstlisting}[language=Haskell]
+  name = getLine
+\end{lstlisting}
+
+记住，从 I/O action 中取值，必须将其置于其它 I/O action 内，并使用\acode{<-}将其结果绑定至一个名称。
+
+我们能够在\textit{do}代码块中使用\textit{let}绑定，就如在列表表达式中那样：
+
+\begin{lstlisting}[language=Haskell]
+  import Data.Char
+
+  main = do
+    putStrLn "What's your first name?"
+    firstName <- getLine
+    putStrLn "What's your last name?"
+    lastName <- getLine
+
+    let bigFirstName = map toUpper firstName
+        bigLastName = map toUpper lastName
+
+    putStrLn $ "hey " ++ bigFirstName ++ " " ++ bigLastName ++ ", how are you?"
+\end{lstlisting}
+
+注意在\acode{do}代码块中的 I/O actions，同时注意\acode{let}与其名字，缩进在 Haskell 中不会被无视。
+
+接下来是一个持续读取输入行，并在同一行打印翻转后单词的程序。程序会在输入空行后结束：
+
+\begin{lstlisting}[language=Haskell]
+  main = do
+  line <- getLine
+  if null line
+    then return ()
+    else do
+      putStrLn $ reverseWords line
+      main
+
+reverseWords :: String -> String
+reverseWords = unwords . map reverse . words
+\end{lstlisting}
+
+首先我们来看一下\acode{reverseWords}，这个普通的函数假如接受了个字符串\acode{"hey there man"}，那么先调用\acode{words}来参数
+一个字的列表，比如\acode{["hey", "there", "man"]}。接着将\acode{reverse}映射至列表，获得\acode{["yeh", "ereht", "nam"]}，
+接着再通过\acode{unwords}将列表转换为一个字符串\acode{"yeh ereht nam"}。这里用到了函数组合，如果没有函数组合的话，我们需要这样做
+\acode{reverseWords st = unwords (map reverse (words st))}。
+
+我们来看一下在\textit{else}中发生了什么事。由于我们必须要一个 I/O action 在\textit{else}之后，我们使用一个\textit{do}代码块
+将两个 I/O action 整合成一个。我们也可以这么写：
+
+\begin{lstlisting}[language=Haskell]
+  else (do
+    putStrLn $ reverseWords line
+    main)
+\end{lstlisting}
+
+这样可以更显式的将\textit{do}代码块认做是一个 I/O action，不过就是更丑了点。在\textit{do}代码块中，调用\acode{reverseWords}从
+\acode{getLine}而来的行，接着输出至终端。之后就是递归，因为\acode{main}自身就是一个 I/O action。也就意味着又回到了程序一开头。
+
+那么当\acode{null line}为真时呢？我们看到\acode{then return ()}。\textbf{在 Haskell 中的\acode{return}与其他语言的
+  \acode{return}完全不同！}它们只是有相同的名字，这会迷惑很多人，但是实际上大相径庭。在命令式语言中，\acode{return}通常结束一个
+方法的执行，并将结果返回给调用者。在 Haskell（特别是 I/O action 中），则是利用某个 pure 值制造出 I/O action。所以在 I/O 的情况下，
+\acode{return "haha"}的类型是\acode{IO String}。将 pure 值包成 I/O action 有什么意义呢？这是因为一定要 I/O action 来
+承载空输入行的情况。因此使用\acode{return ()}做了一个没什么用的 I/O action。
+
+在 I/O \textit{do}代码块中放一个\acode{return}并不会结束执行。下面这个程序就会执行到底：
+
+\begin{lstlisting}[language=Haskell]
+  main = do
+    return ()
+    return "HAHAHA"
+    line <- getLine
+    return "BLAH BLAH BLAH"
+    return 4
+    putStrLn line
+\end{lstlisting}
+
+所有的这些\acode{return}都用于创造 I/O actions，而其并不做任何事情仅仅是封装一个结构，且该结果被抛弃，因为它们并没有绑定到一个
+名字上。\acode{return}可以与\acode{<-}组合在一起用于绑定名称：
+
+\begin{lstlisting}[language=Haskell]
+  main = do
+    a <- return "hell"
+    b <- return "yeah!"
+    putStrLn $ a ++ " " ++ b
+\end{lstlisting}
+
+可以看到，\acode{return}像是相反的\acode{<-}，前者接受一个值，将其放入盒中，后者接受一个盒（并执行它）然后将值取出来，绑定至一个
+名称。不过这么做有点多余，特别是在\textit{do}代码块中，可以使用\textit{let}绑定名称：
+
+\begin{lstlisting}[language=Haskell]
+  main = do
+    let a = "hell"
+        b = "yeah"
+    putStrLn $ a ++ " " ++ b
+\end{lstlisting}
+
+在 I/O \textit{do}代码块中需要\acode{return}的原因有两个：一个是需要一个什么事都不做的 I/O action，或者是不希望这个\textit{do}
+代码块形成的 I/O action 的结果值是这个代码块中的最后一个 I/O action。我们希望有一个不同的结果值，所以用\acode{return}来做一个
+I/O action 包装想要的结果放在\textit{do}代码块的最后。
+
+在讲下一节的文件之前，让我们看看有哪些实用的函数可以处理 I/O。
+
+\acode{putStr}类似于\acode{putStrLn}，前者不会换行：
+
+\begin{lstlisting}[language=Haskell]
+  main = do   putStr "Hey, "
+              putStr "I'm "
+              putStrLn "Andy!"
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  $ runhaskell putstr_test.hs
+  Hey, I'm Andy!
+\end{lstlisting}
+
+\acode{putChar}接受一个字符：
+
+\begin{lstlisting}[language=Haskell]
+  main = do   putChar 't'
+              putChar 'e'
+              putChar 'h'
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  $ runhaskell putchar_test.hs
+  teh
+\end{lstlisting}
+
+\acode{print}接受任意实现了\acode{Show}的值（意味着知道如何将该值转换为一个字符串）：
+
+\begin{lstlisting}[language=Haskell]
+  main = do   print True
+              print 2
+              print "haha"
+              print 3.2
+              print [3,4,3]
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  $ runhaskell print_test.hs
+  True
+  2
+  "haha"
+  3.2
+  [3,4,3]
+\end{lstlisting}
+
+\acode{getChar}从输入中读取一个字符：
+
+\begin{lstlisting}[language=Haskell]
+  main = do
+    c <- getChar
+    if c /= ' '
+        then do
+            putChar c
+            main
+        else return ()
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  $ runhaskell getchar_test.hs
+  hello sir
+  hello
+\end{lstlisting}
+
+\acode{when}函数可以在\acode{Control.Monad}中找到（通过\acode{import Control.Monad}）。它在\textit{do}代码块中很有意思，
+它像是一个流控声明，但其实它是一个普通函数。其接受一个布尔值以及一个 I/O action，如果改布尔值为真，返回同样的 I/O action；如果为假，
+则返回\acode{return ()}，即什么都不做的 I/O action。下面是使用\acode{when}来改写之前的程序：
+
+\begin{lstlisting}[language=Haskell]
+  import Control.Monad
+
+  main = do
+      c <- getChar
+      when (c /= ' ') $ do
+          putChar c
+          main
+\end{lstlisting}
+
+如你所见，它将\acode{if something then do some I/O action else return ()}这样的模式封装了起来。
+
+\acode{sequence}接受一个列表的 I/O action 并返回一个 I/O action。其类型签名\acode{sequence :: [IO a] -> IO [a]}。例如：
+
+\begin{lstlisting}[language=Haskell]
+  main = do
+    a <- getLine
+    b <- getLine
+    c <- getLine
+    print [a,b,c]
+\end{lstlisting}
+
+等同于：
+
+\begin{lstlisting}[language=Haskell]
+  main = do
+    rs <- sequence [getLine, getLine, getLine]
+    print rs
+\end{lstlisting}
+
+由于对一个队列映射一个返回 I/O action 的函数，再\acode{sequence}这个动作太常用了。所以\acode{mapM}与\acode{mapM_}被引入了。
+前者接受一个函数与一个列表，映射函数值列表接着再进行 sequences；后者一样，只不过它丢弃返回值。我们不关心 sequenced I/O action 的
+返回值时就使用后者。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> mapM print [1,2,3]
+  1
+  2
+  3
+  [(),(),()]
+  ghci> mapM_ print [1,2,3]
+  1
+  2
+  3
+\end{lstlisting}
+
+\acode{forever}接受一个 I/O action 返回一个 I/O action，无限循环：
+
+\begin{lstlisting}[language=Haskell]
+  import Control.Monad
+  import Data.Char
+
+  main = forever $ do
+      putStr "Give me some input: "
+      l <- getLine
+      putStrLn $ map toUpper l
+\end{lstlisting}
+
+\acode{forM}类似于\acode{mapM}，不同之处在于参数调转了。为什么有用呢？一些创造性的 lambdas 与\textit{do}的使用，让我们可以
+这样做：
+
+\begin{lstlisting}[language=Haskell]
+  import Control.Monad
+
+  main = do
+      colors <- forM [1,2,3,4] (\a -> do
+          putStrLn $ "Which color do you associate with the number " ++ show a ++ "?"
+          color <- getLine
+          return color)
+      putStrLn "The colors that you associate with 1, 2, 3 and 4 are: "
+      mapM putStrLn colors
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  $ runhaskell form_test.hs
+  Which color do you associate with the number 1?
+  white
+  Which color do you associate with the number 2?
+  blue
+  Which color do you associate with the number 3?
+  red
+  Which color do you associate with the number 4?
+  orange
+  The colors that you associate with 1, 2, 3 and 4 are:
+  white
+  blue
+  red
+  orange
+\end{lstlisting}
+
+\subsection*{文件与流}
+
+% TODO
+
+\subsection*{命令行参数}
+
+% TODO
+
+\subsection*{随机}
+
+% TODO
+
+\subsection*{字节串}
+
+% TODO
+
+\subsection*{异常}
+
+% TODO
 
 \end{document}
