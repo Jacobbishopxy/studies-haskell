@@ -361,7 +361,231 @@ I/O action 包装想要的结果放在\textit{do}代码块的最后。
 
 \subsection*{文件与流}
 
+现在让我们来看一下\acode{getContents}，这是一个从标准输入中读取所有东西直到遇到结束符的 I/O action。其类型为
+\acode{getContents :: IO String}。\acode{getContents}是一个 lazy I/O。当使用\acode{foo <- getContents}，它不会
+一次性将所有输入读取存储至内存中然后绑定至\acode{foo}。
+
+在我们将一个程序中的输出导向另一个程序时，\acode{getContents}尤其的有用。我们现在来造一个文件：
+
+\begin{lstlisting}[language=Haskell]
+  I'm a lil' teapot
+  What's with that airplane food, huh?
+  It's so small, tasteless
+\end{lstlisting}
+
+现在让我们回忆一下之前介绍的\acode{forever}函数。它提示用户输入一行，将输入改为大写，然后再次回到第一步：
+
+\begin{lstlisting}[language=Haskell]
+  import Control.Monad
+  import Data.Char
+
+  main = forever $ do
+      putStr "Give me some input: "
+      l <- getLine
+      putStrLn $ map toUpper l
+\end{lstlisting}
+
+将其保存为\acode{capslocker.sh}并进行编译。通过 unix 的 pipe 将 txt 文件喂给我们的程序：
+
+\begin{lstlisting}[language=Haskell]
+  $ ghc --make capslocker
+  [1 of 1] Compiling Main             ( capslocker.hs, capslocker.o )
+  Linking capslocker ...
+  $ cat haiku.txt
+  I'm a lil' teapot
+  What's with that airplane food, huh?
+  It's so small, tasteless
+  $ cat haiku.txt | ./capslocker
+  I'M A LIL' TEAPOT
+  WHAT'S WITH THAT AIRPLANE FOOD, HUH?
+  IT'S SO SMALL, TASTELESS
+  capslocker <stdin>: hGetLine: end of file
+\end{lstlisting}
+
+正如所见，将一个程序（上述案例为\textit{cat}）的输出 pipe 至另一个程序（\textit{capslocker}）作为输入，是由\acode{|}
+字符来完成的。
+
+而这里的\acode{forever}就是接受输入并转换后输出。这就是为什么使用\acode{getContents}可以使得程序变得更简洁简短：
+
+\begin{lstlisting}[language=Haskell]
+  import Data.Char
+
+  main = do
+    contents <- getContents
+    putStr $ map toUpper contents
+\end{lstlisting}
+
+这里执行\acode{getContents} I/O action 并将其生产的字符串命名为\acode{contents}。接着映射\acode{toUpper}至字符串，
+再打印至终端。注意字符串的本质是列表，也是 lazy 的，而\acode{getContents}是 I/O lazy 的，所有在打印出 capslocked 之前，
+它不会一次性读取所有内容并存储至内存。实际上会一行一行读取并输出 capslocked，这是因为输出才是真的需要输入数据的时候。
+
+\begin{lstlisting}[language=Haskell]
+  $ cat haiku.txt | ./capslocker
+  I'M A LIL' TEAPOT
+  WHAT'S WITH THAT AIRPLANE FOOD, HUH?
+  IT'S SO SMALL, TASTELESS
+\end{lstlisting}
+
+如果仅运行\textit{capslockder}并尝试输入呢？
+
+\begin{lstlisting}[language=Haskell]
+  $ ./capslocker
+  hey ho
+  HEY HO
+  lets go
+  LETS GO
+\end{lstlisting}
+
+通过 Ctrl-D 退出。正如你所见，它将我们的输入一行一行的打印出来。当\acode{getContents}的结果绑定至\acode{contents}，
+它在内存中并不代表着一个真实字符串，更像是一个 promise，承诺它将最终输出字符串。当映射\acode{toUpper}至\acode{contents}，
+则同样是一个承诺，承诺将映射该函数至最终的内容。最后就是当\acode{putStr}发生时，它告知之前的承诺：我需要一个大写的行！
+它还未有任何的行，而是告知\acode{contents}：该从命令行中获取一行了。这才是\acode{getContents}实际上从终端中读取并将这一行
+交给程序的时候，程序便将这一行用\acode{toUpper}处理并交给\acode{putStr}，\acode{putStr}则打印出它，之后\acode{putStr}
+再说：我需要下一行，循环往复，直到读到结束符为止。
+
+下面是一个只打印出少于十个字符行的程序：
+
+\begin{lstlisting}[language=Haskell]
+  main = do
+    contents <- getContents
+    putStr $ shortLinesOnly contents
+
+  shortLinesOnly :: String -> String
+  shortLinesOnly input =
+    let allLines = lines input
+        shortLines = filter (\line -> length line < 10) allLines
+        result = unlines shortLines
+    in result
+\end{lstlisting}
+
+我们尽量让程序的 I/O 部分简短，因为我们的程序本就该接受一些输入并根据输入打印出一些东西。
+
+\acode{shortLinesOnly}函数工作如下：接受一个字符串例如\acode{"short\\nlooooooooooooooong\\nshort again"}，该字符串
+有三行，两行短，中间那行长。运行\acode{lines}函数，转换成\acode{["short", "looooooooooooooong", "short again"]}，
+接着绑定至名称\acode{allLines}。该字符串列表被过滤，只留下少于 10 个字符的字符串，即\acode{["short", "short again"]}。
+最后，\acode{unlines}将列表转换成一个通过换行符分隔的字符串。
+
+\begin{lstlisting}[language=Haskell]
+  i'm short
+  so am i
+  i am a loooooooooong line!!!
+  yeah i'm long so what hahahaha!!!!!!
+  short line
+  loooooooooooooooooooooooooooong
+  short
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  $ ghc --make shortlinesonly
+  [1 of 1] Compiling Main             ( shortlinesonly.hs, shortlinesonly.o )
+  Linking shortlinesonly ...
+  $ cat shortlines.txt | ./shortlinesonly
+  i'm short
+  so am i
+  short
+\end{lstlisting}
+
+我们将内容放至\textit{shortlines.txt}中并 pipe 至编译好的\textit{shortlinesonly}，这样就得到短行了。
+
+从输入中获取字符串，通过一个函数进行转换，然后再输出的这个模式太常见了，因此存在一个名为\acode{interact}的函数专门用作此模式。
+
+\begin{lstlisting}[language=Haskell]
+  main = interact shortLinesOnly
+
+  shortLinesOnly :: String -> String
+  shortLinesOnly input =
+    let allLines = lines input
+        shortLines = filter (\line -> length line < 10) allLines
+        result = unlines shortLines
+     in result
+\end{lstlisting}
+
+当然可以用更少的代码来表达：
+
+\begin{lstlisting}[language=Haskell]
+  main = interact $ unlines . filter ((< 10) . length) . lines
+\end{lstlisting}
+
+能应用\acode{interact}的情况有几种，一种是从输入 pipe 读取一些内容接着返回一些结果的程序；另一种是用户一行一行的输入，
+返回那一行运算后的结果，再接着读取玲一行。
+
+接下来的程序是持续读取一行，接着告诉我们这一行是否为回文。我们可以用\acode{getLine}来读取一行，告诉用户是否为回文，接着再执行
+\acode{main}。不过使用\acode{interact}的情况会更加的简单，只需要考虑转换函数。我们的需求中，替换的是每一行输出是否为
+\acode{"palindrome"}或者\acode{"not a palindrome"}，也就是说这个函数会转换\acode{"elephant\\nABCBA\\nwhatever"}
+成\acode{"not a palindrome\\npalindrome\\nnot a palindrome"}。
+
+\begin{lstlisting}[language=Haskell]
+  main = interact respondPalindromes
+
+  respondPalindromes contents =
+    unlines
+      ( map
+          ( \xs ->
+              if isPalindrome xs then "palindrome" else "not a palindrome"
+          )
+          (lines contents)
+      )
+    where
+      isPalindrome xs = xs == reverse xs
+\end{lstlisting}
+
+用 point-free 进行改造：
+
+\begin{lstlisting}[language=Haskell]
+  respondPalindromes =
+  unlines
+    . map
+      (\xs -> if isPalindrome xs then "palindrome" else "not a palindrome")
+    . lines
+  where
+    isPalindrome xs = xs == reverse xs
+\end{lstlisting}
+
+非常的直观。首先它转换\acode{"elephant\\nABCBA\\nwhatever"}为\acode{["elephant", "ABCBA", "whatever"]}，接着映射
+一个 lambda 函数，得到\acode{["not a palindrome", "palindrome", "not a palindrome"]}接着\acode{unlines}转为一个
+字符串。测试：
+
+\begin{lstlisting}[language=Haskell]
+  $ runhaskell palindromes.hs
+  hehe
+  not a palindrome
+  ABCBA
+  palindrome
+  cookie
+  not a palindrome
+\end{lstlisting}
+
+尽管我们编写了一个转换输入的大字符串成为另一个大字符串的程序，但其表现的好像是一行一行做的。这是因为 Haskell 是 lazy 的，程序
+想要打印出第一行结果，它必须要现有第一行输入，一旦有了第一行输入，那么便打印出第一行结果。这里使用文件终止符来结束程序。
+
+假设我们有这样一个文件：
+
+\begin{lstlisting}
+  dogaroo
+  radar
+  rotor
+  madam
+\end{lstlisting}
+
+将其保存至\acode{words.txt}。再将其 pipe 至我们的程序：
+
+\begin{lstlisting}[language=Haskell]
+  $ cat words.txt | runhaskell palindromes.hs
+  not a palindrome
+  palindrome
+  palindrome
+  palindrome
+\end{lstlisting}
+
 % TODO
+
+% \begin{lstlisting}[language=Haskell]
+
+% \end{lstlisting}
+
+% \begin{lstlisting}[language=Haskell]
+
+% \end{lstlisting}
 
 \subsection*{命令行参数}
 

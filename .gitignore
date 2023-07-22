@@ -307,3 +307,4 @@ cabal.project.local~
 .ghc.environment.*
 
 .cabal-fmt*
+*.txt

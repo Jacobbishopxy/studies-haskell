@@ -36,6 +36,10 @@
   ...
 ```
 
+## Test
+
+- compile a single file: `ghc --make capslocker.hs`
+
 ## Misc
 
 - While using GHCI, it might show `libgmp.so: cannot open shared object file: No such file or directory`, and to solve this we can `apt install libgmp-dev`.
