@@ -202,7 +202,7 @@ I/O action 包装想要的结果放在\textit{do}代码块的最后。
 
 在讲下一节的文件之前，让我们看看有哪些实用的函数可以处理 I/O。
 
-\acode{putStr}类似于\acode{putStrLn}，前者不会换行：
+\acodered{putStr}类似于\acode{putStrLn}，前者不会换行：
 
 \begin{lstlisting}[language=Haskell]
   main = do   putStr "Hey, "
@@ -215,7 +215,7 @@ I/O action 包装想要的结果放在\textit{do}代码块的最后。
   Hey, I'm Andy!
 \end{lstlisting}
 
-\acode{putChar}接受一个字符：
+\acodered{putChar}接受一个字符：
 
 \begin{lstlisting}[language=Haskell]
   main = do   putChar 't'
@@ -228,7 +228,7 @@ I/O action 包装想要的结果放在\textit{do}代码块的最后。
   teh
 \end{lstlisting}
 
-\acode{print}接受任意实现了\acode{Show}的值（意味着知道如何将该值转换为一个字符串）：
+\acodered{print}接受任意实现了\acode{Show}的值（意味着知道如何将该值转换为一个字符串）：
 
 \begin{lstlisting}[language=Haskell]
   main = do   print True
@@ -247,7 +247,7 @@ I/O action 包装想要的结果放在\textit{do}代码块的最后。
   [3,4,3]
 \end{lstlisting}
 
-\acode{getChar}从输入中读取一个字符：
+\acodered{getChar}从输入中读取一个字符：
 
 \begin{lstlisting}[language=Haskell]
   main = do
@@ -265,7 +265,7 @@ I/O action 包装想要的结果放在\textit{do}代码块的最后。
   hello
 \end{lstlisting}
 
-\acode{when}函数可以在\acode{Control.Monad}中找到（通过\acode{import Control.Monad}）。它在\textit{do}代码块中很有意思，
+\acodered{when}函数可以在\acode{Control.Monad}中找到（通过\acode{import Control.Monad}）。它在\textit{do}代码块中很有意思，
 它像是一个流控声明，但其实它是一个普通函数。其接受一个布尔值以及一个 I/O action，如果改布尔值为真，返回同样的 I/O action；如果为假，
 则返回\acode{return ()}，即什么都不做的 I/O action。下面是使用\acode{when}来改写之前的程序：
 
@@ -281,7 +281,7 @@ I/O action 包装想要的结果放在\textit{do}代码块的最后。
 
 如你所见，它将\acode{if something then do some I/O action else return ()}这样的模式封装了起来。
 
-\acode{sequence}接受一个列表的 I/O action 并返回一个 I/O action。其类型签名\acode{sequence :: [IO a] -> IO [a]}。例如：
+\acodered{sequence}接受一个列表的 I/O action 并返回一个 I/O action。其类型签名\acode{sequence :: [IO a] -> IO [a]}。例：
 
 \begin{lstlisting}[language=Haskell]
   main = do
@@ -299,9 +299,9 @@ I/O action 包装想要的结果放在\textit{do}代码块的最后。
     print rs
 \end{lstlisting}
 
-由于对一个队列映射一个返回 I/O action 的函数，再\acode{sequence}这个动作太常用了。所以\acode{mapM}与\acode{mapM_}被引入了。
-前者接受一个函数与一个列表，映射函数值列表接着再进行 sequences；后者一样，只不过它丢弃返回值。我们不关心 sequenced I/O action 的
-返回值时就使用后者。
+由于对一个队列映射一个返回 I/O action 的函数，再\acode{sequence}这个动作太常用了。所以\acodered{mapM}与\acodered{mapM_}
+被引入了。前者接受一个函数与一个列表，映射函数至列表接着再 sequences；后者一样，只不过丢弃返回值。在不关心 sequenced I/O action
+的返回值时，我们使用后者。
 
 \begin{lstlisting}[language=Haskell]
   ghci> mapM print [1,2,3]
@@ -315,7 +315,7 @@ I/O action 包装想要的结果放在\textit{do}代码块的最后。
   3
 \end{lstlisting}
 
-\acode{forever}接受一个 I/O action 返回一个 I/O action，无限循环：
+\acodered{forever}接受一个 I/O action 返回一个 I/O action，无限循环：
 
 \begin{lstlisting}[language=Haskell]
   import Control.Monad
@@ -327,7 +327,7 @@ I/O action 包装想要的结果放在\textit{do}代码块的最后。
       putStrLn $ map toUpper l
 \end{lstlisting}
 
-\acode{forM}类似于\acode{mapM}，不同之处在于参数调转了。为什么有用呢？一些创造性的 lambdas 与\textit{do}的使用，让我们可以
+\acodered{forM}类似于\acode{mapM}，不同之处在于参数调转了。为什么有用呢？一些创造性的 lambdas 与\textit{do}的使用，让我们可以
 这样做：
 
 \begin{lstlisting}[language=Haskell]
@@ -361,7 +361,7 @@ I/O action 包装想要的结果放在\textit{do}代码块的最后。
 
 \subsection*{文件与流}
 
-现在让我们来看一下\acode{getContents}，这是一个从标准输入中读取所有东西直到遇到结束符的 I/O action。其类型为
+现在让我们来看一下\acodered{getContents}，这是一个从标准输入中读取所有东西直到遇到结束符的 I/O action。其类型为
 \acode{getContents :: IO String}。\acode{getContents}是一个 lazy I/O。当使用\acode{foo <- getContents}，它不会
 一次性将所有输入读取存储至内存中然后绑定至\acode{foo}。
 
@@ -460,7 +460,7 @@ I/O action 包装想要的结果放在\textit{do}代码块的最后。
 
 我们尽量让程序的 I/O 部分简短，因为我们的程序本就该接受一些输入并根据输入打印出一些东西。
 
-\acode{shortLinesOnly}函数工作如下：接受一个字符串例如\acode{"short\\nlooooooooooooooong\\nshort again"}，该字符串
+\acode{shortLinesOnly}函数工作如下：接受一个字符串\acode{"short\\nlooooooooooooooong\\nshort again"}，该字符串
 有三行，两行短，中间那行长。运行\acode{lines}函数，转换成\acode{["short", "looooooooooooooong", "short again"]}，
 接着绑定至名称\acode{allLines}。该字符串列表被过滤，只留下少于 10 个字符的字符串，即\acode{["short", "short again"]}。
 最后，\acode{unlines}将列表转换成一个通过换行符分隔的字符串。
@@ -487,7 +487,7 @@ I/O action 包装想要的结果放在\textit{do}代码块的最后。
 
 我们将内容放至\textit{shortlines.txt}中并 pipe 至编译好的\textit{shortlinesonly}，这样就得到短行了。
 
-从输入中获取字符串，通过一个函数进行转换，然后再输出的这个模式太常见了，因此存在一个名为\acode{interact}的函数专门用作此模式。
+从输入中获取字符串，通过一个函数进行转换，然后再输出的这个模式太常见了，因此存在一个名为\acodered{interact}的函数专门用作此模式。
 
 \begin{lstlisting}[language=Haskell]
   main = interact shortLinesOnly
@@ -577,11 +577,197 @@ I/O action 包装想要的结果放在\textit{do}代码块的最后。
   palindrome
 \end{lstlisting}
 
+到现在为止我们遇到的 I/O 都是读取或输出至终端，那么读取和写文件呢？其实我们已经做过这样的事儿了，我们可以想象终端就是一个文件，
+而写入和读取它们分别是\acode{stdout}与\acode{stdin}。
+
+首先是一个文件：
+
+\begin{lstlisting}[language=Haskell]
+  Hey! Hey! You! You!
+  I don't like your girlfriend!
+  No way! No way!
+  I think you need a new one!
+\end{lstlisting}
+
+接着是程序：
+
+\begin{lstlisting}[language=Haskell]
+  import System.IO
+
+  main = do
+    handle <- openFile "girlfriend.txt" ReadMode
+    contents <- hGetContents handle
+    putStr contents
+    hClose handle
+\end{lstlisting}
+
+用程序读取文件：
+
+\begin{lstlisting}[language=Haskell]
+  $ runhaskell girlfriend.hs
+  Hey! Hey! You! You!
+  I don't like your girlfriend!
+  No way! No way!
+  I think you need a new one!
+\end{lstlisting}
+
+我们的程序拥有若干个 I/O actions 被整合在一个\textit{do}代码块中。首先是\acodered{openFile}这个函数，其类型签名为：
+\acode{openFile :: FilePath -> IOMode -> IO Handle}，即\acode{openFile}接受一个文件路径，以及一个\acode{IOMode}，
+返回一个将会打开文件并将文件关联到句柄的 I/O action。
+
+\acode{FilePath}是\acode{String}的类型别名：
+
+\begin{lstlisting}[language=Haskell]
+  type FilePath = String
+\end{lstlisting}
+
+而\acode{IOMode}的定义如下：
+
+\begin{lstlisting}[language=Haskell]
+  data IOMode = ReadMode | WriteMode | AppendMode | ReadWriteMode
+\end{lstlisting}
+
+\acodered{hGetContents}接受一个\acode{Handle}（这样才能知道从哪里获取内容）并返回一个\acode{IO String} -- 一个包含了
+文件内容的 I/O action。该函数类似于\acode{getContents}，不同之处在于\acode{getContents}会自动的从标准输入中读取（也就是
+终端），而\acode{hGetContents}接受一个文件句柄，该句柄则是告诉它去哪里读取文件。同样的，\acode{hGetContents}不会一次性
+读取文件并存储于内存中，而是按需读取。这样就很酷，因为我们可以将\acode{contents}视作文件的所有内容，且并没有全部加载至内存中。
+因此如果有一个很大的文件，使用\acode{hGetContents}并不会打爆内存，而是按需读取。
+
+注意这里用于识别文件的句柄与文件内容的概念上的区别。前者是用于区分文件的依据，如果把整个文件系统想象成一本厚厚的书，每个文件分别
+是其中的章节，handle 就像是书签标记了正在阅读（或写入）的章节，而内容则是章节本身。
+
+\acode{putStr contents}将内容打印至标准输出，接着是\acodered{hClose}，其接受一个句柄返回一个 I/O action 关闭文件。
+
+函数\acodered{withFile}，其类型签名为\acode{withFile :: FilePath -> IOMode -> (Handle -> IO a) -> IO a}，是另外
+一种方式，它接受一个文件路径，一个\acode{IOMode}，以及一个接受句柄并返回 I/O action 的函数。这个返回的 I/O action 函数
+将会打开文件，处理并关闭文件。
+
+\begin{lstlisting}[language=Haskell]
+  main = do
+  withFile
+    "girlfriend.txt"
+    ReadMode
+    ( \handle -> do
+        contents <- hGetContents handle
+        putStr contents
+    )
+\end{lstlisting}
+
+下面是自己实现的\acode{withFile}：
+
+\begin{lstlisting}[language=Haskell]
+  withFile' :: FilePath -> IOMode -> (Handle -> IO a) -> IO a
+  withFile' path mode f = do
+    handle <- openFile path mode
+    result <- f handle
+    hClose handle
+    return result
+\end{lstlisting}
+
+我们知道返回值会是一个 I/O action，因此我们可以由\textit{do}开始。首先打开一个文件，得到一个句柄，接着将\acode{handle}应用至
+我们的函数并重新拿到一个处理事情的 I/O action。将此 I/O action 绑定至\acode{result}，关闭句柄接着\acode{return result}。
+\acode{return}封装\acode{f}的结果进 I/O action，这样 I/O action 中就包含了\acode{f handle}得到的结果。如果
+\acode{f handle}返回的是一个从标准输入读取行，并写到文件然后返回读取的行数的 I/O action，在\acode{withFile'}的情况中，
+最后的 I/O action 就会包含读入的行数。
+
+\acode{hGetContents}类似\acode{getContents}，还有\acodered{hGetLine}，\acodered{hPutStr}，\acodered{hPutStrLn}，
+\acodered{hGetChar}等等。这些\textit{h}开头的函数都是接受一个句柄作为参数，并操作某指定的文件（而不是标准输出）。
+
+加载文件然后将它们的内容视为字符串这件事非常的常见，因此有三个函数能给我们很大的帮助：
+
+\acodered{readFile}的类型签名是\acode{readFile :: FilePath -> IO String}，它接受一个文件路径，返回一个 I/O action，
+该 I/O action 将会读取文件（当然是 lazy 的），并将文件内容作为字符串绑定至某名称：
+
+\begin{lstlisting}[language=Haskell]
+  main = do
+    contents <- readFile "girlfriend.txt"
+    putStr contents
+\end{lstlisting}
+
+由于我们拿不到句柄，所以我们无法关闭文件，而 Haskell 的\acode{readFile}在背后帮我们做了这件事。
+
+\acodered{writeFile}的类型签名是\acode{writeFile :: FilePath -> String -> IO ()}，它接受一个文件路径以及需要写入的
+字符串，返回一个真实写入文件的 I/O action。如果文件存在，则会清空内容再写入：
+
+\begin{lstlisting}[language=Haskell]
+  import System.IO
+  import Data.Char
+
+  main = do
+    contents <- readFile "girlfriend.txt"
+    writeFile "girlfriendcaps.txt" (map toUpper contents)
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  $ runhaskell girlfriendtocaps.hs
+  $ cat girlfriendcaps.txt
+  HEY! HEY! YOU! YOU!
+  I DON'T LIKE YOUR GIRLFRIEND!
+  NO WAY! NO WAY!
+  I THINK YOU NEED A NEW ONE!
+\end{lstlisting}
+
+\acodered{appendFile}的类型签名与\acode{writeFile}一样，只不过前者在文件存在时会直接在已有内容尾部写入。
+
+\begin{lstlisting}[language=Haskell]
+  import System.IO
+
+  main = do
+    todoItem <- getLine
+    appendFile "todo.txt" $ todoItem ++ "\n"
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  $ runhaskell appendtodo.hs
+  Iron the dishes
+  $ runhaskell appendtodo.hs
+  Dust the dog
+  $ runhaskell appendtodo.hs
+  Take salad out of the oven
+  $ cat todo.txt
+  Iron the dishes
+  Dust the dog
+  Take salad out of the oven
+\end{lstlisting}
+
+之前提到过的\acode{contents <- hGetContents handle}并不会将文件一次性读入内存，所以这么写
+
+\begin{lstlisting}[language=Haskell]
+  main = do
+  withFile
+    "something.txt"
+    ReadMode
+    ( \handle -> do
+        contents <- hGetContents handle
+        putStr contents
+    )
+\end{lstlisting}
+
+实际上像是将文件 pipe 到标准输出。就像是可以把列表想象成流那样，文件也可以是流，即每次读一行再打印到终端上。对于文本文件而言，
+默认的 buffer 通常以行划分，而对于二进制文件而言，buffer 则跟操作系统有关，即以 chunk 进行划分。
+
+使用\acode{hSetBuffering}来控制 buffer 的行为，该函数接受一个句柄以及一个\acode{BufferMode}，返回一个设置 buffer
+行为的 I/O action。\acode{BufferMode}是一个枚举，有值：\acode{NoBuffering}，\acode{LineBuffering}或
+\acode{BlockBuffering (Maybe Int)}（\acode{Maybe Int}代表一个 chunk 的字节，如果是\acode{Nothing}则有系统决定）。
+\acode{NoBuffering}表示一次读一个字符（频繁访问磁盘，性能很差）。
+
+使用 2048 字节的 chunk 读取：
+
+\begin{lstlisting}[language=Haskell]
+  main = do
+  withFile
+    "something.txt"
+    ReadMode
+    ( \handle -> do
+        hSetBuffering handle $ BlockBuffering (Just 2048)
+        contents <- hGetContents handle
+        putStr contents
+    )
+\end{lstlisting}
+
+用更大的 chunk 来进行数据读取对于减少访问磁盘的次数是很有帮助的，特别是在文件其实是通过网络来访问的时候。
+
 % TODO
-
-% \begin{lstlisting}[language=Haskell]
-
-% \end{lstlisting}
 
 % \begin{lstlisting}[language=Haskell]
 
