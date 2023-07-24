@@ -765,13 +765,90 @@ I/O action 包装想要的结果放在\textit{do}代码块的最后。
     )
 \end{lstlisting}
 
-用更大的 chunk 来进行数据读取对于减少访问磁盘的次数是很有帮助的，特别是在文件其实是通过网络来访问的时候。
+使用更大的 chunk 读取数据可以减少访问磁盘的次数，特别是通过网络来进行文件访问的时候。
 
-% TODO
+我们也可以使用\acodered{hFlush}，该函数接受一个句柄并返回一个 I/O action，该 I/O action flush 句柄关联文件的缓存。
+在使用行缓存的时候，缓存会在每次换行时 flush；而在使用块缓存时，会在读取块完成后 flush；同样也会在关闭句柄时 flush。
+而\acode{hFlush}则可以强制进行 flush，之后数据就能被其他程序看见。
 
-% \begin{lstlisting}[language=Haskell]
+以下是一个将 item 加入 todo list 的程序，现在加入移除 item 的功能，这里会用到新函数\acode{System.Directory}以及
+\acode{System.IO}：
 
-% \end{lstlisting}
+\begin{lstlisting}[language=Haskell]
+  import Data.List
+  import System.Directory
+  import System.IO
+
+  main = do
+    handle <- openFile "todo.txt" ReadMode
+    (tempName, tempHandle) <- openTempFile "." "temp"
+    contents <- hGetContents handle
+    let todoTasks = lines contents
+        numberedTasks = zipWith (\n line -> show n ++ " - " ++ line) [0 ..] todoTasks
+    putStrLn "These are your TO-DO items:"
+    putStr $ unlines numberedTasks
+    putStrLn "Which one do you want to delete?"
+    numberString <- getLine
+    let number = read numberString
+        newTodoItems = delete (todoTasks !! number) todoTasks
+    hPutStr tempHandle $ unlines newTodoItems
+    hClose handle
+    hClose tempHandle
+    removeFile "todo.txt"
+    renameFile tempName "todo.txt"
+\end{lstlisting}
+
+首先是将\acode{ReadMode}下\acode{openFile}返回的句柄绑定至\acode{handle}。
+
+其次是一个从\acode{System.IO}而来的新函数\acodered{openTempFile}，它接受一个临时路径以及一个临时文件名，打开一个
+临时文件。这里使用\acode{"."}作为临时路径，即当前地址；使用\acode{"temp"}作为临时文件名。该函数返回一个 I/O action，
+用于创建临时文件，并在 I/O action 中返回一对值：临时文件的名称，以及一个句柄。我们其实可以打开一个名为\textit{todo2.txt}
+的普通文件再进行处理，不过使用\acode{openTempFile}是一个更好的实践，这样就不会覆盖任何文件了。
+
+没有使用\acode{getCurrentDirectory}获取当前路径后，再传递给\acode{openTempFile}，这么做是因为\acode{.}在类 unix
+系统与 Windows 都代表着当前路径。
+
+接下来是将\acode{todo.txt}的内容绑定至\acode{contents}。再是将字符串转为字符串列表，这时的\acode{todoTasks}就变为
+\acode{["Iron the dishes", "Dust the dog", "Take salad out of the oven"]}。使用\acode{zipWith}将零至无穷的
+列表与字符串列表结合，返回\acode{["0 - Iron the dishes", "1 - Dust the dog" ...}。再通过\acode{unlines}将字符串
+列表转为一个大字符串，打印至终端。这里我们也可以用\acode{mapM putStrLn numberedTasks}。
+
+接下来询问用户想要删除哪个 item，假设用户输入的是 1，那么\acode{numberString}则被绑定上\acode{"1"}这个字符串，需要用
+\acode{read}将字符串转换成数字。
+
+接下来就是\acode{Data.List}所提供的\acode{delete}与\acode{!!}函数。\acode{!!}从列表中通过某索引，返回一个元素，
+而\acode{delete}删除列表中第一个出现的元素，并返回删除后的列表。这里的\acode{(todoTasks !! number)}返回的是
+\acode{"Dust the dog"}。将删除元素后的新列表绑定至\acode{newTodoItems}，接着通过\acode{unlines}合并成一个字符串，
+再写入临时文件。这时旧文件并没有改变，而临时文件包含了旧文件中所有函数，除了已删除的那行。
+
+最后就是关闭两个文件的句柄，通过\acodered{removeFile}移除旧文件，再通过\acodered{renameFile}将临时文件命名为
+\acode{todo.txt}。
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  $ runhaskell deletetodo.hs
+  These are your TO-DO items:
+  0 - Iron the dishes
+  1 - Dust the dog
+  2 - Take salad out of the oven
+  Which one do you want to delete?
+  1
+
+  $ cat todo.txt
+  Iron the dishes
+  Take salad out of the oven
+
+  $ runhaskell deletetodo.hs
+  These are your TO-DO items:
+  0 - Iron the dishes
+  1 - Take salad out of the oven
+  Which one do you want to delete?
+  0
+
+  $ cat todo.txt
+  Take salad out of the oven
+\end{lstlisting}
 
 \subsection*{命令行参数}
 
