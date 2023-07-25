@@ -852,7 +852,114 @@ I/O action 包装想要的结果放在\textit{do}代码块的最后。
 
 \subsection*{命令行参数}
 
-% TODO
+如果想要写一个在终端运行的程序，处理命令行参数是不可避免的。而 Haskell 的标准库能让我们有效处理参数。
+
+\acode{System.Environment}模块有两个很酷的 I/O actions。第一个是\acodered{getArgs}，其类型是
+\acode{getArgs :: IO [String]}，它是一个拿去命令行参数的 I/O actions，并把结果放在字符串列表中；第二个是
+\acodered{getProgName}，其类型是\acode{getProgName :: IO String}，它是一个包含了程序名称的 I/O action。
+
+现在来看一下它们是如何工作的：
+
+\begin{lstlisting}[language=Haskell]
+  import Data.List
+  import System.Environment
+
+  main = do
+    args <- getArgs
+    progName <- getProgName
+    putStrLn "The arguments are:"
+    mapM_ putStrLn args
+    putStrLn "The program name is:"
+    putStrLn progName
+\end{lstlisting}
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  $ ./arg-test first second w00t "multi word arg"
+  The arguments are:
+  first
+  second
+  w00t
+  multi word arg
+  The program name is:
+  arg-test
+\end{lstlisting}
+
+现在来改造一下\textit{todo}，我们需要：
+
+\begin{enumerate}
+  \item 查看任务
+  \item 新增任务
+  \item 删除任务
+\end{enumerate}
+
+首先来构建一个分发关联列表。这些函数的类型将会是\acode{[String] -> IO ()}，它们接受关联列表作为参数，并返回一个
+I/O action，其中包含查看、新增以及删除：
+
+\begin{lstlisting}[language=Haskell]
+  import Data.List
+  import System.Directory
+  import System.Environment
+  import System.IO
+
+  dispatch :: [(String, [String] -> IO ())]
+  dispatch = [("add", add), ("view", view), ("remove", remove)]
+\end{lstlisting}
+
+暂未定义\acode{main}，\acode{add}，\acode{view}以及\acode{remove}，那么首先是\acode{main}
+
+\begin{lstlisting}[language=Haskell]
+  main = do
+    (commands : args) <- getArgs
+    let (Just action) = lookup command dispatch
+    action args
+\end{lstlisting}
+
+首先我们获取参数并将它们绑定至\acode{(command : args)}，这里的模式匹配意为第一个参数绑定至\acode{command}，
+其余的参数绑定至\acode{args}。
+
+下一行是在分发列表中查找命令。由于\acode{"add"}指向了\acode{add}，那么得到\acode{Just add}作为返回值。这里再次使用
+模式匹配从\acode{Maybe}中提取出我们的函数。那么如果命令不在关联列表中呢？返回的值是\acode{Nothing}，而这里我们不太
+需要考虑失败的情况，因此模式匹配失败后程序便抛出异常并退出。
+
+最后是调用\acode{action}函数，并将剩余参数列表作为参数传递进去，并返回一个 I/O action。
+
+棒极了！现在还剩下\acode{add}，\acode{view}以及\acode{remove}需要被实现。首先是\acode{add}：
+
+\begin{lstlisting}[language=Haskell]
+  add :: [String] -> IO ()
+  add [fileName, todoItem] = appendFile fileName $ todoItem ++ "\n"
+\end{lstlisting}
+
+接着是\acode{view}：
+
+\begin{lstlisting}[language=Haskell]
+  view :: [String] -> IO ()
+  view [fileName] = do
+    contents <- readFile fileName
+    let todoTasks = lines contents
+        numberedTasks = zipWith (\n line -> show n ++ " - " ++ line) [0 ..] todoTasks
+    putStr $ unlines numberedTasks
+\end{lstlisting}
+
+最后来实现\acode{remove}：
+
+\begin{lstlisting}[language=Haskell]
+  remove :: [String] -> IO ()
+  remove [fileName, numberString] = do
+    handle <- openFile fileName ReadMode
+    (tempName, tempHandle) <- openTempFile "." "temp"
+    contents <- hGetContents handle
+    let number = read numberString
+        todoTasks = lines contents
+        newTodoItems = delete (todoTasks !! number) todoTasks
+    hPutStr tempHandle $ unlines newTodoItems
+    hClose handle
+    hClose tempHandle
+    removeFile fileName
+    renameFile tempName fileName
+\end{lstlisting}
 
 \subsection*{随机}
 
