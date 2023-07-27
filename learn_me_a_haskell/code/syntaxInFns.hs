@@ -1,4 +1,4 @@
--- file: syntax_in_fns.hs
+-- file: syntaxInFns.hs
 -- author: Jacob Xie
 -- date: 2023/07/08 10:10:21 Saturday
 -- brief:

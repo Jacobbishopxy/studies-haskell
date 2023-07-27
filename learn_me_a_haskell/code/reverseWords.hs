@@ -1,4 +1,4 @@
--- file: reverse_words.hs
+-- file: reverseWords.hs
 -- author: Jacob Xie
 -- date: 2023/07/19 23:46:56 Wednesday
 -- brief:

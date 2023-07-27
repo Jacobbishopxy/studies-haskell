@@ -1,4 +1,4 @@
--- file: let_bindings_in_do.hs
+-- file: letBindingsInDo.hs
 -- author: Jacob Xie
 -- date: 2023/07/19 23:03:19 Wednesday
 -- brief:

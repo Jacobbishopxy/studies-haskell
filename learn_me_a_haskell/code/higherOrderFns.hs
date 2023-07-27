@@ -1,4 +1,4 @@
--- file: higher_order_fns.hs
+-- file: higherOrderFns.hs
 -- author: Jacob Xie
 -- date: 2023/07/09 22:52:33 Sunday
 -- brief:

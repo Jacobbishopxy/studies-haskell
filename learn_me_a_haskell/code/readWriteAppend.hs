@@ -1,4 +1,4 @@
--- file: read_write_append.hs
+-- file: readWriteAppend.hs
 -- author: Jacob Xie
 -- date: 2023/07/23 22:29:13 Sunday
 -- brief:

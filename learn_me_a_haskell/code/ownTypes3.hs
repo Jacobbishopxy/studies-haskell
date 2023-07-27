@@ -1,4 +1,4 @@
--- file: own_types3.hs
+-- file: ownTypes3.hs
 -- author: Jacob Xie
 -- date: 2023/07/17 22:48:45 Monday
 -- brief:
