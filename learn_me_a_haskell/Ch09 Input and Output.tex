@@ -963,6 +963,120 @@ I/O action，其中包含查看、新增以及删除：
 
 \subsection*{随机}
 
+在\acode{System.Random}模块中，包含了所有我们所需的随机函数。首先是\acodered{random}，它的类型是
+\acode{random :: (RandomGen g, Random a) => g -> (a, g)}。一些新的 typeclasses 出现了！\acodeppl{RandomGen}
+typeclass 即可以当做随机的源，而 \acodeppl{Random} typeclass 则是一个接受随机值的类型。
+
+使用\acode{random}函数首先需要知道随机数生成器。\acode{System.Random}模块提懂了一个很酷的名为\acodegrn{StdGen}的类型，
+其本身为一个\acode{RandomGen} typeclass 的实例。我们既可以手动创建一个\acode{StdGen}，也可以告诉系统基于一些随机事物
+向我们提供一个。
+
+使用\acodered{mkStdGen}函数可以手动创建一个随机数生成器，其类型为\acode{mkStdGen :: Int -> StdGen}。它接受一个整数，
+并根据这个整数提供一个随机数生成器。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> random (mkStdGen 100)
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  <interactive>:1:0:
+    Ambiguous type variable `a' in the constraint:
+      `Random a' arising from a use of `random' at <interactive>:1:0-20
+    Probable fix: add a type signature that fixes these type variable(s)
+\end{lstlisting}
+
+为什么会这样？因为\acode{random}函数可以返回一个任意属于\acode{Random} typeclass 类型的值，因此我们需要显式的告诉
+Haskell 我们需要的是哪种类型，同样还要告诉随机数生成器返回的随机值类型。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> random (mkStdGen 100) :: (Int, StdGen)
+  (-1352021624,651872571 1655838864)
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  ghci> random (mkStdGen 949488) :: (Float, StdGen)
+  (0.8938442,1597344447 1655838864)
+  ghci> random (mkStdGen 949488) :: (Bool, StdGen)
+  (False,1485632275 40692)
+  ghci> random (mkStdGen 949488) :: (Integer, StdGen)
+  (1691547873,1597344447 1655838864)
+\end{lstlisting}
+
+现在让我们模拟一下丢三个硬币（通过执行\acode{cabal install --lib random}安装\acode{System.Random}模块）：
+
+\begin{lstlisting}[language=Haskell]
+  import System.Random
+
+  threeCoins :: StdGen -> (Bool, Bool, Bool)
+  threeCoins gen =
+    let (firstCoin, newGen) = random gen :: (Bool, StdGen)
+        (secondCoin, newGen') = random newGen :: (Bool, StdGen)
+        (thirdCoin, newGen'') = random newGen' :: (Bool, StdGen)
+     in (firstCoin, secondCoin, thirdCoin)
+\end{lstlisting}
+
+注意这里与原文不同的地方在于\acode{random}之后显式声明了类型\acode{ :: (Bool, StdGen)}，这是为了粘贴去 GHCI 时避免
+\textit{ambiguous type}错误（因为没有类型推导）；仅在文件中则不需要显式声明，因为函数签名可供 Haskell 进行类型推导。
+
+如果想要丢更多的硬币，可以使用\acodered{randoms}函数，其接受一个生成器，返回一个无限列表：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> take 5 $ randoms (mkStdGen 11) :: [Int]
+  [-1807975507,545074951,-1015194702,-1622477312,-502893664]
+  ghci> take 5 $ randoms (mkStdGen 11) :: [Bool]
+  [True,True,True,True,False]
+  ghci> take 5 $ randoms (mkStdGen 11) :: [Float]
+  [7.904789e-2,0.62691015,0.26363158,0.12223756,0.38291094]
+\end{lstlisting}
+
+为什么\acode{randoms}不另外多返回一个新的生成器呢？我们自己来实现一下\acode{randoms}函数：
+
+\begin{lstlisting}[language=Haskell]
+  randoms' :: (RandomGen g, Random a) => g -> [a]
+  randoms' gen = let (value, newGen) = random gen in value : randoms' newGen
+\end{lstlisting}
+
+这是一个递归的定义。从现在的生成器中获取到一个随机数以及一个新的生成器，接着构建一个列表，该随机数位于列表头部，而列表其余
+部分则是新的生成器所生成的随机数。因为我们可能产生出无限的随机数，因此不能将一个新的生成器返回。
+
+我们可以编写一个函数生成有限流以及新的生成器，像是这样：
+
+\begin{lstlisting}[language=Haskell]
+  finiteRandoms :: (RandomGen g, Random a, Num n, Eq n) => n -> g -> ([a], g)
+  finiteRandoms 0 gen = ([], gen)
+  finiteRandoms n gen =
+    let (value, newGen) = random gen
+        (restOfList, finalGen) = finiteRandoms (n - 1) newGen
+     in (value : restOfList, finalGen)
+\end{lstlisting}
+
+又是一个递归定义（与原文不同的是\acode{n}加上了\acode{Eq}约束，不然\acode{finiteRandoms 0 gen = ([], gen)}将会
+无法对其进行类型推导）。对于 0 而言，我们仅返回一个空列表以及传入的生成器；对于其他的数而言，返回一个随机数以及一个新的
+生成器。首先是头，接着是由新的生成器所生成的\textit{n-1}作为尾，最后返回整个列表以及生成完\textit{n-1}个随机数后的
+生成器。测试：
+
+\begin{lstlisting}[language=Bash]
+  % runhaskell ownRandom.hs 1 2
+  ([-2108421029521926081],StdGen {unStdGen = SMGen 15138674219130149558 10905525725756348111})
+\end{lstlisting}
+
+\acodered{randomR}则在给定范围内生成随机数，\acode{randomR :: (RandomGen g, Random a) :: (a, a) -> g -> (a, g)}
+
+\begin{lstlisting}[language=Haskell]
+  ghci> randomR (1,6) (mkStdGen 359353)
+  (6,1494289578 40692)
+  ghci> randomR (1,6) (mkStdGen 35935335)
+  (3,1250031057 40692)
+\end{lstlisting}
+
+函数\acodered{randomRs}生成随机值的流，无需定义范围：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> take 10 $ randomRs ('a','z') (mkStdGen 3) :: [Char]
+  "ndkxbvmomg"
+\end{lstlisting}
+
+
 % TODO
 
 \subsection*{字节串}

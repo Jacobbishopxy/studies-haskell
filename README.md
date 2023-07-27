@@ -18,6 +18,8 @@
 
 - Creating a package: <https://cabal.readthedocs.io/en/stable/cabal-package.html#creating-a-package>
 
+- Package install: `cabal install --lib random`
+
 ## VsCode Setting
 
 `settings.json` (use `ghcup tui` to get versions):
