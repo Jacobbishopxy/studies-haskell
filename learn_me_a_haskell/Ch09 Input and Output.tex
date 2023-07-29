@@ -1291,6 +1291,200 @@ bytestring 有一堆与\acode{Data.List}中类似的函数，其中包括\acode{
 
 \subsection*{异常}
 
-% TODO
+尽管有表达力强的类型来帮助失败的情景（\acode{Maybe}，\acode{Either}等），Haskell 仍然支持 exception，因为
+在 I/O 的场景下 exception 是比较合理的。在处理 I/O 的时候会有很多奇怪的事情发生，环境并不能被信赖。比如说打开文件，
+文件有可能被锁，也有可能被移除了，甚至是硬盘都没了，因此直接跳到处理错误的代码是很合理的。
+
+我们知道 I/O 代码抛出异常是合理的，那么 pure 代码呢？当然是也可以抛出异常。想一想\acode{div}与\acode{head}函数，
+它们的类型分别是\acode{(Integral a) => a -> a -> a}与\acode{[a] -> a}。\acode{Maybe}或\acode{Either}
+并没有在它们的返回类型中。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> 4 `div` 0
+  *** Exception: divide by zero
+  ghci> head []
+  *** Exception: Prelude.head: empty list
+\end{lstlisting}
+
+Pure 代码可以抛出异常，但是它们只能在我们代码的 I/O 部分（也就是\acode{main}里的\acode{do}代码块）中被捕获。
+这是因为 pure 代码中你不知道什么东西会在什么时候被计算。因为 lazy 特性的原因，程序没有一个特定的执行顺序，但是
+I/O 代码却有。
+
+I/O Exception 是我们在\acode{main}中与外界沟通失败而抛出的异常。下面是一个接受命令行参数，打开所指定的文件名，
+并计算有多少行的代码：
+
+\begin{lstlisting}[language=Haskell]
+  import System.Environment
+  import System.IO
+
+  main = do
+    (fileName : _) <- getArgs
+    contents <- readFile fileName
+    let l = show . length . lines
+    putStrLn $ "This file has " ++ contents ++ " lines!"
+\end{lstlisting}
+
+当读取一个不存在的文件时：
+
+\begin{lstlisting}[language=Bash]
+  % runhaskell linecount.hs xx.txt
+  linecount.hs: xx.txt: openFile: does not exist (No such file or directory)
+\end{lstlisting}
+
+改造一下，使用\acode{System.Directory}中的\acodered{doesFileExist}函数来确保文件是否存在：
+
+\begin{lstlisting}[language=Haskell]
+  import System.Directory
+  import System.Environment
+  import System.IO
+
+  main = do
+    (fileName : _) <- getArgs
+    fileExists <- doesFileExist fileName
+    if fileExists
+      then do
+        contents <- readFile fileName
+        let l = show . length . lines
+        putStrLn $ "The file has " ++ l contents ++ " lines!"
+      else do
+        putStrLn "The file doesn't exists!"
+\end{lstlisting}
+
+代码中的\acode{fileExists <- doesFileExist fileName}是因为\acode{doesFileExist}的类型是
+\acode{doesFileExist :: FilePath -> IO Bool}，意味着返回一个 I/O action 其内容为布尔值，因此不能直接用于
+\textit{if}表达式中。
+
+\acode{System.IO.Error}模块中的\acodered{catch}函数可以用于处理异常。其类型是
+\acode{catch :: IO a -> (IOError -> IO a) -> IO a}，接受两个参数：第一个参数是一个 I/O action，例如尝试
+打开文件的 I/O action；第二个参数是一个句柄，如果 I/O action 抛出了 I/O 异常，那么该异常会被传递至该句柄，然后
+再决定如何处理。最终的返回值也是一个 I/O action，也就是说整个过程中要么如预期那样完成第一个参数的 I/O action，
+要么就是句柄处理后的结果。
+
+句柄接受一个\acode{IOError}类型的值，它代表的是一个 I/O 异常已经发生了，它也带有一些异常信息。至于该类型在语言中
+如何被实现则是要看编译器。这就意味着我们没法用模式匹配的方式来查看\acode{IOError}，类似于不能用模式匹配来查看
+\acode{IO something}的内容那样。但是我们能用一些子句来查看它们。
+
+以下是一个使用了\acode{catch}的程序：
+
+\begin{lstlisting}[language=Haskell]
+  import Control.Exception
+  import System.Environment
+
+  main = toTry `catch` handler
+
+  toTry :: IO ()
+  toTry = do
+    (fileName : _) <- getArgs
+    contents <- readFile fileName
+    let l = show . length . lines
+    putStrLn $ "The file has " ++ l contents ++ " lines!"
+
+  handler :: IOError -> IO ()
+  handler e = putStrLn "Whoops, had some trouble!"
+\end{lstlisting}
+
+与原文不同的是\acode{catch}位于\acode{Control.Exception}模块中。测试
+
+\begin{lstlisting}[language=Bash]
+  % runhaskell linecount2.hs xx.txt
+  Whoops, had some trouble!
+  % runhaskell linecount2.hs todo.txt
+  The file has 3 lines!
+\end{lstlisting}
+
+下面代码细分了异常的处理：
+
+\begin{lstlisting}[language=Haskell]
+  import Control.Exception
+  import System.Environment
+  import System.IO.Error (isDoesNotExistError)
+
+  main = toTry `catch` handler
+
+  toTry :: IO ()
+  toTry = do
+    (fileName : _) <- getArgs
+    contents <- readFile fileName
+    let l = show . length . lines
+    putStrLn $ "The file has " ++ l contents ++ " lines!"
+
+  handler :: IOError -> IO ()
+  handler e
+    | isDoesNotExistError e = putStrLn "The file doesn't exist!"
+    | otherwise = ioError e
+\end{lstlisting}
+
+这里使用了\acode{System.IO.Error}模块中的\acodered{isDoesNotExistError}以及\acodered{ioError}。
+前者是一个运行在\acode{ioError}之上的子句，其类型为\acode{isDoesNotExistError :: IOError -> Bool}。
+这里使用了守护，但实际上也可以用\textit{if else}。如果异常不是文件不存在而导致的，那么就用\acode{ioError}
+将异常重新抛出。
+
+以下是一些常用的子句：
+
+\begin{enumerate}
+  \item \acodered{isAlreadyExistsError}
+  \item \acodered{isDoesNotExistError}
+  \item \acodered{isFullError}
+  \item \acodered{isEOFError}
+  \item \acodered{isIllegalOperation}
+  \item \acodered{isPermissionError}
+  \item \acodered{isUserError}
+\end{enumerate}
+
+最后一个\acode{isUserError}时在使用\acodered{userError}函数时的返回，意为我们的代码中抛出的异常。例如
+\acode{ioError \$ userError "remote computer unplugged!"}，尽管用\acode{Either}或\acode{Maybe}
+来表示可能的错误会比自己抛出异常更好。
+
+所以可以编写这样的一个句柄：
+
+\begin{lstlisting}[language=Haskell]
+  handler :: IOError -> IO ()
+  handler e
+    | isDoesNotExistError e = putStrLn "The file doesn't exist!"
+    | isFullError e = freeSomeSpace
+    | isIllegalOperation e = notifyCops
+    | otherwise = ioError e
+\end{lstlisting}
+
+其中\acode{freeSomeSpace}与\acode{notifyCops}是用户自定义的 I/O action。如果异常不匹配，记得要将异常
+重新抛出，不然程序还是会崩溃。
+
+\acode{System.IO.Error}还提供了一些能够询问异常性质的函数，比如说是哪些句柄导致的错误，或者是哪些文件名造成的错误。
+这些函数都是\acode{ioe}开头，详见
+\href{https://downloads.haskell.org/~ghc/6.10.1/docs/html/libraries/base/System-IO-Error.html#3}{此处}.
+这里使用\acodered{ioeGetFileName}函数可以知道文件路径，其类型为
+\acode{ioeGetFileName :: IOError -> Maybe FilePath}。修改一下程序：
+
+\begin{lstlisting}[language=Haskell]
+  import Control.Exception
+  import System.Environment
+  import System.IO.Error
+
+  main = toTry `catch` handler
+
+  toTry :: IO ()
+  toTry = do
+    (fileName : _) <- getArgs
+    contents <- readFile fileName
+    let l = show . length . lines
+    putStrLn $ "The file has " ++ l contents ++ " lines!"
+
+  handler :: IOError -> IO ()
+  handler e
+    | isDoesNotExistError e =
+        case ioeGetFileName e of
+          Just path -> putStrLn $ "Whoops! File does not exist at: " ++ path
+          Nothing -> putStrLn "Whoops! File does not exist at unknown location!"
+    | otherwise = ioError e
+\end{lstlisting}
+
+如果不想只用一个\acode{catch}来捕获 I/O 部分中的所有异常，那么可以在特定的地方用\acode{catch}来进行捕获，
+或者也可以使用不同的句柄：
+
+\begin{lstlisting}[language=Haskell]
+  main = do toTry `catch` handler1
+    thenTryThis `catch` handler2
+    launchRockets
+\end{lstlisting}
 
 \end{document}
