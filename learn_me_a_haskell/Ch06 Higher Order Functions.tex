@@ -60,7 +60,7 @@
 \acode{100}调用它返回一个\acode{(Num a, Ord a) => a -> Ordering}。这里额外的类约束溜走了，这是因为\acode{100}同样也是\acode{Num}
 类的一部分。
 
-中缀函数同样可以通过使用分割被部分应用。要分割中缀函数，只需将其用圆括号括起来，并只在一侧提供参数：
+中置函数同样可以通过使用分割被部分应用。要分割中置函数，只需将其用圆括号括起来，并只在一侧提供参数：
 
 \begin{lstlisting}[language=Haskell]
   divideByTen :: (Floating a) => a -> a
