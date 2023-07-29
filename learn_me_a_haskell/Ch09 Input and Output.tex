@@ -1076,12 +1076,218 @@ Haskell 我们需要的是哪种类型，同样还要告诉随机数生成器返
   "ndkxbvmomg"
 \end{lstlisting}
 
+你可能会问这一小节跟 I/O 有什么关系？我们尚未考虑到 I/O，现在的问题就是如果在真实程序中，我们总会返回相同的随机数，这并不好。
+这就是为什么\acode{System.Random}提供了\acodered{getStdGen} I/O action，其类型为\acode{IO StdGen}。当程序启动后，
+程序会向系统要一个随机数生成器，并存储其为全局生成器。当将\acode{getStdGen}绑定至某变量时，它会去获取这个全局随机数生成器。
 
-% TODO
+以下是一个简单的生成随机字符串的程序：
+
+\begin{lstlisting}[language=Haskell]
+  import System.Random
+
+  main = do
+    gen <- getStdGen
+    putStr $ take 20 $ randomRs ('a', 'z') gen
+\end{lstlisting}
+
+\begin{lstlisting}[language=Bash]
+  % runhaskell randomString.hs
+  rfbhrwkgvbqedgvaxvxz
+  % runhaskell randomString.hs
+  fgibjkxmivziojyyrcoa
+  % runhaskell randomString.hs
+  puohzegfvvswyrqrsdbe
+\end{lstlisting}
+
+不过要小心，执行多次\acode{getStdGen}会向系统请求同一个全局生成器，例如：
+
+\begin{lstlisting}[language=Haskell]
+  import System.Random
+
+  main = do
+    gen <- getStdGen
+    putStrLn $ take 20 (randomRs ('a','z') gen)
+    gen2 <- getStdGen
+    putStr $ take 20 (randomRs ('a','z') gen2)
+\end{lstlisting}
+
+会打印出同样的字符串两次！这里的解决方案是设置一个无限流，每次获取 20 个字符：
+
+\begin{lstlisting}[language=Haskell]
+  main = do
+    gen <- getStdGen
+    let randomChars = randomRs ('a', 'z') gen
+        (first20, rest) = splitAt 20 randomChars
+        (second20, _) = splitAt 20 rest
+    putStrLn first20
+    putStr second20
+\end{lstlisting}
+
+另一个方法就是使用\acodered{newStdGen} action：
+
+\begin{lstlisting}[language=Haskell]
+  main = do
+    gen <- getStdGen
+    putStrLn $ take 20 $ randomRs ('a', 'z') gen
+    gen' <- newStdGen
+    putStrLn $ take 20 $ randomRs ('a', 'z') gen'
+\end{lstlisting}
+
+下面是一个猜数字的小程序：
+
+\begin{lstlisting}[language=Haskell]
+  -- import Control.Monad (when)
+  import Control.Monad (unless)
+  import System.Random
+
+  main = do
+    gen <- getStdGen
+    askForNumber gen
+
+  askForNumber :: StdGen -> IO ()
+  askForNumber gen = do
+    let (randNumber, newGen) = randomR (1, 10) gen :: (Int, StdGen)
+    putStr "Which number in the range from 1 to 10 am I thinking of? "
+    numberString <- getLine
+    -- when (not $ null numberString) $ do
+    unless (null numberString) $ do
+      let number = read numberString
+      if randNumber == number
+        then putStrLn "You are correct!"
+        else putStrLn $ "Sorry, it was" ++ show randNumber
+      askForNumber newGen
+\end{lstlisting}
+
+\begin{anote}
+  如果用户输入了\acode{read}读不了的东西（例如\acode{"haha"}），程序会立刻崩溃。如果使用\acodered{reads}遇到
+  错误输入是则会返回一个空列表；如果是正确输入则会返回一个包含了一个二元元组的单元素列表，
+\end{anote}
+
+这里\acode{when}用于查看用户输入的字符串是否为空，如果是则一个空 I/O action 的\acode{return ()}被执行，程序结束。
+
+另一种做法，用\acode{main}做递归（与原文不同，使用了上述建议的\acode{reads}，并默认 0 避免错误输入导致的崩溃）：
+
+\begin{lstlisting}[language=Haskell]
+  main = do
+  gen <- getStdGen
+  let (randNumber, _) = randomR (1, 10) gen :: (Int, StdGen)
+  putStr "Which number in the range from 1 to 10 am I thinking of? "
+  numberString <- getLine
+  unless (null numberString) $ do
+    let number = case reads numberString of
+          [(num, _)] -> num
+          _ -> 0
+    if randNumber == number
+      then putStrLn "You are correct!"
+      else putStrLn $ "Sorry, it was " ++ show randNumber
+    newStdGen
+    main
+\end{lstlisting}
 
 \subsection*{字节串}
 
-% TODO
+将文件处理成字符串有一个缺陷：它很慢。如我们所知，\acode{String}其实就是\acode{[Char]}，\acode{Char}并没有一个
+固定的大小，因为需要若干字节才能表示一个字符。另外就是列表是 lazy 的，如果有一个\acode{[1,2,3,4]}列表，它只会在有
+必要时才会进行计算，也就是说整个列表其实是一个 promise 的列表。当列表的第一个元素被强制计算（假设是打印），列表的
+剩余部分\acode{2:3:4:[]}仍然是一个 promise 列表。
+
+大多数时候这种负担并没什么，但是读取大文件并进行操作时就不一样了。这就是为什么 Haskell 有\textbf{bytestrings}，
+其元素是一个字节（8 bits），而且与字符串相比，它们的 lazy 性质也不一样。
+
+Bytestrings 有两种模式：strict 以及 lazy。Strict 模式位于\acode{Data.ByteString}模块，没有涉及 promise；
+该模式的好处就是更少的费用开支，而坏处就是一次性加载至内存会导致内存占用过高。Lazy 模式\acode{Data.ByteString.Lazy}
+则是另一种做法，它们被存储于 chunks 中（不是 Thunk），每个 chunk 的大小都是 64k。
+
+使用它们需要 qualified 导入：
+
+\begin{lstlisting}[language=Haskell]
+  import Data.ByteString.Lazy qualified as B
+  import Data.ByteString qualified as S
+\end{lstlisting}
+
+\acode{B}拥有 lazy bytestring 的类型与函数，而\acode{S}则是 strict。大多数时候我们用的是 lazy 的版本。
+
+\acodered{pack}函数的类型签名是\acode{pack :: [Word8] -> ByteString}，意为接受一个\acode{Word8}类型的字节
+列表，并返回一个\acode{ByteString}。可以想象成接受一个 lazy 的列表，使其变成没那么 lazy，也就是对于 64K lazy。
+
+那么\acode{Word8}类型又是什么？它类似于\acode{Int}，只是范围较小，介于 0-255 之间。它代表一个 8-bit 的数字，就像
+\acode{Int}一样，它是属于\acode{Num}这个 typeclass。例如我们知道\acode{5}是多态的，它能够表现成任何数值类型，
+\acode{Word8}也能这样表现。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> B.pack [99,97,110]
+  Chunk "can" Empty
+  ghci> B.pack [98..120]
+  Chunk "bcdefghijklmnopqrstuvwx" Empty
+\end{lstlisting}
+
+如你所见，通常无需担心\acode{Word8}，因为类型系统可以使数值选择类型。如果使用一个大的数值，例如\acode{336}作为
+\acode{Word8}，它会包装成\acode{80}。
+
+我们把一部分数值打包成\acode{ByteString}，使它们可以塞进一个 chunk 内，而\acode{Empty}类似于\acode{[]}那样的
+空列表用作于空的\acode{ByteString}。
+
+\acodered{unpack}则是\acode{pack}的反函数，即接受一个 bytestring 将其转换成字节列表。
+
+\acodered{fromChunks}接受一个 strict 模式的 bytestrings，将其转换成 lazy 模式；\acodered{toChunks}则相反。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> B.fromChunks [S.pack [40,41,42], S.pack [43,44,45], S.pack [46,47,48]]
+  Chunk "()*" (Chunk "+,-" (Chunk "./0" Empty))
+\end{lstlisting}
+
+这对于很多小的 strict bytestring 且不想将它们 join 起来（占用内存），是个不错的做法。
+
+\acode{cons}是\acode{:}的 bytestring 版本，它接受一个字节以及一个 bytestring，将前者放置在后者头部。它是 lazy 的，
+因此即使 bytestring 的第一个 chunk 不是满的，它也会添加一个 chunk。这也是为什么在插入很多字节的时候最好用 strict 的
+\acode{cons'}。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> B.cons 85 $ B.pack [80,81,82,84]
+  Chunk "U" (Chunk "PQRT" Empty)
+  ghci> B.cons' 85 $ B.pack [80,81,82,84]
+  Chunk "UPQRT" Empty
+  ghci> foldr B.cons B.empty [50..60]
+  Chunk "2" (Chunk "3" (Chunk "4" (Chunk "5" (Chunk "6" (Chunk "7" (Chunk "8" (Chunk "9" (Chunk ":" (Chunk ";" (Chunk "<" Empty))))))))))
+  ghci> foldr B.cons' B.empty [50..60]
+  Chunk "23456789:;<" Empty
+\end{lstlisting}
+
+如你所见\acode{empty}创建一个空的 bytestring。可以看出来\acode{cons}与\acode{cons'}之间的区别了吗？通过\acode{foldr}
+我们从一个空的 bytestring 开始，接着从右开始遍历数值列表，将每个数值放置在 bytestring 的头部。使用\acode{cons}时，则是
+每个字节都作为一个 chunk，这显然不符合初衷。
+
+bytestring 有一堆与\acode{Data.List}中类似的函数，其中包括\acode{head}，\acode{tail}，\acode{init}，\acode{null}，
+\acode{length}，\acode{map}，\acode{reverse}，\acode{foldl}，\acode{foldr}，\acode{concat}，\acode{taskWhile}，
+\acode{filter}等等。
+
+同样也有表现的跟\acode{System.IO}中一样的函数，只不过是\acode{Strings}被替换成了\acode{ByteString}。比如
+\acode{System.IO}中的\acode{readFile}，其类型为\acode{readFile :: FilePath -> IO String}，而 bytestring 模块中的
+\acodered{readFile}其类型为\acode{readFile :: FilePath -> IO ByteString}。注意这里使用的是 strict bytestring，
+读取文件时会一次性读取至内存！如果是 lazy 模式，则会读取成 chunks。
+
+现在让我们写一个简单的程序，从命令行中接受两个文件名，将第一个文件中的内容拷贝至第二个。注意\acode{System.Directory}有一个
+名为\acode{copyFile}的函数，不过这里我们还是来实现一下：
+
+\begin{lstlisting}[language=Haskell]
+  import Data.ByteString.Lazy qualified as B
+  import System.Environment
+
+  main = do
+    (fileName1 : fileName2 : _) <- getArgs
+    copyFile fileName1 fileName2
+
+  copyFile :: FilePath -> FilePath -> IO ()
+  copyFile source dest = do
+    contents <- B.readFile source
+    B.writeFile dest contents
+\end{lstlisting}
+
+\begin{lstlisting}[language=Bash]
+  runhaskell byteStringCopy.hs todo.txt ../../todo.txt
+\end{lstlisting}
+
+当需要更好的性能来读取数据时，可以尝试用 bytestring。
 
 \subsection*{异常}
 
