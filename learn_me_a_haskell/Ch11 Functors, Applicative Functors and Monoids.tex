@@ -2,6 +2,195 @@
 
 \begin{document}
 
-WIP
+由纯粹性，高阶函数，参数化代数数据类型，以及 typeclasses 所构成的 Haskell，相比于其他语言，允许我们实现更高等级的多态。
+我们无需考虑类型是如何属于一个类型阶级系统的，而是由合理的 typeclasses 如何连接它们的。
+
+Typesclasses 是开放的，这就意味着我们可以定义自己的数据类型。
+
+\subsection*{函子 Functors 复习}
+
+回忆：Functors 可以用于映射至比如列表，\acode{Maybe}，树，等等。在 Haskell 中它们被 \acode{Functor} typeclass
+所描述，其仅有一个名为 \acode{fmap} 的 typeclass 方法，该方法的类型是\acode{fmap :: (a -> b) -> f a -> f b}。
+它表示：给我一个接受一个\acode{a}并返回一个\acode{b}的函数，以及给我一个（或多个）\acode{a}的容器，那么我将给你一个
+（或多个）\acode{b}的容器。有点像是将函数应用至容器中的元素。
+
+如果一个类型构造函数是\acode{Functor}的实例，那么它的 kind 就必须是\acode{* -> *}，这代表它必须刚好接受一个类型作为
+类型参数。像是\acode{Maybe}是 Functor 的实例，它接受一个类型参数，如\acode{Maybe Int}或\acode{Maybe String}。
+如果一个类型构造函数接受两个参数，比如\acode{Either}，我们不能这样\acode{instance Functor Either where}，不过
+可以这样\acode{instance Functor (Either a) where}，那么\acode{fmap}作为\acode{Either a}的类型前面就可以这样
+\acode{fmap :: (b -> c) -> Either a b -> Either a c}。
+
+现在看看\acode{IO}是怎么样的一个\acode{Functor}实例。当我们\acode{fmap}一个函数在一个 I/O action 上，我们希望
+拿回的 I/O action 是已经被映射过的：
+
+\begin{lstlisting}[language=Haskell]
+  instance Functor IO where
+    fmap f action = do
+        result <- action
+        return (f result)
+\end{lstlisting}
+
+对一个 I/O action 映射的结果仍然是一个 I/O action，因此需要用\textit{do}语法来把两个 I/O action 粘合成一个。
+
+\begin{lstlisting}[language=Haskell]
+  main = do
+    line <- getLine
+    let line' = reverse line
+    putStrLn $ "You said " ++ line' ++ " backwards!"
+    putStrLn $ "Yes, you really said " ++ line' ++ " backwards!"
+\end{lstlisting}
+
+用\acode{fmap}改写：
+
+\begin{lstlisting}[language=Haskell]
+  main = do
+    line <- fmap reverse getLine
+    putStrLn $ "You said " ++ line ++ " backwards!"
+    putStrLn $ "Yes, you really said " ++ line ++ " backwards!"
+\end{lstlisting}
+
+如果将\acode{fmap}应用至\acode{IO}，其类型便为\acode{fmap :: (a -> b) -> IO a -> IO b}。
+
+如果将一个 I/O action 绑定到一个名称上时，仅仅想要应用一个函数，那么可以考虑使用\acode{fmap}，因为这看起来更简洁。如果
+想要应用多个函数，那么可以声明自己的函数，将其变为 lambda 或者使用函数组合：
+
+\begin{lstlisting}[language=Haskell]
+  import Data.Char
+  import Data.List
+
+  main = do
+    line <- fmap (intersperse '-' . reverse . map toUpper) getLine
+    putStrLn line
+\end{lstlisting}
+
+\begin{lstlisting}[language=Bash]
+  $ runhaskell fmappingIO.hs
+  hello there
+  E-R-E-H-T- -O-L-L-E-H
+\end{lstlisting}
+
+\acode{intersperse '-' . reverse . map toUpper}这个函数接受一个字符串，映射\acode{toUpper}后的返回值再应用
+\acode{reverse}，最后应用\acode{intersperes '-'}。
+
+另一个我们已经接触过的\acode{Functor}实例就是\acode{(->) r}。函数类型\acode{r -> a}可以被重写为\acode{(->) r a}，
+就像是\acode{2 + 3}可以表达为\acode{(+) 2 3}。从另一个角度来看\acode{(->) r a}，它其实就是一个接受两个类型参数的
+构造函数，例如\acode{Either}。但是记住\acode{Functor}只能接受一个参数类型，这也是为什么\acode{(->)}不是
+\acode{Functor}的一个实例，但是\acode{(->) r}则是。在\acode{Control.Monad.Instances}有更多的细节：
+
+\begin{lstlisting}[language=Haskell]
+  instance Functor ((->) r) where
+    fmap f g = (\x -> f (g x))
+\end{lstlisting}
+
+首先来看看\acode{fmap}的类型\acode{fmap :: (a -> b) -> f a -> f b}。我们把所有的\acode{f}替换成\acode{(->) r}，
+那么就是\acode{fmap :: (a -> b) -> ((->) r a) -> ((->) r b)}，然后将\acode{(->) r a}与\acode{(->) r b}换成
+\acode{r -> a}与\acode{r -> b}，则得到\acode{fmap :: (a -> b) -> (r -> a) -> (r -> b)}。
+
+将一个函数映射至另一个函数可以生产出一个函数，就像是映射一个函数在\acode{Maybe}上生产出一个\acode{Maybe}，映射一个函数在
+一个列表上能生成出一个列表。那么上述的类型实例说的是什么呢？它接受一个\acode{a}至\acode{b}的函数，以及一个\acode{r}至
+\acode{a}的函数，返回一个\acode{r}至\acode{b}的函数。这就是一个函数组合！另一种实例的写法：
+
+\begin{lstlisting}[language=Haskell]
+  instance Functor ((->) r) where
+    fmap = (.)
+\end{lstlisting}
+
+很明显就是将\acode{fmap}当函数组合在用。在 GHCI 中使用\acode{:m + Control.Monad.Instances}加载模块，测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t fmap (*3) (+100)
+  fmap (*3) (+100) :: (Num a) => a -> a
+  ghci> fmap (*3) (+100) 1
+  303
+  ghci> (*3) `fmap` (+100) $ 1
+  303
+  ghci> (*3) . (+100) $ 1
+  303
+  ghci> fmap (show . (*3)) (*100) 1
+  "300"
+\end{lstlisting}
+
+\acode{fmap}等同于函数组合这件事儿对我们而言并不是很实用，但是这至少是一个有趣的观点。Functors 其实比较像是 computation，
+函数被映射到另一个计算会经由那个函数映射过后的计算。
+
+在看一下\acode{fmap}的类型\acode{fmap :: (a -> b) -> f a -> f b}，那么为了简洁不写\acode{(Functor f) =>}部分。
+在学柯里化的时候提到过 Haskell 的函数实际上只接受一个参数，即\acode{a -> b -> c}，如果调用时少写一个参数，那么返回的函数
+就需要接受剩下的参数。所以\acode{a -> b -> c}可以写成\acode{a -> (b -> c)}，这样柯里化更加明显。
+
+同样的如果写成\acode{fmap :: (a -> b) -> (f a -> f b)}，我们可以认为\acode{fmap}不是一个接受函数与函子并返回一个函子的
+函数，而是一个接受函数并返回一个新函数的函数，而这个返回的新函数接受一个函子作为参数，并返回一个函子。接受一个\acode{a -> b}
+函数并返回一个\acode{f a -> f b}函数，这被称为\textit{提升 lifting}一个函数。我们用 GHCI 的\acode{:t}命令检查：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t fmap (*2)
+  fmap (*2) :: (Num a, Functor f) => f a -> f a
+  ghci> :t fmap (replicate 3)
+  fmap (replicate 3) :: (Functor f) => f a -> f [a]
+\end{lstlisting}
+
+表达式\acode{fmap (*2)}是一个接受基于数值的函子\acode{f}并返回一个数值函子的函数。函子可以是一个列表一个\acode{Maybe}，
+一个\acode{Either String}，等等。表达式\acode{fmap (replicate 3)}则接受任意类型的函子并返回一个该类型列表函子。
+
+\begin{anote}
+  当我们说\textit{一个基于数值的函子 a functor over numbers}时，你可以认为是\textit{一个拥有数值的函子 a functor that
+    has numbers in it}。前者的描述更加精准，后者则更容易理解。
+\end{anote}
+
+当使用部分应用绑定至一个名称时，比如说\acode{fmap (++"!")}，在 GHCI 更加的显而易见。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t fmap (++"!")
+  fmap (++"!") :: Functor f => f [Char] -> f [Char]
+\end{lstlisting}
+
+可以把\acode{fmap}想像成一个函数，接受另一个函数与一个函子，然后将接受的函数对函子中每个元素做映射；也可以想象成是一个函数，
+接受一个函数并将其提升 lift 到可以在函子上操作。这两种想法都是正确的，且在 Haskell 中是等价的。
+
+接下来我们开始学习\textbf{函子定律 functor laws}。为了让某物成为一个函子，它必须满足某些条件。所有的函子都要求具有某些性质，
+它们必须是能被映射的，对它们调用\acode{fmap}应该要用一个函数映射至每一个元素，且没有额外的操作。这些行为都被函子定律所描述。
+对于\acode{Functor}的实例而言，总共有两条定律该被遵守。不过它们不会在 Haskell 中自动被检查，需要用户自己确认这些条件。
+
+\textbf{函子第一定律是如果将\acode{id}函数映射至该函子，得到的函子必须是原来的函子}。用代码表示即\acodegrn{fmap id = id}，
+换言之如果\acode{fmap id}至一个函子，返回的结果跟直接\acode{id}至该函子是一样的。\acode{id}是一个 identity 函数，
+可以写作是\acode{\\x -> x}。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> fmap id (Just 3)
+  Just 3
+  ghci> id (Just 3)
+  Just 3
+  ghci> fmap id [1..5]
+  [1,2,3,4,5]
+  ghci> id [1..5]
+  [1,2,3,4,5]
+  ghci> fmap id []
+  []
+  ghci> fmap id Nothing
+  Nothing
+\end{lstlisting}
+
+看一下\acode{Maybe}的\acode{fmap}的实现，可以知道第一定律是如何遵守的：
+
+\begin{lstlisting}[language=Haskell]
+  instance Functor Maybe where
+    fmap f (Just x) = Just (f x)
+    fmap f Nothing = Nothing
+\end{lstlisting}
+
+\textbf{函子第二定律是将两个函数合成并将结果映射至一个函子的结果，与现将第一个函数映射函子再将第二个函子映射至该函子的结果是一样的}。
+即\acodegrn{fmap (f . g) = fmap f . fmap g}，或者另一种写法，对于任何一个函子\acode{F}，满足\acodegrn{fmap (f . g) F =
+  fmap f (fmap g F)}。
+
+\subsection*{高级函子 Applicative functors}
+
+% TODO
+
+\subsection*{newtype 关键字}
+
+% TODO
+
+\subsection*{幺半群 Monoids}
+
+% TODO
 
 \end{document}
