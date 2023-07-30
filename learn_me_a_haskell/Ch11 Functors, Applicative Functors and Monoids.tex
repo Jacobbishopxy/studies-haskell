@@ -183,7 +183,167 @@ Typesclasses 是开放的，这就意味着我们可以定义自己的数据类�
 
 \subsection*{高级函子 Applicative functors}
 
+本节开始学习高级函子，在 Haskell 中由 \acode{Applicative} typeclass 描述，可在\acode{Control.Applicative}模块中找到。
+
+函数在 Haskell 中默认是柯里化的，这就意味着一个函数看起来接受若干参数实际上是接受一个参数并返回一个函数再接受一个参数，以此类推。
+如果一个函数的类型是\acode{a -> b -> c}，那么通常会说它接受两个参数并返回一个\acode{c}。这就是为什么可以将\acode{f x y}
+表达为\acode{(f x) y}。这个机制允许我们部分应用函数，仅需调用少一些的参数，返回的函数可以被传递至另一个函数。
+
+迄今为止我们映射函数至函子，所映射的函数都是仅一个参数的。但是当映射一个接受两个参数的函数像是\acode{*}至一个函子，该怎么办呢？
+首先让我们来观测几个实际的例子。如果有\acode{Just 3}，我们做\acode{fmap (*) (Just 3)}，会得到什么？从\acode{Maybe}实现
+\acode{Functor}的实例中我们知道如果是一个\acode{Just something}值，会将函数应用至\acode{Just}中的\acode{something}。
+因此\acode{fmap (*) (Just 3)}的结果是\acode{Just ((*) 3)}，即\acode{Just (* 3)}。有意思！我们得到了一个包裹在
+\acode{Just}中的函数！
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t fmap (++) (Just "hey")
+  fmap (++) (Just "hey") :: Maybe ([Char] -> [Char])
+  ghci> :t fmap compare (Just 'a')
+  fmap compare (Just 'a') :: Maybe (Char -> Ordering)
+  ghci> :t fmap compare "A LIST OF CHARS"
+  fmap compare "A LIST OF CHARS" :: [Char -> Ordering]
+  ghci> :t fmap (\x y z -> x + y / z) [3,4,5,6]
+  fmap (\x y z -> x + y / z) [3,4,5,6] :: (Fractional a) => [a -> a -> a]
+\end{lstlisting}
+
+如果映射\acode{compare}，其类型是\acode{(Ord a) => a -> a -> Ordering}至一个字符列表，得到\acode{Char -> Ordering}的
+列表，因为函数\acode{compare}是部分应用在列表中的每个字符上的。不是\acode{(Ord a) => a -> Ordering}函数的列表，因为第一个
+\acode{a}被应用的是一个\acode{Char}，因此第二个\acode{a}就必须是\acode{Char}类型了。
+
+我们见识到了如何映射“多参数”函数至函子，得到的是一个包含了该函数的函子。那现在我们能对这个包含了函数的函子做什么呢？我们能用一个
+消费这些函数的函数来映射至这个函子，这些函子中的函数都会被当做参数传给消费函数。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let a = fmap (*) [1,2,3,4]
+  ghci> :t a
+  a :: [Integer -> Integer]
+  ghci> fmap (\f -> f 9) a
+  [9,18,27,36]
+\end{lstlisting}
+
+但如果一个函子值是\acode{Just (3 *)}，一个函子值是\acode{Just 5}，我们希望从\acode{Just (3 *)}取出函数并映射至\acode{Just 5}
+呢？普通的函子是没法做的，因为他们仅支持映射普通函数至已存在的函子。即使当我们映射\acode{\\f -> f 9}至一个包含了函数的函子上，我们
+也只是映射了一个普通函数。也就是说我们没法用\acode{fmap}将一个包在函子里的函数映射至一个函子。我们可以用模式匹配将\acode{Just}中的
+函数抽出来再映射至\acode{Just 5}，不过我们希望有一个通用方法，对于任何函子都有效。
+
+现在来看看\acode{Applicative}这个 typeclass，可以在\acode{Control.Applicative}中找到它，其定义了两个函数\acode{pure}以及
+\acode{<*>}。没有任何的默认实现，因此如果希望某物成为高级函子，那么我们需要定义这两个函数。其定义如下：
+
+\begin{lstlisting}[language=Haskell]
+  class (Functor f) => Applicative f where
+    pure :: a -> f a
+    (<*>) :: f (a -> b) -> f a -> f b
+\end{lstlisting}
+
+这简单的三行告诉了我们很多东西！首先是第一行，定义\acode{Applicative}类，并引入了类约束，即\acode{Applicative} typeclass 的
+构造函数中的类型首先必须的是一个\acode{Functor}，因为这样才能使用\acode{fmap}。
+
+第一个定义的方法是\acode{pure}。其类型声明是\acode{pure :: a -> f a}。\acode{f}在这里就是高级函子的实例。其接受一个任意类型，
+返回一个包含了该任意类型的高级函子。
+
+一个更好理解\acode{pure}的方式就是它接受一个值，将该值放入某些默认（或纯）context 中 -- 这个最小的 context 仍然包含了这个值。
+
+\acode{<*>}函数非常有趣，其类型声明是\acode{f (a -> b) -> f a -> f b}，这跟\acode{fmap :: (a -> b) -> f a -> f b}很像。
+也就是一个增强版的\acode{fmap}。\acode{fmap}接受一个函数和函子，并将函数应用至函子内的值，而\acode{<*>}接受一个包含了函数的函子，
+以及另一个函子，并类似于提取第一个函子中的函数应用至第二个函子中。
+
+下面是\acode{Maybe}实现\acode{Applicative}的实例：
+
+\begin{lstlisting}[language=Haskell]
+  instance Applicative Maybe where
+    pure = Just
+    Nothing <*> _ = Nothing
+    (Just f) <*> something = fmap f something
+\end{lstlisting}
+
+首先是\acode{pure}，这里的\acode{pure = Just}是因为\acode{Just}的值构造函数是普通函数，等同于\acode{pure x = Just x}。
+
+其次是\acode{<*>}，我们不能从\acode{Nothing}中提取函数，因此其返回值就是\acode{Nothing}；如果是一个包含函数的\acode{Just}，
+那么将该函数映射至第二个参数，这里第二个参数也有可能是\acode{Nothing}，不过\acode{fmap}任何函数至\acode{Nothing}也都会返回
+\acode{Nothin}，因此无需多虑。
+
+测试一下：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> Just (+3) <*> Just 9
+  Just 12
+  ghci> pure (+3) <*> Just 10
+  Just 13
+  ghci> pure (+3) <*> Just 9
+  Just 12
+  ghci> Just (++"hahah") <*> Nothing
+  Nothing
+  ghci> Nothing <*> Just "woot"
+  Nothing
+\end{lstlisting}
+
+普通的函子能将函数映射至函子本身，但是可能没法拿到结果；而高级函子则可以让你用单一一个函数操作好几个函子。比如：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> pure (+) <*> Just 3 <*> Just 5
+  Just 8
+  ghci> pure (+) <*> Just 3 <*> Nothing
+  Nothing
+  ghci> pure (+) <*> Nothing <*> Just 5
+  Nothing
+\end{lstlisting}
+
+这里发生了什么？让我们一步一步来看。\acode{<*>}是左关联的，意味着\acode{pure (+) <*> Just 3 <*> Just 5}等同于
+\acode{(pure (+) <*> Just 3) <*> Just 5}。首先\acode{+}函数被放进了一个函子中，这个例子中就是\acode{Maybe}包含了该
+函数，因此\acode{pure (+)}即是\acode{Just (+)}。其次\acode{Just (+) <*> Just 3}发生了，其结果为\acode{Just (3+)}，
+这是因为部分应用，仅将\acode{3}应用至\acode{+}函数返回的是一个接受一个参数的函数。最后\acode{Just (3+) <*> Just 5}被
+运算，结果就是\acode{Just 8}。
+
+这很棒吧！用 applicative 风格来使用高级函子，如\acode{pure f <*> x <*> y <*> ...}就让我们可以哪一个接受多个参数的函数，
+而且这些参数不一定是包在函子内的。这样套用多个在函子 context 的值，该函数可以消费任意多的参数，毕竟\acode{<*>}只是在做
+部分应用而已。
+
+如果考虑到\acode{pure f <*> x}等同于\acode{fmap f x}的话，这样的用法就更方便了。这是一条 applicative 定律，之后会进行
+详细讲解。如果我们将一个函数置入默认 context 中，接着提取并应用至另一个一个高级函子中的值，那么这就跟映射一个函数至高级函子
+一样。与其\acode{pure f <*> x <*> y <*> ...}，可以写作\acode{fmap f x <*> y <*> ...}。这就是为什么
+\acode{Control.Applicative}导出了一个名为\acode{<\$>}的函数，它实际上就是一个中置版本的\acode{fmap}，其定义如下：
+
+\begin{lstlisting}[language=Haskell]
+  (<$>) :: (Functor f) => (a -> b) -> f a -> f b
+  f <$> x = fmap f x
+\end{lstlisting}
+
+\begin{anote}
+  快速提示：类型变量跟参数的名字还有值绑定的名称不冲突。\acode{f}在函数的类型声明中是类型变量，说明\acode{f}应该要满足
+  \acode{Functor} typeclass 的条件。而在函数本体中的\acode{f}则表示一个函数，我们将它映射至\acode{x}。我们同样用
+  \acode{f}来表示它们并代表它们是相同的东西。
+\end{anote}
+
+通过使用\acode{<\$>}，applicative 风格的好处就很显著了。如果将\acode{f}应用至三个高级函子，就可以这样
+\acode{f <\$> x <*> y <*> z}。如果参数不是高级函子而是普通值，则是\acode{f x y z}。
+
+让我们再看看它是如何工作的。我们有一个值\acode{Just "johntra"}以及一个值\acode{Just "volta"}，我们想要合并他们成为
+一个在\acode{Maybe}函子内部的\acode{String}。我们可以这么做：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> (++) <$> Just "johntra" <*> Just "volta"
+  Just "johntravolta"
+\end{lstlisting}
+
+在正式讲解发生了什么之前，先比较一下：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> (++) "johntra" "volta"
+  "johntravolta"
+\end{lstlisting}
+
+可以将一个普通的函数应用在高级函子上真棒。只用写一些\acode{<\$>}以及\acode{<*>}就可以把函数变为 applicative 风格，操作
+这些 applicatives 并返回一个 applicative。太酷了！
+
 % TODO
+
+% \begin{lstlisting}[language=Haskell]
+
+% \end{lstlisting}
+
+% \begin{lstlisting}[language=Haskell]
+
+% \end{lstlisting}
 
 \subsection*{newtype 关键字}
 
