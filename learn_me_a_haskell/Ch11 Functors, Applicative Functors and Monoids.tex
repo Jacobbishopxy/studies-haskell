@@ -418,6 +418,128 @@ Applicative 风格对于列表而言是一个取代列表表达式的好方法�
 可以看到列表的运算中，\acode{pure f <*> xs}等同于\acode{fmap f xs}。\acode{pure f}就是\acode{[f]}，以及
 \acode{[f] <*> xs}将应用左侧列表中的每个函数至右侧列表中的每个值，但左边其实只有一个函数，所以看上去就像是 mapping。
 
+另一个我们已经遇到的\acode{Applicative}实例就是\acode{IO}，其实现：
+
+\begin{lstlisting}[language=Haskell]
+  instance Applicative IO where
+    pure = return
+    a <*> b = do
+        f <- a
+        x <- b
+        return (f x)
+\end{lstlisting}
+
+\acode{pure}将值放入最小 context 内，这里即\acode{return}，意味着一个 I/O action 不做任何事情，返回其包含的值，
+但实际上并没有做任何 I/O 操作比如打印至终端或者文件读取。
+
+而\acode{<*>}被限制在\acode{IO}上的话，它的类型就是\acode{<*> :: IO (a -> b) -> IO a -> IO b}，即接受一个生产
+函数的 I/O action，以及另一个 I/O action，由它们创建一个新的 I/O action，也就是把第二个参数传给第一个参数，得到的
+返回值放进新的 I/O action 中。注意\textit{do}语法就是将若干 I/O action 粘合成一个，这正是我们现在所做的。
+
+通过\acode{Maybe}已经\acode{[]}，我们可以认为\acode{<*>}就是从其左参数中提取一个函数，再将该函数应用至右参数上。
+而对于\acode{IO}，仍然是提取，不过带上了\textit{序列 sequencing}这个概念，因为接受两个 I/O actions 顺序执行，或者
+说是粘合成为一个 I/O action。从第一个 I/O action 中取值，但要取出 I/O action 的结果，因此它必须先被执行。
+
+例如：
+
+\begin{lstlisting}[language=Haskell]
+  myAction :: IO String
+  myAction = do
+      a <- getLine
+      b <- getLine
+      return $ a ++ b
+\end{lstlisting}
+
+这个 I/O action 提示用户输入两行在返回合并的两行。达到这个目的就是将两个\acode{getLine} I/O actions 粘合在一起后
+使用\acode{return}。而使用 applicative 可以这样写：
+
+\begin{lstlisting}[language=Haskell]
+  myAction :: IO String
+  myAction = (++) <$> getLine <*> getLine
+\end{lstlisting}
+
+表达式\acode{(++) <\$> getLine <*> getLine}的类型是\acode{IO String}，意味着该表达式跟别的 I/O action 完全
+一样，因此可以这么做：
+
+\begin{lstlisting}[language=Haskell]
+  main = do
+    a <- (++) <$> getLine <*> getLine
+    putStrLn $ "The two lines concatenated turn out to be: " ++ a
+\end{lstlisting}
+
+另一个\acode{Applicative}实例就是\acode{(->) r}：
+
+\begin{lstlisting}[language=Haskell]
+  instance Applicative ((->) r) where
+    pure x = (\_ -> x)
+    f <*> g = \x -> f x (g x)
+\end{lstlisting}
+
+\acode{pure}接受值，创建一个忽视入参且将该值作为返回的函数，即\acode{pure :: a -> (r -> a)}。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> (pure 3) "blah"
+  3
+\end{lstlisting}
+
+因为有柯里化，函数应用时左关联的，所以可以省略括号：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> pure 3 "blah"
+  3
+\end{lstlisting}
+
+而\acode{<*>}的实现则有点神秘，让我们看看作为高级函子如何使用该函数：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t (+) <$> (+3) <*> (*100)
+  (+) <$> (+3) <*> (*100) :: (Num a) => a -> a
+  ghci> (+) <$> (+3) <*> (*100) $ 5
+  508
+\end{lstlisting}
+
+两个高级函子输入\acode{<*>}返回一个高级函子，所以如果输入两个函数，则得到一个新的函数。这里发生了什么？当使用
+\acode{(+) <\$> (+3) <*> (*100)}时，我们在创造一个函数，该函数会将\acode{(+3)}以及\acode{(*100)}的结果，
+应用\acode{+}，再进行返回，即\acode{5}给到\acode{(+3)}以及\acode{(*100)}，得到\acode{8}与\acode{500}后，
+将\acode{+}应用至\acode{8}与\acode{500}，得\acode{508}。再比如：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> (\x y z -> [x,y,z]) <$> (+3) <*> (*2) <*> (/2) $ 5
+  [8.0,10.0,2.5]
+\end{lstlisting}
+
+这里也一样。创建一个将会调用\acode{\\x y z -> [x,y,z]}函数的函数，输入的参数是\acode{(+3)}，\acode{(*2)}，
+以及\acode{(/2)}。\acode{5}则被分别输入进这三个函数中，接着调用\acode{\\x y z -> [x,y,z]}得到结果。
+
+我们可以认为函数作为盒子包含着它们最终的结果，因此\acode{k <\$> f <*> g}创建了一个将最终会对\acode{f}与
+\acode{g}的结果而调用\acode{k}的函数。
+
+另一个我们还没遇到过的\acode{Applicative}实例就是\acode{ZipList}，它位于\acode{Control.Applicative}模块中。
+
+实际上列表要作为一个高级函子可以有很多种方式。已经介绍过的一种就是应用\acode{<*>}，左参是若干函数，右参则是若干值，
+结果这是函数应用于所有值后的所有组合。例如\acode{[(+3),(*2)] <*> [1,2]}，\acode{(+3)}会先应用至\acode{1}与
+\acode{2}，接着再是\acode{(*2)}应用至\acode{1}与\acode{2}，最终得\acode{[4,5,2,4]}。
+
+而\acode{[(+3),(*2)] <*> [1,2]}理论上也可以将左参第一个函数应用至右参第一个值，再将左参第二个函数应用至右参的
+第二个值，以此类推。
+
+由于一个类型不能对同个 typeclass 定义两个实例，因此才有\acode{ZipList a}，它只有一个构造函数\acode{ZipList}，
+一个字段，它的类型是列表：
+
+\begin{lstlisting}[language=Haskell]
+  instance Applicative ZipList where
+    pure x = ZipList (repeat x)
+    ZipList fs <*> ZipList xs = ZipList (zipWith (\f x -> f x) fs xs)
+\end{lstlisting}
+
+\acode{<*>}就是上面说的顺序应用，这是通过\acode{zipWith (\\f x -> f x) fs xs}实现的。又因为\acode{zipWith}
+的原理，返回的列表长度由输入的列表中最短的那个决定。
+
+\acode{pure}在这里同样有趣。它接受一个值，将其置入一个无限循环该值的列表中，例如\acode{pure "haha"}在这里返回
+\acode{ZipList (["haha", "haha", "haha" ...)}。这里可能会令人迷惑，之前我们说过\acode{pure}是把一个值放入
+最小的 context 中，而无限长的列表不可能会是一个最小的 context。然而这对 zip 列表来说很合理，因为它必须在列表的
+每个位置都有值。这也遵守了\acode{pure f <*> xs}必须要等价于\acode{fmap f xs}的特性。
+
 % TODO
 
 \subsection*{newtype 关键字}
