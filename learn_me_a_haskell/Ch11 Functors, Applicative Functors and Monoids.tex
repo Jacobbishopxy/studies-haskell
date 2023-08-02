@@ -540,7 +540,138 @@ Applicative 风格对于列表而言是一个取代列表表达式的好方法�
 最小的 context 中，而无限长的列表不可能会是一个最小的 context。然而这对 zip 列表来说很合理，因为它必须在列表的
 每个位置都有值。这也遵守了\acode{pure f <*> xs}必须要等价于\acode{fmap f xs}的特性。
 
+那么 zip 列表是如何用 applicative 风格运作的呢？\acode{ZipList a}类型并没有\acode{Show}实例，因此我们需要使用
+\acodered{getZipList}函数从一个 zip 列表中提取出一个原始列表。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> getZipList $ (+) <$> ZipList [1,2,3] <*> ZipList [100,100,100]
+  [101,102,103]
+  ghci> getZipList $ (+) <$> ZipList [1,2,3] <*> ZipList [100,100..]
+  [101,102,103]
+  ghci> getZipList $ max <$> ZipList [1,2,3,4,5,3] <*> ZipList [5,3,1,2]
+  [5,3,3,4]
+  ghci> getZipList $ (,,) <$> ZipList "dog" <*> ZipList "cat" <*> ZipList "rat"
+  [('d','c','r'),('o','a','a'),('g','t','t')]
+\end{lstlisting}
+
+\begin{anote}
+  \acode{(,,)}函数等同于\acode{\\x y z -> (x,y,z)}。同样的\acode{(,)}函数等同于\acode{\\x y -> (x,y)}。
+\end{anote}
+
+除了\acode{zipWith}，标准库还提供了\acode{zipWith3}，\acode{zipWith4}，一直到 7。
+
+\acode{Control.Applicative}定义了一个名为\acode{liftA2}的函数，其定义如下：
+
+\begin{lstlisting}[language=Haskell]
+  liftA2 :: (Applicative f) => (a -> b -> c) -> f a -> f b -> f c
+  liftA2 f a b = f <$> a <*> b
+\end{lstlisting}
+
+没什么特别的，它就是将一个函数应用在两个高级函子上，并没有用我们才熟悉的 applicative 风格。提及它是因为为什么高级函子
+要比普通的函子强。如果只是普通的函子，我们只能将一个函数映射在一个函子上，而对于高级函子而言，可以将一个函数映射在若干
+高级函子上。另一件有趣的事情就是\acode{liftA2}的类型，其接受一个普通的二元函数，将其提升为可运作在两个函子上的函数。
+
+这里有个有趣的概念：我们可以将两个高级函子合成为一个高级函子，而新的这个高级函子则将两个函子装在列表中。例如我们有
+\acode{Just 3}与\acode{Just 4}，假设后者是一个单例列表：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> fmap (\x -> [x]) (Just 4)
+  Just [4]
+\end{lstlisting}
+
+那么我们有\acode{Just 3}与\acode{Just [4]}，我们如何得到\acode{Just [3, 4]}呢？很简单：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> liftA2 (:) (Just 3) (Just [4])
+  Just [3,4]
+  ghci> (:) <$> Just 3 <*> Just [4]
+  Just [3,4]
+\end{lstlisting}
+
+\acode{:}是一个函数，它接受一个元素与一个列表，返回一个新的列表，而接受的元素位于新列表的头部。现在有了
+\acode{Just [3,4]}，那么再将它跟\acode{Just 2}绑定在一起就能变为\acode{Just [2,3,4]}了。我们可以将任意数量的
+高级函子绑在一起成为一个新的高级函子，其中包含了装有结果的列表。让我们尝试着实现一个函数，接受一个列表的高级函子，并
+返回一个高级函子，其中包含了结果的列表：
+
+\begin{lstlisting}[language=Haskell]
+  sequenceA' :: (Applicative f) => [f a] -> f [a]
+  sequenceA' [] = pure []
+  sequenceA' (x : xs) = (:) <$> x <*> sequenceA' xs
+\end{lstlisting}
+
+哈，递归！首先将一个列表的高级函子转换成一个装有列表的高级函子。以此我们可以推测出边界调节。如果将一个空的列表变成一个
+装有列表的高级函子，只需要将该空列表放进一个默认的 context。现在看一下如何递归。如果我们有一个有头尾的列表（这里的
+\acode{x}是一个高级函子，而\acode{xs}是一个列表的高级函子），只需再次对尾部调用\acode{sequenceA'}，即得到一个
+装有列表的高级函子。接着将高级函子\acode{x}中的值添加至装有高级函子的列表头部即可，就这么简单！
+
+例如\acode{sequenceA' [Just 1, Just 2]}则是\acode{(:) <\$> Just 1 <*> sequenceA [Just 2]}，等同于
+\acode{(:) <\$> Just 1 <*> ((:) <\$> sequenceA' [])}，这里的\acode{sequenceA' []}就是\acode{Just []}，
+那么表达式现在就是\acode{(:) <\$> Just 1 <*> ((:) <\$> Just 2 <*> Just [])}，即\acode{(:) <\$> Just 1
+  <*> Just [2]}，得\acode{Just [1,2]}！
+
+另外就是通过 fold 来实现\acode{sequenceA'}了：
+
+\begin{lstlisting}[language=Haskell]
+  sequenceA' :: (Applicative f) => [f a] -> f [a]
+  sequenceA' = foldr (\x -> (<*>) ((:) <$> x)) (pure [])
+\end{lstlisting}
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> sequenceA' [Just 3, Just 2, Just 1]
+  Just [3,2,1]
+  ghci> sequenceA' [Just 3, Nothing, Just 1]
+  Nothing
+  ghci> sequenceA' [(+3),(+2),(+1)] 3
+  [6,5,4]
+  ghci> sequenceA' [[1,2,3],[4,5,6]]
+  [[1,4],[1,5],[1,6],[2,4],[2,5],[2,6],[3,4],[3,5],[3,6]]
+  ghci> sequenceA' [[1,2,3],[4,5,6],[3,4,4],[]]
+  []
+\end{lstlisting}
+
+太酷了。当应用在\acode{Maybe}上时，\acode{sequenceA'}创造一个新的\acode{Maybe}，其中包含了一个装有所有结果的列表。
+如果其中一个值是\acode{Nothing}，那整个结果就会是\acode{Nothing}。
+
+当应用在函数时\acode{sequenceA'}接受一堆函数的列表，并返回一个返回为列表的函数。
+
+执行\acode{(+) <\$> (+3) <*> (*2)}将创建一个接受单一参数的函数，将\acode{(+3)}与\acode{(*2)}应用至该单一参数，
+最后调用\acode{+}将两者相加。同理，\acode{sequenceA' [(+3),(*2)]}则创建一个接受单一参数的函数，将列表中的每个函数
+都应用至该单一参数，最后用\acode{:}将它们装进一个列表中。
+
+当我们有一个列表的函数时，想将相同的参数都输入给这些函数时，\acode{sequenceA'}就非常好用。例如，有一个数值，我们不知道
+其是否满足一系列的判断，那么就可以这样：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> map (\f -> f 7) [(>4),(<10),odd]
+  [True,True,True]
+  ghci> and $ map (\f -> f 7) [(>4),(<10),odd]
+  True
+\end{lstlisting}
+
+下面代码展示了在列表表达式中使用\acode{sequenceA'}：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> sequenceA [[1,2,3],[4,5,6]]
+  [[1,4],[1,5],[1,6],[2,4],[2,5],[2,6],[3,4],[3,5],[3,6]]
+  ghci> [[x,y] | x <- [1,2,3], y <- [4,5,6]]
+  [[1,4],[1,5],[1,6],[2,4],[2,5],[2,6],[3,4],[3,5],[3,6]]
+  ghci> sequenceA [[1,2],[3,4]]
+  [[1,3],[1,4],[2,3],[2,4]]
+  ghci> [[x,y] | x <- [1,2], y <- [3,4]]
+  [[1,3],[1,4],[2,3],[2,4]]
+  ghci> sequenceA [[1,2],[3,4],[5,6]]
+  [[1,3,5],[1,3,6],[1,4,5],[1,4,6],[2,3,5],[2,3,6],[2,4,5],[2,4,6]]
+  ghci> [[x,y,z] | x <- [1,2], y <- [3,4], z <- [5,6]]
+  [[1,3,5],[1,3,6],[1,4,5],[1,4,6],[2,3,5],[2,3,6],[2,4,5],[2,4,6]]
+\end{lstlisting}
+
 % TODO
+
+% \begin{lstlisting}[language=Haskell]
+
+% \end{lstlisting}
 
 \subsection*{newtype 关键字}
 
