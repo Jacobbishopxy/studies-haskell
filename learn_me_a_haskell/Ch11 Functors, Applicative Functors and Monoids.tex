@@ -667,15 +667,141 @@ Applicative 风格对于列表而言是一个取代列表表达式的好方法�
   [[1,3,5],[1,3,6],[1,4,5],[1,4,6],[2,3,5],[2,3,6],[2,4,5],[2,4,6]]
 \end{lstlisting}
 
+可能会有点难以理解，让我们首先来看\acode{sequenceA [[1,2],[3,4]]}，根据定义\acode{sequenceA (x : xs) =
+  (:) <\$> x <*> sequenceA xs}以及边界条件\acode{sequenceA [] = pure []}来进行拆解：
+
+\begin{enumerate}
+  \item 首先是\acode{sequenceA [[1,2],[3,4]]}；
+  \item 计算得\acode{(:) <\$> [1,2] <*> sequenceA [[3,4]]}；
+  \item 接着计算内部的\acode{sequenceA}，得\acode{(:) <\$> [1,2] <*> ((:) <\$> [3,4] <*> sequenceA [])}；
+  \item 这里碰到了边界条件，即\acode{(:) <\$> [1,2] <*> ((:) <\$> [3,4] <*> [[]])}
+  \item 首先计算\acode{(:) <\$> [3,4] <*> [[]]}部分，将左列表中每个元素应用\acode{:}（即\acode{3}与\acode{4}）
+        以及右列表的每个元素（即\acode{[]}），得到\acode{3:[], 4:[]}，即\acode{[3],[4]}。代入上条表达式即
+        \acode{(:) <\$> [1,2] <*> [[3],[4]]}；
+  \item 接下来同理，\acode{:}应用在左列表的每个元素（\acode{1}与\acode{2}）以及右列表的每个元素（\acode{[3]}与
+        \acode{[4]}），得\acode{[1:[3],1:[4],2:[3],2:[4]]}，即\acode{[[1,3],[1,4],[2,3],[2,4]]}。
+\end{enumerate}
+
+计算\acode{(+) <\$> [1,2] <*> [4,5,6]}会得到一个非确定性的结果\acode{x + y}，其中\acode{x}代表\acode{[1,2]}中的
+每个值，而\acode{y}代表\acode{[4,5,6]}中的每个值。我们用列表表示每一种可能的情况。同样的在计算\acode{sequence
+    [[1,2],[3,4],[5,6],[7,8]]}时，它的结构会是非确定性的\acode{[x,y,z,w]}，其中\acode{x}代表\acode{[1,2]}中的
+每个值，而\acode{y}代表\acode{[3,4]}中的每个值，以此类推。我们使用列表来代表非确定性的计算，每个元素都是一个可能的情况，
+这也是为什么这里使用了列表的列表。
+
+处理 I/O actions 时，\acode{sequenceA}的效果与\acode{sequence}一样！
+
+\begin{lstlisting}[language=Haskell]
+  ghci> sequenceA [getLine, getLine, getLine]
+  heyh
+  ho
+  woo
+  ["heyh","ho","woo]
+\end{lstlisting}
+
+与普通函子一样，高级函子也有一些定理。最重要的定理我们已经提到了，即满足\acode{pure f <*> x = fmap f x}，其他的还有：
+
+\begin{enumerate}
+  \item \acodegrn{pure id <*> v = v}
+  \item \acodegrn{pure (.) <*> u <*> v <*> w = u <*> (v <*> w)}
+  \item \acodegrn{pure f <*> pure x = pure (f x)}
+  \item \acodegrn{u <*> pure y = pure (\$ y) <*> u}
+\end{enumerate}
+
+总结一下，高级函子不仅有趣还非常的实用，它允许我们结合不同种类的计算，例如 I/O 计算，非确定性结果的计算，有可能失败的计算等等。
+使用\acode{<\$>}与\acode{<*>}，可以将普通的函数来运作在任意数量的高级函子上。
+
+\subsection*{newtype 关键字}
+
+目前为止我们知道了如何使用\acode{data}关键字来定义属于自己的代数数据类型，我们也学习了如何用\acode{type}来定义类型同义词。
+本节我们将会学习如何使用\acode{newtype}从一个现有的类型定义出新的类型，并说明为什么这么做。
+
+上一节中，我们见识到了多种方式使得列表类型成为高级函子。一种方式是用\acode{<*>}从左列表中获取每个函数并应用至右列表中的每个
+元素，返回所有可能的组合：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> [(+1),(*100),(*5)] <*> [1,2,3]
+  [2,3,4,100,200,300,5,10,15]
+\end{lstlisting}
+
+另一种方式是左右列表的顺序应用，最终就像是将两个列表 zip 起来。而列表已经实现了\acode{Applicative}实例，因此我们的做法是
+引入\acode{ZipList a}类型，其包含一个值构造函数，\acode{ZipList}：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> getZipList $ ZipList [(+1),(*100),(*5)] <*> ZipList [1,2,3]
+  [2,200,15]
+\end{lstlisting}
+
+那么这个\textit{newtype}关键字有关系吗？我们可能会将\acode{ZipList a}类型这样定义：
+
+\begin{lstlisting}[language=Haskell]
+  data ZipList a = ZipList [a]
+\end{lstlisting}
+
+这样一个类型仅有一个值构造函数，且该构造函数只有一个字段，即列表的某值。同样我们可能会使用 record 语法，这样就可以自动获得
+一个从\acode{ZipList}中提取列表的函数出来：
+
+\begin{lstlisting}[language=Haskell]
+  data ZipList a = ZipList { getZipList :: [a] }
+\end{lstlisting}
+
+这看起来不错，实际上也能很好的工作。使用\textit{data}关键字包装改类型成为另一个类型，然后将新的这个类型成为 typeclass 的
+实例，这样便是第二种做法。
+
+Haskell 中的\textit{newtype}实际上就是用作于此。在实际的库中，\acode{ZipList a}的定义如下：
+
+\begin{lstlisting}[language=Haskell]
+  newtype ZipList a = ZipList { getZipList :: [a] }
+\end{lstlisting}
+
+没有使用\textit{data}关键字，而是使用了\acode{newtype}。为什么这么做呢？首先\textit{newtype}更快，如果使用的是
+\textit{data}关键字来包装一个类型，那么程序运行时进包与出包都会带来性能损失。但是使用\textit{newtype}时，Haskell 知道
+你使用的是现有类型包装后的新类型（正如其名），因为你想要的是同样的内核，而又不同的类型。
+
+那么为什么不总是使用\textit{newtype}而还有\textit{data}呢？因为\textit{data}可以有若干值构造函数，而每个构造函数又
+可以拥有零个或多个字段：
+
+\begin{lstlisting}[language=Haskell]
+  data Profession = Fighter | Archer | Accountant
+
+  data Race = Human | Elf | Orc | Goblin
+
+  data PlayerCharacter = PlayerCharacter Race Profession
+\end{lstlisting}
+
+而\textit{newtype}就被限制在了一个字段的构造函数。
+
+就像是\textit{data}那样，对于\textit{newtype}我们也可以使用\textit{deriving}关键字。
+
+\begin{lstlisting}[language=Haskell]
+  newtype CharList = CharList { getCharList :: [Char] } deriving (Eq, Show)
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  ghci> CharList "this will be shown!"
+  CharList {getCharList = "this will be shown!"}
+  ghci> CharList "benny" == CharList "benny"
+  True
+  ghci> CharList "benny" == CharList "oisters"
+  False
+\end{lstlisting}
+
+这个特定的\textit{newtype}，值构造函数的类型是：
+
+\begin{lstlisting}[language=Haskell]
+  CharList :: [Char] -> CharList
+\end{lstlisting}
+
+相反的，被生成出来的\acode{getCharList}函数其类型为：
+
+\begin{lstlisting}[language=Haskell]
+  getCharList :: CharList -> [Char]
+\end{lstlisting}
+
 % TODO
 
 % \begin{lstlisting}[language=Haskell]
 
 % \end{lstlisting}
-
-\subsection*{newtype 关键字}
-
-% TODO
 
 \subsection*{幺半群 Monoids}
 
