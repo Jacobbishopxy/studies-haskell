@@ -797,14 +797,173 @@ Haskell 中的\textit{newtype}实际上就是用作于此。在实际的库中�
   getCharList :: CharList -> [Char]
 \end{lstlisting}
 
+它接受一个\acode{CharList}值并转换为一个\acode{[Char]}值。可以把这个想象成包装和解包，也可以认为将值从一个类型转换为
+另一个类型。
+
+\subsubsection*{使用 newtype 来实现 typeclass 实例}
+
+很多时候会想要将我们的类型属于某个 typeclass，但是类型变量并没有符合我们想要的。把\acode{Maybe}定义成\acode{Functor}
+很容易，因为\acode{Functor}的 typeclass 定义：
+
+\begin{lstlisting}[language=Haskell]
+  class Functor f where
+    fmap :: (a -> b) -> f a -> f b
+\end{lstlisting}
+
+我们开始：
+
+\begin{lstlisting}[language=Haskell]
+  instance Functor Maybe where
+\end{lstlisting}
+
+接着实现\acode{fmap}。所有的类型参数被填上，由于\acode{Maybe}取代了\acode{Functor}中\acode{f}的位置，所以如果我们
+看看\acode{fmap}应用在\acode{Maybe}上时是什么样子时，它会是这样：
+
+\begin{lstlisting}[language=Haskell]
+  fmap :: (a -> b) -> Maybe a -> Maybe b
+\end{lstlisting}
+
+现在想让元组成为\acode{Functor}的一个实例时，用\acode{fmap}应用在这个元组，则会应用到该元组的第一个元素。例如
+\acode{fmap (+3) (1,1)}会得到\acode{4,1}。对于\acode{Maybe}，只需要\acode{instance Functor Maybe where}，
+这是因为对于\textbf{}{只消费一个参数}的类型构造函数很容易定义成\acode{Functor}的实例，但是对于\acode{(a,b)}这样的
+有若干个参数类型的就没办法。我们可以使用\acode{newtype}来重新定义元组，使得第二个类型参数代表了元组中的第一个元素部分。
+
+\begin{lstlisting}[language=Haskell]
+  newtype Pair b a = Pair { getPair :: (a,b)}
+\end{lstlisting}
+
+接着定义\acode{Functor}的实例，函数被映射到元组的第一个部分：
+
+\begin{lstlisting}[language=Haskell]
+  instance Functor (Pair c) where
+    fmap f (Pair (x,y)) = Pair (f x, y)
+\end{lstlisting}
+
+如你所见，可以对 \textit{newtype} 进行模式匹配，接着将函数\acode{f}应用至元组的第一部分，再使用\acode{Pair}值构造函数
+将元组转回\acode{Pair b a}。\acode{fmap}的类型则会是：
+
+\begin{lstlisting}[language=Haskell]
+  fmap :: (a -> b) -> Pair c a -> Pair c b
+\end{lstlisting}
+
+我们说\acode{instance Functor (Pair c) where}以及\acode{Pair c}取代了\acode{Functor} typeclass \acode{f}的
+位置：
+
+\begin{lstlisting}[language=Haskell]
+  class Functor f where
+    fmap :: (a -> b) -> f a -> f b
+\end{lstlisting}
+
+现在如果转换一个元组为\acode{Pair b a}，则可以使用\acode{fmap}，同时函数将映射到第一部分：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> getPair $ fmap (*100) (Pair (2,3))
+  (200,3)
+  ghci> getPair $ fmap reverse (Pair ("london calling", 3))
+  ("gnillac nodnol",3)
+\end{lstlisting}
+
+\subsubsection*{newtype 的惰性}
+
+我们提到过\textit{newtype}通常比\textit{data}要快，而\textit{newtype}唯一能做的事情就是将现有的类型转换成一个新的
+类型，也就是说 Haskell 将通过\textit{newtype}所定义类型视为原始类型。这也意味着\textit{newtype}不仅更快，它还是惰性的。
+
+之前提到过 Haskell 默认是惰性的，意味着计算只有要在打印函数的结果时才会发生，或者说只有当真正需要结果的时候才会进行计算。
+在 Haskell 中\acode{undefined}代表会造成错误的计算，如果试着计算它，也就是将其打印至终端，Haskell 会抛出异常：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> undefined
+  *** Exception: Prelude.undefined
+\end{lstlisting}
+
+而我们构建一个列表，其中包含一些\acode{undefined}的值，且第一个不为\acode{undefined}时使用\acode{head}，那一切都会被
+顺利的计算，因为 Haskell 不需要列表中其他元素来得出结果：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> head [3,4,5,undefined,2,undefined]
+  3
+\end{lstlisting}
+
+考虑以下类型：
+
+\begin{lstlisting}[language=Haskell]
+  data CoolBool = CoolBool { getCoolBool :: Bool }
+\end{lstlisting}
+
+这是一个使用\acode{data}关键字定义的代数数据类型，其包含一个值构造函数且只有一个类型为\acode{Bool}的字段。编写一个函数用于
+模式匹配\acode{CoolBool}并返回\acode{"hello"}，无论里面的\acode{Bool}是否为真：
+
+\begin{lstlisting}[language=Haskell]
+  helloMe :: CoolBool -> String
+  helloMe (CoolBool _) = "hello"
+\end{lstlisting}
+
+将其应用至\acode{undefined}：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> helloMe undefined
+  "*** Exception: Prelude.undefined
+\end{lstlisting}
+
+这里为什么又要抛出异常呢？通过\textit{data}关键字所定义的类型可以拥有若干值构造函数，为了检查给与的函数是否匹配
+\acode{CoolBool _}模式，在构造值的时候 Haskell 必须计算值才知道值构造函数是否被使用。当计算\acode{undefined}值时，立刻
+抛出异常。
+
+不使用\acode{data}来定义\acode{CoolBool}而是\acode{newtype}时：
+
+\begin{lstlisting}[language=Haskell]
+  newtype CoolBool = CoolBool {getCoolBool :: Bool}
+\end{lstlisting}
+
+\begin{lstlisting}[language=Haskell]
+  ghci> helloMe undefined
+  "hello"
+\end{lstlisting}
+
+能正常工作！这是为什么呢？正如之前所说的，使用\textit{newtype}时 Haskell 内部可以将新的类型用旧的类型来表示。无需再套一层
+包装，只需要注意它们是不同的类型即可。又因为 Haskell 知道通过\textit{newtype}关键字所创建的类型仅可以拥有一个构造函数，
+它无需计算传入至构造函数的值用于确保\acode{(CoolBool _)}的模式，因为\textit{newtype}类型仅允许值构造函数有一个字段。
+
+\subsubsection*{type vs newtype vs data}
+
+快速复习一下\acode{type}，\acode{data}以及\acode{newtype}。
+
+\acode{type}关键字用于类型同义词，代表给予现有类型另一个名字：
+
+\begin{lstlisting}[language=Haskell]
+  type IntList = [Int]
+\end{lstlisting}
+
+这样可以允许我们使用\acode{IntList}的名称来代指\acode{[Int]}。两者可交换使用，但并不会因此有一个\acode{IntList}的值
+构造函数，因为它们只是两种称呼同一个类型的方式，并不在乎用那个名称：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> ([1,2,3] :: IntList) ++ ([1,2,3] :: [Int])
+  [1,2,3,1,2,3]
+\end{lstlisting}
+
+当我们想让类型签名更加清晰，给予我们跟了解函数的 context 时，则可以定义类型同义词。
+
+\acode{newtype}关键字则是将现有的类型包装成一个新的类型，大部分是为了要让它们可以是特定的 typeclass 的实例。当使用
+\acode{newtype}来包装一个现有的类型是，这个类型与原有类型是分开的。
+
+\begin{lstlisting}[language=Haskell]
+  newtype CharList = CharList { getCharList :: [Char] }
+\end{lstlisting}
+
+我们不能用\acode{++}将\acode{CharList}与\acode{[Char]}拼接在一起，也不能用\acode{++}来将两个\acode{CharList}
+拼接在一起，这是因为\acode{++}只能应用在列表上，而\acode{CharList}并不是列表。
+
+当我们在\acode{newtype}声明中使用 record 语法的时候，我们会得到将新的类型转换成旧的类型的函数。
+
+最后使用\acode{data}关键字是为了定义自己的类型，它们可以在代数数据结构中放任意数量的构造函数。
+
+\subsection*{幺半群 Monoids}
+
 % TODO
 
 % \begin{lstlisting}[language=Haskell]
 
 % \end{lstlisting}
-
-\subsection*{幺半群 Monoids}
-
-% TODO
 
 \end{document}
