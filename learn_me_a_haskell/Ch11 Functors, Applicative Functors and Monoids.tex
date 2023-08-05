@@ -1302,10 +1302,209 @@ typeclass，我们依靠的就是幺半群的定理。不然的话，这么做�
 
 \subsubsection*{\acode{Maybe}幺半群}
 
-% TODO
+让我们看看\acode{Maybe a}构造\acode{Monoid}实例的若干方式，以及这些实例的用途。
 
-% \begin{lstlisting}[language=Haskell]
+一种让\acode{Maybe a}视作幺半群的方式是其类型参数\acode{a}是幺半群，接着实现\acode{mappend}将包在\acode{Just}
+里的至对应\acode{mappend}，同时让\acode{Nothing}作为 identity。使用\acode{Nothing}作为 identity 这样如果
+\acode{mappend}的两个值其中一个是\acode{Nothing}时，保留另一个。以下是实例声明：
 
-% \end{lstlisting}
+\begin{lstlisting}[language=Haskell]
+  instance Monoid a => Monoid (Maybe a) where
+    mempty = Nothing
+    Nothing `mappend` m = m
+    m `mappend` Nothing = m
+    Just m1 `mappend` Just m2 = Just (m1 `mappend` m2)
+\end{lstlisting}
+
+注意这里的类约束，即只有当\acode{a}是\acode{Monoid}时，\acode{Maybe a}才可作为\acode{Monoid}实例。接下来就是
+\acode{mappend}任意一方是\acode{Nothing}时，结果则是另一方。如果\acode{mappend}两个\acode{Just}值，那么就
+\acode{mappend}两个\acode{Just}的内容，用\acode{Just}包装后再返回值。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> Nothing `mappend` Just "andy"
+  Just "andy"
+  ghci> Just LT `mappend` Nothing
+  Just LT
+  ghci> Just (Sum 3) `mappend` Just (Sum 4)
+  Just (Sum {getSum = 7})
+\end{lstlisting}
+
+那么如果\acode{Maybe}的内容并非\acode{Monoid}实例呢？在我们不知道内容是否为幺半群的情况下，是不能\acode{mappend}
+两个值的，那么该怎么做？一种方式是丢弃第二个值并保留第一个。为此，\acode{First a}类型出现了，其定义：
+
+\begin{lstlisting}[language=Haskell]
+  newtype First a = First { getFirst :: Maybe a }
+    deriving (Eq, Ord, Read, Show)
+\end{lstlisting}
+
+接受一个\acode{Maybe a}将其用\textit{newtype}包装。\acode{Monoid}实例：
+
+\begin{lstlisting}[language=Haskell]
+  instance Monoid (First a) where
+    mempty = First Nothing
+    First (Just x) `mappend` _ = First (Just x)
+    First Nothing `mappend` x = x
+\end{lstlisting}
+
+\acode{mempty}是包在\acode{First}中的\acode{Nothing}。如果\acode{mappend}的第一个参数是\acode{Just}，那么
+直接忽略第二个参数；如果第一个参数是\acode{Nothing}，则直接返回第二个参数，无论是\acode{Just}或\acode{Nothing}：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> getFirst $ First (Just 'a') `mappend` First (Just 'b')
+  Just 'a'
+  ghci> getFirst $ First Nothing `mappend` First (Just 'b')
+  Just 'b'
+  ghci> getFirst $ First (Just 'a') `mappend` First Nothing
+  Just 'a'
+\end{lstlisting}
+
+\acode{First}在我们有用若干\acode{Maybe}值，并想要知道它们中任意一个是否为\acode{Just}时，非常的有用。利用
+\acode{mconcat}：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> getFirst . mconcat . map First $ [Nothing, Just 9, Just 10]
+  Just 9
+\end{lstlisting}
+
+如果我们希望\acode{Maybe a}保留的是第二个参数的幺半群实现时，\acode{Data.Monoid}提供了一个\acode{Last a}类型：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> getLast . mconcat . map Last $ [Nothing, Just 9, Just 10]
+  Just 10
+  ghci> getLast $ Last (Just "one") `mappend` Last (Just "two")
+  Just "two"
+\end{lstlisting}
+
+\subsubsection*{使用幺半群来 fold 数据结构}
+
+幺半群的另一个有趣的使用方式就是让它来帮助我们 fold 一些数据结构。目前为止我们只 fold 过列表，不过列表并不是唯一一种可以
+fold 的数据结构。我们几乎可以 fold 任意一种数据结构，例如树。
+
+正因为太多的数据结构可以被 fold，\acodeppl{Foldable} typeclass 就被引入了。很像\acode{Functor}用作于映射，
+\acode{Foldable}用于任何可以被 fold 起来的东西！可以在\acode{Data.Foldable}中找到它，又因为与\acode{Prelude}中
+多数名称重名的缘故，我们需要：
+
+\begin{lstlisting}[language=Haskell]
+  import Foldable qualified as F
+\end{lstlisting}
+
+让我们来看看与\acode{Prelude}中的\acode{foldr}，\acode{foldl}，\acode{foldr1}以及\acode{foldl1}有什么区别。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t foldr
+  foldr :: (a -> b -> b) -> b -> [a] -> b
+  ghci> :t F.foldr
+  F.foldr :: (F.Foldable t) => (a -> b -> b) -> b -> t a -> b
+\end{lstlisting}
+
+\acode{foldr}接受一个列表并进行 fold，而\acode{Data.Foldable}中的\acode{foldr}则是接受任意可被 fold 的类型。
+它们作用于列表的行为一致：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> foldr (*) 1 [1,2,3]
+  6
+  ghci> F.foldr (*) 1 [1,2,3]
+  6
+\end{lstlisting}
+
+那么其它类型呢？比如说\acode{Maybe}：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> F.foldl (+) 2 (Just 9)
+  11
+  ghci> F.foldr (||) False (Just True)
+  True
+\end{lstlisting}
+
+现在来看一下之前章节定义的树结构：
+
+\begin{lstlisting}[language=Haskell]
+  data Tree a = Empty | Node a (Tree a) (Tree a) deriving (Show, Read, Eq)
+\end{lstlisting}
+
+一棵树要么是一颗空树，要么是一个包含值的节点且还指向另外两棵树。定义它之后我们还将其定义成\acode{Functor}的实例，现在
+将它定义成\acode{Foldable}的实例。一种方式是实现\acode{foldr}，另一种比较简单的方式是实现\acode{foldMap}，它也
+属于\acode{Foldable} typeclass。\acode{foldMap}的类型如下：
+
+\begin{lstlisting}[language=Haskell]
+  foldMap :: (Monoid m, Foldable t) => (a -> m) -> t a -> m
+\end{lstlisting}
+
+第一个参数是一个函数，该函数接受一个 foldable 结构包含的类型（这里就是\acode{a}）并返回一个 monoid 值，第二个参数
+就是包含类型\acode{a}的 foldable 结构。它将函数映射至 foldable 结构上，因此生产一个包含了 monoid 值的 foldable
+结构。接着用\acode{mappend}在这两个 monoids 值上，并返回单个 monoid 值。比较酷的是只要实现了这个函数，那么就可以
+让我们的函数成为\acode{Foldable}。所以只要实现某个类型的\acode{foldMap}，就可以得到那个类型的\acode{foldr}与
+\acode{foldl}。
+
+接下来就是定义\acode{Tree}成为\acode{Foldable}实例：
+
+\begin{lstlisting}[language=Haskell]
+  instance F.Foldable Tree where
+    foldMap f Empty = mempty
+    foldMap f (Node x l r) =
+      F.foldMap f l `mappend` f x `mappend` F.foldMap f r
+\end{lstlisting}
+
+我们这样思考：如果提供一个接受树元素并返回一个 monoid 值的函数，我们如何减少我们的树变为单个 monoid 值呢？我们在做
+\acode{fmap}树的时候是将函数应用在节点上，接着递归的应用函数在做子树与右子树上。这里我们不仅仅是要映射一个函数，还要
+通过使用\acode{mappend}合并值返回一个 monoid 值。首先是考虑空树，它不包含任何值，因此它变为\acode{mempty}。
+
+非空树比较有趣。它包含了两个子树同时还有值。这种情况下使用\acode{foldMap}递归同一个函数\acode{f}在左右子树上。记住，
+\acode{foldMap}返回一个 monoid 值。函数\acode{f}也应用在节点的值上。这时就有了三个 monoid 值（两个从子树而来，
+一个从节点而来），我们希望将它们合并成为一个值。为此，使用\acode{mappend}，自然而然的从左子树开始，接着是节点，再
+然后就是右子树。
+
+注意我们并不一定要提供一个将普通值转成 monoid 的函数。我们只是把它当做 \acode{foldMap} 的参数，要决定的是如何应用
+该函数，将多个 monoids 转换成一个 monoid。
+
+考虑下面这棵树：
+
+\begin{lstlisting}[language=Haskell]
+  testTree =
+    Node
+      5
+      ( Node
+          3
+          (Node 1 Empty Empty)
+          (Node 6 Empty Empty)
+      )
+      ( Node
+          9
+          (Node 8 Empty Empty)
+          (Node 10 Empty Empty)
+      )
+\end{lstlisting}
+
+对其进行 fold：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> F.foldl (+) 0 testTree
+  42
+  ghci> F.foldl (*) 1 testTree
+  64800
+\end{lstlisting}
+
+\acode{foldMap}不仅对创建新的\acode{Foldable}实例有用；它对简化我们的结构称为单一的 monoid 值也有用。例如我们
+想要知道树中有没有\acode{3}，我们可以这么做：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> getAny $ F.foldMap (\x -> Any $ x == 3) testTree
+  True
+\end{lstlisting}
+
+此处的\acode{\x -> Any \$ x == 3}接受一个数值并返回一个 monoid，即一个包在\acode{Any}中的\acode{Bool}。
+\acode{foldMap}将这个函数应用至树的每个节点，并把结果用\acode{mappend}简化成单一的 monoid。如果这么做：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> getAny $ F.foldMap (\x -> Any $ x > 15) testTree
+  False
+\end{lstlisting}
+
+我们也能将\acode{foldMap}配合\acode{\\x -> [x]}使用来将树转成列表：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> F.foldMap (\x -> [x]) testTree
+  [1,3,6,5,8,9,10]
+\end{lstlisting}
 
 \end{document}
