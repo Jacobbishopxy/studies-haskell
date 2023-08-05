@@ -960,6 +960,348 @@ Haskell 中的\textit{newtype}实际上就是用作于此。在实际的库中�
 
 \subsection*{幺半群 Monoids}
 
+Haskell 中的 typeclass 用于表示类型某些公共行为的接口。
+
+\acode{*}是一个函数接受两个数值并使它们相乘。如果某数相乘的是\acode{1}，那么结果还是某数其本身，无论是\acode{1 * x}
+还是\acode{x * 1}。同样的，\acode{++}是一个接受两个列表并结合它们的函数。与\acode{*}一样，一个列表在结合空列表
+\acode{[]}的情况下并不会改变列表自身。
+
+看起来\acode{*}与\acode{1}以及\acode{++}与\acode{[]}都有共同的属性：
+
+\begin{enumerate}
+  \item 函数接受两个参数。
+  \item 入参与返回值的类型相同。
+  \item 在使用二元函数时，存在一个值不会改变另一个值。
+\end{enumerate}
+
+这两个操作还有共性的地方就是：当拥有若干值时，使用二元函数将这些值变为一个，计算顺序并不影响结果：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> (3 * 2) * (8 * 5)
+  240
+  ghci> 3 * (2 * (8 * 5))
+  240
+  ghci> "la" ++ ("di" ++ "da")
+  "ladida"
+  ghci> ("la" ++ "di") ++ "da"
+  "ladida"
+\end{lstlisting}
+
+我们称这个属性为\textit{结合律 associativity}。\acode{*}满足结合律，\acode{++}也是。而\acode{-}不是，例如
+\acode{(5 - 3) - 4}以及\acode{5 - (3 - 4)}的结果并不一致。
+
+这些属性就是\textit{幺半群 monoids}！一个幺半群就是有一个遵守结合律的二元函数，以及有一个可以相对那个函数作为
+identity 的值。一个相对于一个函数的 identity 意为函数在调用它与另一个值时，结果永远是另一个值。看看幺半群是如何
+定义的：
+
+\begin{lstlisting}[language=Haskell]
+  class Monoid m where
+    mempty :: m
+    mappend :: m -> m -> m
+    mconcat :: [m] -> m
+    mconcat = foldr mappend mempty
+\end{lstlisting}
+
+\acode{Monoid} typeclass 定义于\acode{import Data.Monoid}。现在让我们花点时间来熟悉它。
+
+首先可以看到只有具体类型才可以作为\acode{Monoid}的实例，因为\acode{m}并不接受任何类型参数。这与\acode{Functor}
+以及\acode{Applicative}不同，后两者的实例需要的是接受一个参数的类型构造函数。
+
+第一个函数\acode{mempty}。其实它并不是一个函数，因为它不接受参数，因此它是一个多态的常数，类似于\acode{Bounded}的
+\acode{minBound}，\acode{mempty}代表着特定幺半群的 identity 值。
+
+接下来就是\acode{mappend}，一个接受两个同类型值并返回同类型结果的二元函数。值得注意的是它的名字不太符合它真正的意思，
+它的名字隐含了要将两个东西连接在一起。
+
+最后一个函数\acode{mconcat}。它接受一个列表的幺半群值，并将它们用\acode{mappend}简化成单一的值。它有一个默认的
+实现，就是从\acode{mempty}作为起始值，然后用\acode{mappend}进行 fold。对于大部分的实例而言默认实现没什么问题，
+我们也不会想要实现自己的\acode{mconcat}。当我们定义一个类型属于\acode{Monoid}时，大多数时候实现\acode{mempty}
+与\acode{mappend}就够了，而\acode{mconcat}对于某些实例，有可能会有更高效的方式才需要自己去实现。
+
+继续下去之前我们来看一下幺半群的定理。我们提到过必须要有一个值可作为对应二元函数的 identity 值，且该二元函数必须是
+满足结合律的。构造一个\acode{Monoid}实例却不遵守这些规则，这样的实例对任何人都没有用，因为使用\acode{Monoid}
+typeclass，我们依靠的就是幺半群的定理。不然的话，这么做的意义就没有了。所以我们必须确保它们遵循：
+
+\begin{enumerate}
+  \item \acodegrn{mempty `mappend` x = x}
+  \item \acodegrn{x `mappend` mempty = x}
+  \item \acodegrn{(x `mappend` y) `mappend` z = x `mappend` (y `mappend` z)}
+\end{enumerate}
+
+\subsubsection*{列表是幺半群}
+
+列表的幺半群实例非常的简单：
+
+\begin{lstlisting}[language=Haskell]
+  instance Monoid [a] where
+    mempty = []
+    mappend = (++)
+\end{lstlisting}
+
+列表是\acode{Monoid} typeclass 的一个实例，无论其内部的元素类型。注意写的时候是\acode{instance Monoid [a]}而
+不是\acode{instance Monoid []}，因为\acode{Monoid}需要一个具体类型作为实例。
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> [1,2,3] `mappend` [4,5,6]
+  [1,2,3,4,5,6]
+  ghci> ("one" `mappend` "two") `mappend` "tree"
+  "onetwotree"
+  ghci> "one" `mappend` ("two" `mappend` "tree")
+  "onetwotree"
+  ghci> "one" `mappend` "two" `mappend` "tree"
+  "onetwotree"
+  ghci> "pang" `mappend` mempty
+  "pang"
+  ghci> mconcat [[1,2],[3,6],[9]]
+  [1,2,3,6,9]
+  ghci> mempty :: [a]
+  []
+\end{lstlisting}
+
+注意最后一行，我们需要显式的类型注解，如果仅仅是\acode{mempty}，GHCI 并不会知道使用哪个实例，因此我们需要宣称希望的
+是列表实例。
+
+注意幺半群不需要\acode{a `mappend` b}等同于\acode{b `mappend` a}。列表显然不满足：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> "one" `mappend` "two"
+  "onetwo"
+  ghci> "two" `mappend` "one"
+  "twoone"
+\end{lstlisting}
+
+\subsubsection*{\acode{Product}与\acode{Sum}}
+
+我们已经验证了数值被视为幺半群，只需要二元函数是\acode{*}以及 identity 值是\acode{1}。实际上这并不是唯一的办法将数值
+视为幺半群。另一个方法就是\acode{+}以及 identity 值\acode{0}：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> 0 + 4
+  4
+  ghci> 5 + 0
+  5
+  ghci> (1 + 3) + 5
+  9
+  ghci> 1 + (3 + 5)
+  9
+\end{lstlisting}
+
+幺半群定理成立。
+
+\acode{Data.Monoid}模块为此提供了两种类型，即\acode{Product}以及\acode{Sum}。\acode{Product}定义如下：
+
+\begin{lstlisting}[language=Haskell]
+  newtype Product a =  Product { getProduct :: a }
+    deriving (Eq, Ord, Read, Show, Bounded)
+\end{lstlisting}
+
+简单，就是一个\textit{newtype}包装了一个类型参数同时带有一些衍生实例。其\acode{Monoid}实例有点像这样：
+
+\begin{lstlisting}[language=Haskell]
+  instance Num a => Monoid (Product a) where
+    mempty = Product 1
+    Product x `mappend` Product y = Product (x * y)
+\end{lstlisting}
+
+\acode{mempty}是一个包装在\acode{Product}构造函数中的\acode{1}。\acode{mappend}模式匹配\acode{Product}构造函数，
+将两值相乘后再包装回\acode{Product}。如你所见，还有\acode{Num a}类约束，意味着\acode{Product a}要在所有\acode{a}
+都是\acode{Num}实例的情况下才能是\acode{Monoid}的实例。那么作为一个幺半群来使用\acode{Product a}，我们就需要做一下
+\textit{newtype}的包装和解包：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> getProduct $ Product 3 `mappend` Product 9
+  27
+  ghci> getProduct $ Product 3 `mappend` mempty
+  3
+  ghci> getProduct $ Product 3 `mappend` Product 4 `mappend` Product 2
+  24
+  ghci> getProduct . mconcat . map Product $ [3,4,2]
+  24
+\end{lstlisting}
+
+这是一个很好的\acode{Monoid} typeclass 的用例，不过没有人真的会这样将两值相乘。稍后我们会说明尽管这样显而易见的定义还是
+有它方便的地方。
+
+\acode{Sum}跟\acode{Product}定义的方式相似，也可以：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> getSum $ Sum 2 `mappend` Sum 9
+  11
+  ghci> getSum $ mempty `mappend` Sum 3
+  3
+  ghci> getSum . mconcat . map Sum $ [1,2,3]
+  6
+\end{lstlisting}
+
+\subsubsection*{\acode{Any}与\acode{All}}
+
+另一个有两种行为像是幺半群的类型就是\acode{Bool}。第一个方式是\textit{or}函数\acode{||}作为二元函数以及\acode{False}
+作为 identity 值。这样如果另一个值是\acode{True}那么返回的就是\acode{True}，如果是\acode{False}则返回\acode{False}。
+\acode{Any}这个\textit{newtype}是\acode{Monoid}的一个实例，其定义如下：
+
+\begin{lstlisting}[language=Haskell]
+  newtype Any = Any { getAny :: Bool }
+    deriving (Eq, Ord, Read, Show, Bounded)
+\end{lstlisting}
+
+其实例像是这样：
+
+\begin{lstlisting}[language=Haskell]
+  instance Monoid Any where
+    mempty = Any False
+    Any x `mappend` Any y = Any (x || y)
+\end{lstlisting}
+
+示例：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> getAny $ Any True `mappend` Any False
+  True
+  ghci> getAny $ mempty `mappend` Any True
+  True
+  ghci> getAny . mconcat . map Any $ [False, False, False, True]
+  True
+  ghci> getAny $ mempty `mappend` mempty
+  False
+\end{lstlisting}
+
+另一个\acode{Bool}表现为\acode{Monoid}的方式是\acode{&&}作为二元函数以及\acode{True}作为 identity 值。其
+\textit{newtype}定义如下：
+
+\begin{lstlisting}[language=Haskell]
+  newtype All = All { getAll :: Bool }
+    deriving (Eq, Ord, Read, Show, Bounded)
+\end{lstlisting}
+
+其实例：
+
+\begin{lstlisting}[language=Haskell]
+  instance Monoid All where
+    mempty = All True
+    All x `mappend` All y = All (x && y)
+\end{lstlisting}
+
+示例：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> getAll $ mempty `mappend` All True
+  True
+  ghci> getAll $ mempty `mappend` All False
+  False
+  ghci> getAll . mconcat . map All $ [True, True, True]
+  True
+  ghci> getAll . mconcat . map All $ [True, True, False]
+  False
+\end{lstlisting}
+
+\subsubsection*{\acode{Ordering}幺半群}
+
+还记得\acode{Ordering}类型么？它是比较运算后得到的结果，其包含三个值：\acode{LT}，\acode{EQ}以及\acode{GT}：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> 1 `compare` 2
+  LT
+  ghci> 2 `compare` 2
+  EQ
+  ghci> 3 `compare` 2
+  GT
+\end{lstlisting}
+
+对于列表，数值以及布尔值而言，找到幺半群很容易，因为它们都是一些常见的函数以及一些幺半群行为。而对于\acode{Ordering}
+而言，我们需要花点力气才能辨别一个幺半群，不过实际上它的\acode{Monoid}实例是非常符合直觉的：
+
+\begin{lstlisting}[language=Haskell]
+  instance Monoid Ordering where
+    mempty = EQ
+    LT `mappend` _ = LT
+    EQ `mappend` y = y
+    GT `mappend` _ = GT
+\end{lstlisting}
+
+这个实例这么运作：当\acode{mappend}两个\acode{Ordering}值时，左值被保留，除非左值是\acode{EQ}那么则会保留右值
+作为结果。
+
+例如如果我们逐字母比较单词\acode{"ox"}与\acode{"on"}，首先比较的是两个单词的首字母，看看它们是否相等然后再是第二个
+字母，\acode{'x'}在字母表是大于\acode{'n'}的，因此前者比后者大。而\acode{EQ}是 identity 这个直觉，可以在插入
+相同字母在两个单词的相同位置时，并不会改变字母表顺序得知。\acode{"oix"}仍然大于\acode{"oin"}。
+
+值得注意的是作为\acode{Monoid}实例的\acode{Ordering}，\acode{x `mappend` y}不等于\acode{y `mappend` x}。
+因为第一个参数是保留着的，除非是\acode{EQ}，\acode{LT `mappend` GT}得\acode{LT}，而\acode{GT `mappend` LT}
+得\acode{GT}：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> LT `mappend` GT
+  LT
+  ghci> GT `mappend` LT
+  GT
+  ghci> mempty `mappend` LT
+  LT
+  ghci> mempty `mappend` GT
+  GT
+\end{lstlisting}
+
+好了，那么幺半群如何有用的呢？假设你在编写一个函数接受两个字符串，比较它们长度并返回一个\acode{Ordering}。如果两个
+字符串的长度相等，那么我们希望按字母进行比较。一种方式：
+
+\begin{lstlisting}[language=Haskell]
+  lengthCompare :: String -> String -> Ordering
+  lengthCompare x y =
+    let a = length x `compare` length y
+        b = x `compare` y
+     in if a == EQ then b else a
+\end{lstlisting}
+
+先比较长度的结果为\acode{a}，再比较字典顺序的结果为\acode{b}，长度一样时，则返回字典顺序。
+
+如果善用\acode{Ordering}是一种幺半群，那么可以简化函数：
+
+\begin{lstlisting}[language=Haskell]
+  lengthCompare :: String -> String -> Ordering
+  lengthCompare x y = (length x `compare` length y) `mappend` (x `compare` y)
+\end{lstlisting}
+
+与原文不一样之处在于无须\acode{import Data.Monoid}。测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> lengthCompare "zen" "ants"
+  LT
+  ghci> lengthCompare "zen" "ant"
+  GT
+\end{lstlisting}
+
+记住在使用\acode{mappend}时，左参总是被保留的，除非是\acode{EQ}，这时右参被保留。这也是为什么我们要将比较重要的顺序
+放在左参。如果要延展这个函数，要让它们比较元音的顺序，并把这个设为第二重要的比较条件，可以这样改写：
+
+\begin{lstlisting}[language=Haskell]
+  lengthCompare :: String -> String -> Ordering
+  lengthCompare x y =
+    (length x `compare` length y)
+      `mappend` (vowels x `compare` vowels y)
+      `mappend` (x `compare` y)
+    where
+      vowels = length . filter (`elem` "aeiou")
+\end{lstlisting}
+
+这里写了一个帮助函数，接受一个字符串并告知有多少个元音拥有筛选，再应用\acode{length}。测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> lengthCompare "zen" "anna"
+  LT
+  ghci> lengthCompare "zen" "ana"
+  LT
+  ghci> lengthCompare "zen" "ann"
+  GT
+\end{lstlisting}
+
+第一个例子，\acode{"zen"}长度短于\acode{"anna"}返回\acode{LT}。第二个例子，长度一样，但第二个字符串元音多，返回
+\acode{LT}。第三个例子，长度相等，元音个数相等，最后经过字典顺序得\acode{"zen"}更大。
+
+\acode{Ordering}的幺半群允许我们用不同方式比较事务，并根据重要度的不同而定义比较的顺序。
+
+\subsubsection*{\acode{Maybe}幺半群}
+
 % TODO
 
 % \begin{lstlisting}[language=Haskell]
