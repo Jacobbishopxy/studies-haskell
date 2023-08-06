@@ -39,17 +39,17 @@
 
 接下来是一些常规的类型：
 
-\acode{Int}：对于 32 位的机器而言最大值大概是 $2147483647$ 而最小值则是 $2147483647$。
+\acodegrn{Int}：对于 32 位的机器而言最大值大概是 $2147483647$ 而最小值则是 $2147483647$。
 
-\acode{Integer}：同样也是整数，只不过范围会大很多，而 \acode{Int} 则更高效率。
+\acodegrn{Integer}：同样也是整数，只不过范围会大很多，而 \acode{Int} 则更高效率。
 
-\acode{Float}：单精度。
+\acodegrn{Float}：单精度。
 
-\acode{Double}：双精度。
+\acodegrn{Double}：双精度。
 
-\acode{Bool}：布尔值。
+\acodegrn{Bool}：布尔值。
 
-\acode{Char}：字符。
+\acodegrn{Char}：字符。
 
 \subsection*{类型变量}
 
@@ -85,22 +85,22 @@ typeclass 类似于一个接口用于定义一些行为。如果一个类型是 
 这里有趣的是 \acode{=>} 符号，在该符号之前的被称为一个 \textbf{类约束 class constraint}。那么上述的类型声明可以被这么
 理解：等式函数接受任意两个相同类型的值，并返回一个 \acode{Bool}，而这两个值必须是 \acode{Eq} 类的成员（即类约束）。
 
-\acode{Eq} typeclass 提供了一个用于测试是否相等的接口。
+\acodeppl{Eq} typeclass 提供了一个用于测试是否相等的接口。
 
 而 \acode{elem} 函数则拥有 \acode{(Eq a) => a -> [a] -> Bool} 这样的类型，因为其在数组中使用了 \acode{==} 用于检查
 元素是否为期望的值。
 
 一些基础的 typeclasses：
 
-\acode{Eq} 如上所述。
+\acodeppl{Eq} 如上所述。
 
-\acode{Ord} 覆盖了所有标准的比较函数例如\acode{>}，\acode{<}，\acode{>=} 以及 \acode{<=}。\acode{compare} 函数接受
-两个同类型的 \acode{Ord} 成员，并返回一个 ordering。\acode{Ordering} 是一个可作为 \acode{GT}，\acode{LT} 或是 \acode{EQ}
-的类型，分别意为 \textit{大于}，\textit{小于}以及\textit{等于}。
+\acodeppl{Ord} 覆盖了所有标准的比较函数例如\acode{>}，\acode{<}，\acode{>=} 以及 \acode{<=}。\acode{compare} 函数接受
+两个同类型的 \acode{Ord} 成员，并返回一个 ordering。\acodegrn{Ordering} 是一个可作为 \acode{GT}，\acode{LT} 或是
+\acode{EQ}的类型，分别意为 \textit{大于}，\textit{小于}以及\textit{等于}。
 
-\acode{Show} 可以表示为字符串。
+\acodeppl{Show} 可以表示为字符串。
 
-\acode{Read} 有点类似于 \acode{Show} 相反的 typeclass，\acode{read} 函数接受一个字符串并返回一个 \acode{Read} 的成员。
+\acodeppl{Read} 有点类似于 \acode{Show} 相反的 typeclass，\acode{read} 函数接受一个字符串并返回一个 \acode{Read} 的成员。
 
 \begin{lstlisting}[language=Haskell]
   ghci> read "True" || False
@@ -149,11 +149,11 @@ typeclass 类似于一个接口用于定义一些行为。如果一个类型是 
 大多数表达式可以被编译器推导出其类型，但是有时编译器并不知道返回值的类型，例如 \acode{read "5"} 时该为 \acode{Int} 还是 \acode{Float}。
 那么为了知道其类型，Haskell 会解析 \acode{read "5"}。然而 Haskell 是一个静态类型语言，因此它需要在代码编译前知道所有类型。
 
-\acode{Enum} 成员是序列化的有序类型 -- 它们可被枚举。\acode{Enum} typeclass 的主要优势是可以使用在列表区间；它们也同样定义了
+\acodeppl{Enum} 成员是序列化的有序类型 -- 它们可被枚举。\acode{Enum} typeclass 的主要优势是可以使用在列表区间；它们也同样定义了
 successors 与 predecessors，即可使用 \acode{succ} 以及 \acode{pred} 函数。在这个类中的类型有：\acode{()}，\acode{Bool}
 \acode{Char}，\acode{Ordering}，\acode{Int}，\acode{Integer}，\acode{Float} 以及 \acode{Double}.
 
-\acode{Bounded} 成员拥有上下界：
+\acodeppl{Bounded} 成员拥有上下界：
 
 \begin{lstlisting}[language=Haskell]
   ghci> minBound :: Int
@@ -173,7 +173,7 @@ successors 与 predecessors，即可使用 \acode{succ} 以及 \acode{pred} 函�
   (True,2147483647,'\1114111')
 \end{lstlisting}
 
-\acode{Num} 是一个数值类：
+\acodeppl{Num} 是一个数值类：
 
 \begin{lstlisting}[language=Haskell]
   ghci> :t 20
@@ -195,10 +195,10 @@ successors 与 predecessors，即可使用 \acode{succ} 以及 \acode{pred} 函�
   (*) :: (Num a) => a -> a -> a
 \end{lstlisting}
 
-\acode{Integral} 同样也是数值 typeclass。
+\acodeppl{Integral} 同样也是数值 typeclass。
 
-\acode{Floating} 包含 \acode{Float} 与 \acode{Double}。
+\acodeppl{Floating} 包含 \acode{Float} 与 \acode{Double}。
 
-\acode{fromIntegral} 是一个处理数值的常用函数，而其类型为 \acode{fromIntegral :: (Num b, Integral a) => a -> b}。
+\acodered{fromIntegral} 是一个处理数值的常用函数，而其类型为 \acode{fromIntegral :: (Num b, Integral a) => a -> b}。
 
 \end{document}

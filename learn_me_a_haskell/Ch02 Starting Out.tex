@@ -95,7 +95,7 @@ Haskell 中的 list 是 \textbf{同质的 homogenous} 数据结构。
 数组还可以通过操作符 \acode{<}，\acode{<=}，\acode{==}，\acode{>} 以及 \acode{>=} 操作符来进行比较，
 而比较的方式则是顺序比较。当进行头部比较元素相等时，再进行下一个元素进行比较。
 
-数组的四种基础操作 \acode{head}，\acode{tail}，\acode{last} 以及 \acode{init}：
+数组的四种基础操作 \acodered{head}，\acodered{tail}，\acodered{last} 以及 \acodered{init}：
 
 \begin{lstlisting}[language=Haskell]
   ghci> head [5,4,3,2,1]
@@ -113,16 +113,16 @@ Haskell 中的 list 是 \textbf{同质的 homogenous} 数据结构。
 其它的操作：
 
 \begin{enumerate}
-  \item \acode{length} 获取数组长度；
-  \item \acode{null} 检查数组是否为空；
-  \item \acode{reverse} 翻转数组；
-  \item \acode{take} 获取数组的头几个元素的数组；
-  \item \acode{drop} 移除数组的头几个元素，并返回剩余元素的数组；
-  \item \acode{maximum} 获取最大值；
-  \item \acode{minimum} 获取最小值；
-  \item \acode{sum} 求和；
-  \item \acode{product} 求积；
-  \item \acode{elem} 元素是否存在于数组中。
+  \item \acodered{length} 获取数组长度；
+  \item \acodered{null} 检查数组是否为空；
+  \item \acodered{reverse} 翻转数组；
+  \item \acodered{take} 获取数组的头几个元素的数组；
+  \item \acodered{drop} 移除数组的头几个元素，并返回剩余元素的数组；
+  \item \acodered{maximum} 获取最大值；
+  \item \acodered{minimum} 获取最小值；
+  \item \acodered{sum} 求和；
+  \item \acodered{product} 求积；
+  \item \acodered{elem} 元素是否存在于数组中。
 \end{enumerate}
 
 \begin{lstlisting}[language=Haskell]
@@ -200,7 +200,7 @@ Haskell 中的 list 是 \textbf{同质的 homogenous} 数据结构。
 
 以下是若干用于生产无限长度数组的函数：
 
-\acode{cycle} 循环周期：
+\acodered{cycle} 循环周期：
 
 \begin{lstlisting}[language=Haskell]
   ghci> take 10 (cycle [1,2,3])
@@ -209,14 +209,14 @@ Haskell 中的 list 是 \textbf{同质的 homogenous} 数据结构。
   "LOL LOL LOL "
 \end{lstlisting}
 
-\acode{repeat} 重复：
+\acodered{repeat} 重复：
 
 \begin{lstlisting}[language=Haskell]
   ghci> take 10 (repeat 5)
   [5,5,5,5,5,5,5,5,5,5]
 \end{lstlisting}
 
-另外就是 \acode{replicate} 函数可以重复单个元素：
+另外就是 \acodered{replicate} 函数可以重复单个元素：
 
 \begin{lstlisting}[language=Haskell]
   ghci> replicate 3 10
@@ -301,7 +301,7 @@ Haskell 中的列表表达式，例如 1 至 10 数组中每个元素乘以 2：
 
 对于对元组（当且仅当包含两个元素）有以下操作：
 
-\acode{fst} 获取对元组的第一个元素：
+\acodered{fst} 获取对元组的第一个元素：
 
 \begin{lstlisting}[language=Haskell]
   ghci> fst (8,11)
@@ -310,7 +310,7 @@ Haskell 中的列表表达式，例如 1 至 10 数组中每个元素乘以 2：
   "Wow"
 \end{lstlisting}
 
-\acode{snd} 获取对元组的第二个元素：
+\acodered{snd} 获取对元组的第二个元素：
 
 \begin{lstlisting}[language=Haskell]
   ghci> snd (8,11)
@@ -319,7 +319,7 @@ Haskell 中的列表表达式，例如 1 至 10 数组中每个元素乘以 2：
   False
 \end{lstlisting}
 
-另外一个有意思的函数则是 \acode{zip}，它可以将两个数组按对拼接成对元组的数组
+另外一个有意思的函数则是 \acodered{zip}，它可以将两个数组按对拼接成对元组的数组
 
 \begin{lstlisting}[language=Haskell]
   ghci> zip [1,2,3,4,5] [5,5,5,5,5]
