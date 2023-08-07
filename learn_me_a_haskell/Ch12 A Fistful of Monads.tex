@@ -536,6 +536,302 @@ Haskell 中的单子非常的有用，它们得到了属于自己的特殊语法
 
 \subsection*{列表单子}
 
+目前为止我们学习了\acode{Maybe}是如何被视为可能失败的 context，也学习了如何用\acode{>>=}来把这些可能失败的值传给函数。
+这一小节中，我们开始学习如何用列表的 monadic 性质来写非确定性 non-deterministic 的程序。
+
+把列表当做高级函子有如下特性：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> (*) <$> [1,2,3] <*> [10,100,1000]
+  [10,100,1000,20,200,2000,30,300,3000]
+\end{lstlisting}
+
+所有可能的组合相乘。
+
+这个非确定性的 context 可以很漂亮的转换为单子。列表的\acode{Monad}实例如下：
+
+\begin{lstlisting}[language=Haskell]
+  instance Monad [] where
+  return x = [x]
+  xs >>= f = concat (map f xs)
+  fail _ = []
+\end{lstlisting}
+
+\acode{return}即\acode{pure}，不多赘述。
+
+\acode{>>=}意为接受一个带有 context 的值（一个 monadic 值），将其喂给一个接受普通值的函数并返回一个带有 context 的值。
+尝试一下将一个非确定性值喂给一个函数：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> [3,4,5] >>= \x -> [x,-x]
+  [3,-3,4,-4,5,-5]
+\end{lstlisting}
+
+在对\acode{Maybe}使用\acode{>>=}时，monadic 值喂给函数时考虑到了可能失败的 context。而列表的\acode{>>=}则考虑到了
+非确定性。\acode{[3,4,5]}是一个非确定性的值，将它喂给一个返回非确定性值的函数，那么结果也会是非确定性的。该函数接受一个
+数值并生产两个结果：一个负数，一个正数。因此当使用\acode{>>=}将这个列表喂给函数，每个列表中的数值保留了原有的符号，又新增了
+相反符号的值。
+
+为了了解这是如何做到的，我们仅需跟着实现。首先起始的是列表\acode{[3,4,5]}，接着将 lambda 应用在它们上，得到：
+
+\begin{lstlisting}[language=Haskell]
+  [[3,-3],[4,-4],[5,-5]]
+\end{lstlisting}
+
+lambda 应用在了列表中的每个元素上，最后打平列表，这样就应用了一个非确定性的函数至一个非确定性的值了！
+
+非确定性也有考虑到失败的可能。\acode{[]}其实就等价于\acode{Nothing}，因为它没有结果。所以失败等同于返回一个空列表。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> [] >>= \x -> ["bad","mad","rad"]
+  []
+  ghci> [1,2,3] >>= \x -> []
+  []
+\end{lstlisting}
+
+和\acode{Maybe}一样，我们可以用\acode{>>=}把它们串起来：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> [1,2] >>= \n -> ['a','b'] >>= \ch -> return (n,ch)
+  [(1,'a'),(1,'b'),(2,'a'),(2,'b')]
+\end{lstlisting}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.6\textwidth]{\subfix{./images/concatmap.png}}
+\end{figure}
+
+列表\acode{[1,2]}绑定至\acode{n}，\acode{['a','b']}绑定至\acode{ch}。接着使用\acode{return (n,ch)}（或是
+\acode{[(n,ch)]}），意为将一对\acode{n,ch}并将其放入默认最小 context 中。可以这么理解：对于\acode{[1,2]}中的
+每个元素而言，经历\acode{['a','b']}中每个元素，并生产一对元组。
+
+一般而言，\acode{return}接受一个值并将其放入最小默认 context 中，它是不会多做额外的事情，仅仅只是用于展出结果。
+
+\begin{anote}
+  在处理非确定性值的时候，可以把列表中的每个元素想象成计算路线中的一个分支。
+\end{anote}
+
+将之前的表达式用\acode{do}重写：
+
+\begin{lstlisting}[language=Haskell]
+  listOfTuples :: [(Int, Char)]
+  listOfTuples = do
+    n <- [1, 2]
+    ch <- ['a', 'b']
+    return (n, ch)
+\end{lstlisting}
+
+这样写可以更清楚的知道\acode{n}走过\acode{[1,2]}中的每个值，而\acode{ch}则走过\acode{['a','b']}中的每个值。
+正如\acode{Maybe}那样，从 monadic 值中取出普通值再喂给函数。\acode{>>=}会帮我们处理好一切 context 相关的问题，
+不同之处在于列表的 context 指的是非确定性。
+
+使用\acode{do}表示法很想我们之前做的：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> [ (n,ch) | n <- [1,2], ch <- ['a','b'] ]
+  [(1,'a'),(1,'b'),(2,'a'),(2,'b')]
+\end{lstlisting}
+
+正是列表表达式！在之前的\acode{do}表达式的例子中，\acode{n}走过\acode{[1,2]}的每个元素，\acode{ch}走过
+\acode{['a','b']}的每个元素，接着把\acode{(n,ch)}放进一个 context 中。这跟列表表达式的目的一样，只是列表表达式
+不需要在最后用\acode{return}来得到\acode{(n,ch)}结果。
+
+实际上，列表表达式是一个语法糖。无论是列表表达式还是\acode{do}表示法，都会转换成使用\acode{>>=}来做非确定性特征的计算。
+
+列表表达式允许我们过滤输出。例如仅收集含有数字\acode{7}的数字：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> [ x | x <- [1..50], '7' `elem` show x ]
+  [7,17,27,37,47]
+\end{lstlisting}
+
+我们将\acode{show}应用至\acode{x}上使数值变为字符串再查看字符\acode{'7'}是否存在在字符串中。为了知道筛选列表表达式
+是如何转换成列表单子的，我们需要检查\acode{guard}函数以及\acode{MonadPlus} typeclass。该 typeclass 用于表达同时
+可以表现为幺半群的单子，以下是其定义：
+
+\begin{lstlisting}[language=Haskell]
+  class Monad m => MonadPlus m where
+    mzero :: m a
+    mplus :: m a -> m a -> m a
+\end{lstlisting}
+
+\acode{mzero}是\acode{Monoid} typeclass 中\acode{mempty}的同义词，\acode{mplus}则关联\acode{maapend}。
+列表既是幺半群又是单子，因此可以实现\acode{MonadPlus}这个 typeclass：
+
+\begin{lstlisting}[language=Haskell]
+  instance MonadPlus [] where
+    mzero = []
+    mplus = (++)
+\end{lstlisting}
+
+对于列表而言，\acode{mzero}代表一个非确定性计算且没有任何结果 -- 一个失败的计算，\acode{mplus}将两个非确定性的值
+结合成一个。\acode{guard}函数定义如下：
+
+\begin{lstlisting}[language=Haskell]
+  guard :: (MonadPlus m) => Bool -> m ()
+  guard True = return ()
+  guard False = mzero
+\end{lstlisting}
+
+它接受一个布尔值，如果为\acode{True}，则接受一个\acode{()}并将其置入最小默认 context 中代表成功；否则创建一个失败的
+monadic 值。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> guard (5 > 2) :: Maybe ()
+  Just ()
+  ghci> guard (1 > 2) :: Maybe ()
+  Nothing
+  ghci> guard (5 > 2) :: [()]
+  [()]
+  ghci> guard (1 > 2) :: [()]
+  []
+\end{lstlisting}
+
+看起来很有趣，不过如何有用呢？在列表单子中，我们用它来过滤非确定性计算。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> [1..50] >>= (\x -> guard ('7' `elem` show x) >> return x)
+  [7,17,27,37,47]
+\end{lstlisting}
+
+这里的结果与之前的列表表达式是一致的。那么\acode{guard}是如何工作的呢？让我们看看\acode{guard}函数是如何与\acode{>>}
+关联的：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> guard (5 > 2) >> return "cool" :: [String]
+  ["cool"]
+  ghci> guard (1 > 2) >> return "cool" :: [String]
+  []
+\end{lstlisting}
+
+如果\acode{guard}成功，得到一个空的元组，接着用\acode{>>}来忽略空的元组，得到不同的结果；反之，\acode{return}失败。
+这是因为用\acode{>>=}把空的列表喂给函数总是返回空的列表。\acode{guard}大致的意思就是：如果一个布尔值为\acode{False}
+那么久产生一个失败的状态，反之返回一个\acode{()}。如此计算可以继续进行。
+
+用\acode{do}改写之前的例子：
+
+\begin{lstlisting}[language=Haskell]
+  sevensOnly :: [Int]
+  sevensOnly = do
+    x <- [1 .. 50]
+    guard ('7' `elem` show x)
+    return x
+\end{lstlisting}
+
+这里不写最后一行的\acode{return x}，整个列表就会是包含一堆空元组的列表。
+
+上述例子写成列表表达式就是这样：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> [ x | x <- [1..50], '7' `elem` show x ]
+  [7,17,27,37,47]
+\end{lstlisting}
+
+因此列表表达式的过滤基本上跟\acode{guard}是一致的。
+
+\subsubsection*{一个骑士任务}
+
+这里有一个用非确定性解决的问题。假设有一个棋盘以及一个骑士棋子，我们想要知道骑士是否可以在三步之内移动到想要的位置。
+我们只需要一对数值来表示骑士在棋盘上的位置。第一个数值代表棋盘行数，第二个代表列数。
+
+\newpage
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.8\textwidth]{\subfix{./images/chess.png}}
+\end{figure}
+
+用一个类型来模拟骑士所处棋盘的位置：
+
+\begin{lstlisting}[language=Haskell]
+  type KnightPos = (Int, Int)
+\end{lstlisting}
+
+假设起始点\acode{(6,2)}，那么能用三步到\acode{(6,1)}么？下一步的最优解是什么？不如全部一起考虑！要好好利用所谓的
+非确定性。所有我们不是只选择一步，而是选择全部。首先写一个函数返回所有可能的下一步：
+
+\begin{lstlisting}[language=Haskell]
+  moveKnight :: KnightPos -> [KnightPos]
+  moveKnight (c, r) = do
+    (c', r') <-
+      [ (c + 2, r - 1),
+        (c + 2, r + 1),
+        (c - 2, r - 1),
+        (c - 2, r + 1),
+        (c + 1, r - 2),
+        (c + 1, r + 2),
+        (c - 1, r - 2),
+        (c - 1, r + 2)
+        ]
+    guard (c' `elem` [1 .. 8] && r' `elem` [1 .. 8])
+    return (c', r')
+\end{lstlisting}
+
+骑士的移动为日字形（参考象棋中的马）即横一竖二或者横二竖一。\acode{(c',r')}走过列表中的每个元素，\acode{guard}用于
+保证移动后停留在棋盘上，否则产生一个空的列表代表失败，这样\acode{return (c',r')}就不会执行。
+
+如果不用列表单子写，那么也可以用\acode{filter}来实现：
+
+\begin{lstlisting}[language=Haskell]
+  moveKnight :: KnightPos -> [KnightPos]
+  moveKnight (c, r) =
+    filter
+      onBoard
+      [ (c + 2, r - 1),
+        (c + 2, r + 1),
+        (c - 2, r - 1),
+        (c - 2, r + 1),
+        (c + 1, r - 2),
+        (c + 1, r + 2),
+        (c - 1, r - 2),
+        (c - 1, r + 2)
+      ]
+    where
+      onBoard (c, r) = c `elem` [1 .. 8] && r `elem` [1 .. 8]
+\end{lstlisting}
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> moveKnight (6,2)
+  [(8,1),(8,3),(4,1),(4,3),(7,4),(5,4)]
+  ghci> moveKnight (8,1)
+  [(6,2),(7,3)]
+\end{lstlisting}
+
+接下来就是\acode{in3}函数，接受一个起始位置，每一步都是一个非确定性的位置，然后用\acode{>>=}喂给\acode{moveKnight}：
+
+\begin{lstlisting}[language=Haskell]
+  in3 :: KnightPos -> [KnightPos]
+  in3 start = do
+    first <- moveKnight start
+    second <- moveKnight first
+    moveKnight second
+\end{lstlisting}
+
+也可以不使用\acode{do}：
+
+\begin{lstlisting}[language=Haskell]
+  in3 start = return start >>= moveKnight >>= moveKnight >>= moveKnight
+\end{lstlisting}
+
+接下来就是接受两个位置并测试是否可以三步内移动到指定位置的函数：
+
+\begin{lstlisting}[language=Haskell]
+  canReachIn3 :: KnightPos -> KnightPos -> Bool
+  canReachIn3 start end = end `elem` in3 start
+\end{lstlisting}
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> (6,2) `canReachIn3` (6,1)
+  True
+  ghci> (6,2) `canReachIn3` (7,3)
+  False
+\end{lstlisting}
+
+\subsection*{单子定律}
+
 % TODO
 
 % \begin{lstlisting}[language=Haskell]
