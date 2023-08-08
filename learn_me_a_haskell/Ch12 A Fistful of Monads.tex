@@ -832,10 +832,146 @@ monadic 值。
 
 \subsection*{单子定律}
 
-% TODO
+与高级函子以及函子一样，单子也有一些定律是所有实例都必须遵守的。这也是因为某些实现\acode{Monad} typeclass 的实例并不能称其
+为单子那样。对于一个类型想要成为真正的单子，单子定律就必须被满足。
 
-% \begin{lstlisting}[language=Haskell]
+\subsubsection*{左同一性 left identity}
 
-% \end{lstlisting}
+第一个单子定律就是如果接受一个值，将其置入默认 context 并\acode{return}，接着通过\acode{>>=}将其喂给一个函数，这个过程与
+接受一个值并喂给函数的结果是一致的。正式的表示：
+
+\begin{enumerate}
+  \item \acodegrn{return x >>= f}与\acodegrn{f x}是一致的
+\end{enumerate}
+
+对于\acode{Maybe}单子\acode{return}被定义为\acode{Just}。\acode{Maybe}单子描述的是失败的可能性，如果右普通值放入
+context，那么把这个动作视为计算成功是很合理的。例如：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> return 3 >>= (\x -> Just (x+100000))
+  Just 100003
+  ghci> (\x -> Just (x+100000)) 3
+  Just 100003
+\end{lstlisting}
+
+对于列表单子而言，\acode{return}是把值放入一个列表中，变为单例列表。\acode{>>=}则是走过列表中所有元素，并将它们喂给函数做
+计算，而又因为单例列表中只有一个值，因此这与直接对元素做运算是等价的：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> return "WoM" >>= (\x -> [x,x,x])
+  ["WoM","WoM","WoM"]
+  ghci> (\x -> [x,x,x]) "WoM"
+  ["WoM","WoM","WoM"]
+\end{lstlisting}
+
+对于\acode{IO}而言，我们已经知道了\acode{return}不会产生副作用，而是在结果中展示原有的值，因此该定律对\acode{IO}也是
+有效的。
+
+\subsubsection*{右同一性 left identity}
+
+第二个单子定律就是如果有一个 monadic 值，将它通过\acode{>>=}喂给\acode{return}，结果还是原有的 monadic 值。正式的表示：
+
+\begin{enumerate}
+  \item \acodegrn{m >>= return}与\acodegrn{m}是一致的
+\end{enumerate}
+
+这一条定律可能没有像第一条那样明显，让我们看看它为何成立。通过\acode{>>=}将 monadic 值喂给的这些函数都是接受普通值并返回
+monadic 值的。\acode{return}将一个值置入最小 context 且仍然将该值作为其结果。这就意味着，例如\acode{Maybe}它并没有
+处于失败的状态，而对于列表也没有变成非确定性的。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> Just "move on up" >>= (\x -> return x)
+  Just "move on up"
+  ghci> [1,2,3,4] >>= (\x -> return x)
+  [1,2,3,4]
+  ghci> putStrLn "Wah!" >>= (\x -> return x)
+  Wah!
+\end{lstlisting}
+
+仔细看一下列表对\acode{>>=}实现：
+
+\begin{lstlisting}[language=Haskell]
+  xs >>= f = concat (map f xs)
+\end{lstlisting}
+
+如果将\acode{[1,2,3,4]}喂给\acode{return}，首先\acode{return}会把\acode{[1,2,3,4]}映射成\acode{[[1],[2],[3],[4]]}
+然后再将这些小的列表结合起来成为原有的列表。
+
+左右同一性描述的是\acode{return}的行为，它之所以重要是因为它将普通值转为具有 context 的值。
+
+\subsubsection*{结合律}
+
+最后一条单子定律就是当我们通过\acode{>>=}串联起所有的 monadic 函数，其嵌套顺序是无关紧要的。正式的表示：
+
+\begin{enumerate}
+  \item \acodegrn{(m >>= f) >>= g}等同于\acode{m >>= (\\x -> f x >>= g)}
+\end{enumerate}
+
+这里我们有一个 monadic 值\acode{m}，以及两个 monadic 函数\acode{f}与\acode{g}。当处理\acode{(m >>= f) >>= g}时，是将
+\acode{m}喂给\acode{f}，得到一个 monadic 值，接着将其喂给\acode{g}。而表达式\acode{m >>= (\\x -> f x >>= g)}则是接受
+一个 monadic 值，将其喂给一个函数，该函数会把\acode{f x}的结果喂给\acode{g}。我们不太容易看出两者相同，用一个例子便于理解。
+
+之前的走钢丝的例子中，我们曾把几个函数串在一起：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> return (0,0) >>= landRight 2 >>= landLeft 2 >>= landRight 2
+  Just (2,4)
+\end{lstlisting}
+
+从\acode{Just (0,0)}开始，将值传给\acode{landRight 2}，结果在传给下一个 monadic 函数，以此类推。用括号表示出优先级的话如下：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> ((return (0,0) >>= landRight 2) >>= landLeft 2) >>= landRight 2
+  Just (2,4)
+\end{lstlisting}
+
+可以改写成这样：
+
+\begin{lstlisting}[language=Haskell]
+  return (0,0) >>= (\x ->
+  landRight 2 x >>= (\y ->
+  landLeft 2 y >>= (\z ->
+  landRight 2 z)))
+\end{lstlisting}
+
+\acode{return (0,0)}等价于\acode{Just (0,0)}，喂给 lambda 时，里面的\acode{x}就等于\acode{(0,0)}。\acode{landRight}
+接受一个数值与\acode{pole}，得\acode{Just (0,2)}，再喂给另一个 lambda，以此类推，最后得到\acode{Just (2,4)}。
+
+也就是说将值喂给 monadic 函数的顺序并不重要，重要的是它的意义。这里是另一个视角来观察这个定律：考虑组合两个函数\acode{f}与
+\acode{g}，组合的实现如下：
+
+\begin{lstlisting}[language=Haskell]
+  (.) :: (b -> c) -> (a -> b) -> (a -> c)
+  f . g = (\x -> f (g x))
+\end{lstlisting}
+
+\acode{g}的类型是\acode{a -> b}而\acode{f}的类型是\acode{b -> c}，我们将其变为了类型\acode{a -> c}，因此它的参数都是
+在这些函数中传递。那么如果这两个函数是 monadic 的，它们返回的是 monadic 值呢？如果一个函数的类型是\acode{a -> m b}，我们
+没法将它的返回直接传给\acode{b -> m c}的函数，因为该函数接受的是一个普通的\acode{b}，并不是一个 monadic 值。不过我们可以
+通过\acode{>>=}来实现：
+
+\begin{lstlisting}[language=Haskell]
+  (<=<) :: (Monad m) => (b -> m c) -> (a -> m b) -> (a -> m c)
+  f <=< g = (\x -> g x >>= f)
+\end{lstlisting}
+
+这样就可以组合两个 monadic 函数了：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let f x = [x,-x]
+  ghci> let g x = [x*3,x*2]
+  ghci> let h = f <=< g
+  ghci> h 3
+  [9,-9,6,-6]
+\end{lstlisting}
+
+那么这与结合律有什么关系呢？当我们将该定律视为组合，就意味着\acodegrn{f <=< (g <=< h)}与\acodegrn{(f <=< g) <=< h}
+应该是等价的。这就是另一种方式说明对单子而言，嵌套顺序对计算并无影响。
+
+如果将头两个定律转换为\acode{<=<}，那么左同一性定律意味着对于所有 monadic 函数\acode{f}而言，\acodegrn{f <=< return}
+等同于\acodegrn{f}，那么右同一性定律即\acodegrn{return <=< f}等同于\acodegrn{f}。
+
+这与普通函数\acode{f}很像，即\acode{(f . g) . h}等同于\acode{f . (g . h)}，\acode{f . id}等同于\acode{f}，以及
+\acode{id . f}等同于\acode{f}。
 
 \end{document}

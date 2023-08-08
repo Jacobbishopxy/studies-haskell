@@ -6,9 +6,11 @@
   \section{#2}
 }
 
+\definecolor{code}{HTML}{dddddd}
+
 % a new command which simplify \lstinline
 \newcommand{\acode}[1]{
-  \lstinline[basicstyle=\ttfamily]{#1}
+  \colorbox{code}{\lstinline[basicstyle=\ttfamily]{#1}}
 }
 
 \definecolor{codered}{HTML}{cc0200}
