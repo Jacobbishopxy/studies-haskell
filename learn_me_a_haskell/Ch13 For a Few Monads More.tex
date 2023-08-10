@@ -2,6 +2,188 @@
 
 \begin{document}
 
-WIP
+\subsection*{Writer 单子}
+
+我们已经见识过了\acode{Maybe}，列表以及\acode{IO}单子，现在让我们看看\acode{Writer}单子。
+
+相较于\acode{Maybe}用作于将值置入可能失败的 context 中，以及列表用作于将值置入非确定性的 context 中，\acode{Writer}
+单子则是用作于将值置入一个附加值的 context 中，类似于 log。\acode{Writer}可以让我们在计算的同时收集所有 log 记录，
+并将它们合并成一个 log 并附加在结果上。
+
+例如我们想要将我们的值附加在字符串上用于解释事情的经过，亦或许是调试的目的。考虑一个函数接受一个值并返回一个布尔值：
+
+\begin{lstlisting}[language=Haskell]
+  isBigGang :: Int -> Bool
+  isBigGang x = x > 9
+\end{lstlisting}
+
+如果想要不止是\acode{True}或\acode{False}值，还想要一段解释应该怎么办呢？
+
+\begin{lstlisting}[language=Haskell]
+  isBigGang :: Int -> (Bool, String)
+  isBigGang x = (x > 9, "Compared gang size to 9.")
+\end{lstlisting}
+
+相较于返回一个\acode{Bool}，我们返回的是一个元组，其中第二个值为解释信息。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> isBigGang 3
+  (False,"Compared gang size to 9.")
+  ghci> isBigGang 30
+  (True,"Compared gang size to 9.")
+\end{lstlisting}
+
+那么如果我们有一个函数接受的是普通值，同时返回的是代用 context 的值，那么我们应该如何接受一个带有 context 的值，并将其
+喂给这个普通函数呢？
+
+当我们在探索\acode{Maybe}单子时，我们曾编写了\acode{applyMaybe}函数，即接受一个\acode{Maybe a}值，以及一个类型为
+\acode{a -> Maybe b}的函数，并将\acode{Maybe a}值喂给该函数，即使该函数接受的是一个普通的\acode{a}而不是一个
+\acode{Maybe a}。\acode{applyMaybe}考虑到了 context 的处理，也就是会注意可能失败的场景，而在\acode{a -> Maybe b}
+中，只需处理普通的数即可。因为\acode{applyMaybe}（之后变成了\acode{>>=}）会帮忙检查\acode{Nothing}或\acode{Just}
+的情况。
+
+以同样的方式，再编写一个接受值以及附加 log 的函数，也就是一个\acode{(a, String)}值，以及一个\acode{a -> (b,String)}
+类型的函数，最后将值喂给函数。该函数有的 context 是附加 log 值，而不是一个可能失败的 context，因此原有的 log 会被保留，
+并附上从函数产生的新的 log：
+
+\begin{lstlisting}[language=Haskell]
+  applyLog :: (a,String) -> (a -> (b,String)) -> (b,String)
+  applyLog (x,log) f = let (y,newLog) = f x in (y,log ++ newLog)
+\end{lstlisting}
+
+当我们拥有一个带有 context 的值并想将其喂给一个函数，我们通常会试着将值从 context 中剥离，然后再将其应用至函数并检查该
+context 注重的是什么。在\acode{Maybe}单子中，我们检查是否为一个\acode{Just x}，如果是则将函数应用至\acode{x}。
+而在 log 的情况，我们知道元组的其中一部分是值另一部分是 log，因此我们先取出值\acode{x}，将\acode{f}应用至\acode{x}，
+得到\acode{(y,newLog)}，其中\acode{y}是新的值而\acode{newLog}则是新的 log。不过如果返回的是\acode{newLog}，
+那么并没有包含旧的 log，因此需要返回的是\acode{(y, log ++ newLog)}：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> (3, "Smallish gang.") `applyLog` isBigGang
+  (False,"Smallish gang.Compared gang size to 9")
+  ghci> (30, "A freaking platoon.") `applyLog` isBigGang
+  (True,"A freaking platoon.Compared gang size to 9")
+  ghci> ("Tobin","Got outlaw name.") `applyLog` (\x -> (length x, "Applied length."))
+  (5,"Got outlaw name.Applied length.")
+  ghci> ("Bathcat","Got outlaw name.") `applyLog` (\x -> (length x, "Applied length"))
+  (7,"Got outlaw name.Applied length")
+\end{lstlisting}
+
+看一下 lambda 里是什么情况，\acode{x}是一个普通字符串而不是一个元组，\acode{applyLog}用于追加 log。
+
+\subsubsection*{幺半群来拯救我们}
+
+现在的\acode{applyLog}从\acode{(a, String)}类型中获取值，但是 log 就必须是一个\acode{String}吗？它使用\acode{++}
+来追加 logs，那么这不应该适用于所有列表而不单单只是字符列表么？当然是，现在改变一下类型：
+
+\begin{lstlisting}[language=Haskell]
+  applyLog :: (a, [c]) -> (a -> (b, [c])) -> (b, [c])
+\end{lstlisting}
+
+那么这对 bytestring 有效吗？当然，不过现在生效的只能是列表。看起来我们需要构建为 bytestring 另一个\acode{applyLog}。
+不过等等！列表和 bytestring 都是幺半群。同样的，它们都是\acode{Monoid} typeclass 的实例，这就意味着它们都实现了
+\acode{mappend}函数。那么无论是对于列表还是 bytestring 而言，\acode{mappend}正是用作于追加值。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> [1,2,3] `mappend` [4,5,6]
+  [1,2,3,4,5,6]
+  ghci> B.pack [99,104,105] `mappend` B.pack [104,117,97,104,117,97]
+  Chunk "chi" (Chunk "huahua" Empty)
+\end{lstlisting}
+
+棒！那么现在我们的\acode{applyLog}就能为任意幺半群工作了。修改一下实现，将\acode{++}替换为\acode{mappend}：
+
+\begin{lstlisting}[language=Haskell]
+  applyLog :: (Monoid m) => (a, m) -> (a -> (b, m)) -> (b, m)
+  applyLog (x, log) f = let (y, newLog) = f x in (y, log `mappend` newLog)
+\end{lstlisting}
+
+由于包含值现在可以是任意幺半群，我们不再需要把一个元组想成一个值以及一个 log，而是一个值与一个幺半群的值。例如我们可以有一个
+元组包含了一个物品名称以及其作为幺半群的价格。我们只需要使用\acode{Sum} newtype 来确保价格可以被求和。
+
+\begin{lstlisting}[language=Haskell]
+  import Data.Monoid
+  type Food = String
+
+  type Price = Sum Int
+
+  addDrink :: Food -> (Food, Price)
+  addDrink "beans" = ("milk", Sum 25)
+  addDrink "jerky" = ("whiskey", Sum 99)
+  addDrink _ = ("beer", Sum 30)
+\end{lstlisting}
+
+我们用字符串来代表事务，以及\acode{Sum}的\acode{Int}作为\acode{newtype}用于追踪总花销。提醒一下，对\acode{Sum}进行
+\acode{mappend}可以将它们加总在一起：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> Sum 3 `mappend` Sum 9
+  Sum {getSum = 12}
+\end{lstlisting}
+
+通过\acode{applyLog}将价格进行求和：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> ("beans", Sum 10) `applyLog` addDrink
+  ("milk",Sum {getSum = 35})
+  ghci> ("jerky", Sum 25) `applyLog` addDrink
+  ("whiskey",Sum {getSum = 124})
+  ghci> ("meat", Sum 5) `applyLog` addDrink
+  ("beer",Sum {getSum = 35})
+\end{lstlisting}
+
+由于\acode{addDrink}返回的是类型为\acode{(Food,Price)}的元组，那么可以继续应用\acode{addDrink}在返回值上：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> ("meat", Sum 5) `applyLog` addDrink `applyLog` addDrink
+  ("beer",Sum {getSum = 65})
+\end{lstlisting}
+
+\subsubsection*{Writer 类型}
+
+我们已经看到了一个值附加一个幺半群可以像一个幺半群的值那样运作，再测试一下\acode{Monad}实例。\acode{Control.Monad.Writer}
+模块中提供了\acode{Writer w a}类型，连同其\acode{Monad}的实例，以及一些处理这个类型的函数。
+
+首先是这个类型本身：
+
+\begin{lstlisting}[language=Haskell]
+  newtype Writer w a = Writer { runWriter :: (a, w) }
+\end{lstlisting}
+
+通过\acode{newtype}包裹使其成为\acode{Monad}的一个实例，同时其类型又有别于普通的元组。其中\acode{a}类型参数代表着值，
+而\acode{w}类型参数代表附加的幺半群值。
+
+其\acode{Monad}实例定义如下：
+
+\begin{lstlisting}[language=Haskell]
+  instance (Monoid w) => Monad (Writer w) where
+    return x = Writer (x, mempty)
+    (Writer (x,v)) >>= f = let (Writer (y, v')) = f x in Writer (y, v `mappend` v')
+\end{lstlisting}
+
+首先解释一下\acode{>>=}，它的实现基本上等同于\acode{applyLog}，只不过现在的元组是包裹在\acode{Writer}的\acode{newtype}中，
+我们需要模式匹配将其解包。首先将函数\acode{f}应用在\acode{x}上，得到一个\acode{Writer w a}值，接着用一个\acode{let}表达式
+进行模式匹配。再将\acode{y}作为新的结果，并使用\acode{mappend}将旧的幺半群值与新的结合。最后的返回值则是用\acode{Writer}
+构造函数打包起来的元组。
+
+那\acode{return}呢？回忆一下\acode{return}的作用是接受一个值，并返回一个最小默认的 context 来包装我们的值。那么究竟是什么样的
+context 能代表 \acode{Writer} 呢？如果我们希望幺半群值所造成的影响越小越好，那么\acode{mempty}是个合理的选择，其被当做
+identity 幺半群值，例如\acode{""}，\acode{Sum 0}，或是空的 bytestring。当我们对\acode{mempty}使用\acode{mappend}与
+其它幺半群结合，那么结果便是其它的幺半群值。因此当用\acode{return}来做一个\acode{Writer}，再用\acode{>>=}喂给其它函数，
+那函数返回的便是计算后的幺半群。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> runWriter (return 3 :: Writer String Int)
+  (3,"")
+  ghci> runWriter (return 3 :: Writer (Sum Int) Int)
+  (3,Sum {getSum = 0})
+  ghci> runWriter (return 3 :: Writer (Product Int) Int)
+  (3,Product {getProduct = 1})
+\end{lstlisting}
+
+由于\acode{Writer}没有定义\acode{Show}的实例，那么就必须要\acode{runWriter}来讲\acode{Writer}转成正常的元组。
+
+这里的\acode{Writer}实例并未定义\acode{fail}，因此模式匹配失败时便会调用\acode{error}。
+
+% TODO
 
 \end{document}

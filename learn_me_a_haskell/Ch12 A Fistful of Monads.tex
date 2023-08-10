@@ -894,7 +894,7 @@ monadic 值的。\acode{return}将一个值置入最小 context 且仍然将该�
   xs >>= f = concat (map f xs)
 \end{lstlisting}
 
-如果将\acode{[1,2,3,4]}喂给\acode{return}，首先\acode{return}会把\acode{[1,2,3,4]}映射成\acode{[[1],[2],[3],[4]]}
+将\acode{[1,2,3,4]}喂给\acode{return}，那么\acode{return}将\acode{[1,2,3,4]}映射成\acode{[[1],[2],[3],[4]]}
 然后再将这些小的列表结合起来成为原有的列表。
 
 左右同一性描述的是\acode{return}的行为，它之所以重要是因为它将普通值转为具有 context 的值。
@@ -904,11 +904,11 @@ monadic 值的。\acode{return}将一个值置入最小 context 且仍然将该�
 最后一条单子定律就是当我们通过\acode{>>=}串联起所有的 monadic 函数，其嵌套顺序是无关紧要的。正式的表示：
 
 \begin{enumerate}
-  \item \acodegrn{(m >>= f) >>= g}等同于\acode{m >>= (\\x -> f x >>= g)}
+  \item \acodegrn{(m >>= f) >>= g}等同于\acodegrn{m >>= (\\x -> f x >>= g)}
 \end{enumerate}
 
-这里我们有一个 monadic 值\acode{m}，以及两个 monadic 函数\acode{f}与\acode{g}。当处理\acode{(m >>= f) >>= g}时，是将
-\acode{m}喂给\acode{f}，得到一个 monadic 值，接着将其喂给\acode{g}。而表达式\acode{m >>= (\\x -> f x >>= g)}则是接受
+这里有一个 monadic 值\acode{m}以及两个 monadic 函数\acode{f}与\acode{g}。处理\acode{(m >>= f) >>= g}时，是将
+\acode{m}喂给\acode{f}，得到一个 monadic 值，再将其喂给\acode{g}；表达式\acode{m >>= (\\x -> f x >>= g)}则接受
 一个 monadic 值，将其喂给一个函数，该函数会把\acode{f x}的结果喂给\acode{g}。我们不太容易看出两者相同，用一个例子便于理解。
 
 之前的走钢丝的例子中，我们曾把几个函数串在一起：
