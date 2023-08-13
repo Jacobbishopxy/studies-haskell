@@ -817,6 +817,277 @@ lambda 函数\acode{\\s -> (x,s)}。我们总是展示\acode{x}作为状态性�
 
 \subsubsection*{Error 单子}
 
+我们了解了\acode{Maybe}，对于\acode{Either e a}而言，在\acode{Control.Monad.Error}模块中有它的\acode{Monad}实例：
+
+\begin{lstlisting}[language=Haskell]
+  instance (Error e) => Monad (Either e) where
+    return x = Right x
+    Right x >>= f = f x
+    Left err >>= f = Left err
+    fail msg = Left (strMsg msg)
+\end{lstlisting}
+
+\acode{return}无需赘述，使用\acode{Right}构造函数作为最小默认 context，因为\acode{Right}代表正确的计算。
+
+\acode{>>=}检验了两种可能性，即\acode{Left}与\acode{Right}。\acode{Right}情况下，函数\acode{f}应用在了内部的值，这类似于
+\acode{Just}的情况；而\acode{Left}情况下意为错误情况，\acode{Left}值被保留，即描述错误的信息。
+
+\acode{Either e}的\acode{Monad}实例有一个额外的需求，那就是包含在\acode{Left}中的类型，即\acode{e}，必须是\acode{Error}
+typeclass 的实例。\acode{Error}这个 typeclass 描述了一个可被当做错误消息的类型，它定义了\acode{strMsg}这个函数，其接受一个
+形态为字符串的错误。一个\acode{Error}的实例就是\acode{String}类型！
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t strMsg
+  strMsg :: (Error a) => String -> a
+  ghci> strMsg "boom!" :: String
+  "boom!"
+\end{lstlisting}
+
+由于在使用\acode{Either}时，我们通常会用\acode{String}来描述错误，所以无需过多担心。在\acode{do}表示法中模式匹配失败后，一个
+\acode{Left}值用于提示错误。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> Left "boom" >>= \x -> return (x+1)
+  Left "boom"
+  ghci> Right 100 >>= \x -> Left "no way!"
+  Left "no way!"
+\end{lstlisting}
+
+当我们使用\acode{>>=}将一个\acode{Left}值喂给一个函数时，函数被忽略接着返回一个幺元\acode{Left}值；但我们将一个\acode{Right}
+值喂给函数时，函数会应用在其内部值，但是这种情况下函数仍然会生产一个\acode{Left}值！
+
+\begin{lstlisting}[language=Haskell]
+  ghci> Right 3 >>= \x -> return (x + 100)
+
+  <interactive>:1:0:
+      Ambiguous type variable `a' in the constraints:
+        `Error a' arising from a use of `it' at <interactive>:1:0-33
+        `Show a' arising from a use of `print' at <interactive>:1:0-33
+      Probable fix: add a type signature that fixes these type variable(s)
+\end{lstlisting}
+
+Haskell 说它不知道我们\acode{Either e a}中\acode{e}的类型，即使我们提供的是\acode{Right}值。这是因为\acode{Error e}约束在了
+\acode{Monad}实例。因此我们需要显式的提供类型签名：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> Right 3 >>= \x -> return (x + 100) :: Either String Int
+  Right 103
+\end{lstlisting}
+
+\subsection*{一些有用的 monadic 函数}
+
+本节中，我们将探索一些函数，它们要么是操作单子值的，要么是返回单子值的（或者两者兼具！）。这些函数通常被认为是 monadic 函数。
+
+\subsubsection*{liftM}
+
+每个单子都是一个高级函子，每个高级函子都是一个函子。\acode{Applicative} typeclass 拥有一个类约束，即类型必须是\acode{Functor}的
+实例。
+
+\begin{lstlisting}[language=Haskell]
+  liftM :: (Monad m) => (a -> b) -> m a -> m b
+\end{lstlisting}
+
+而\acode{fmap}：
+
+\begin{lstlisting}[language=Haskell]
+  fmap :: (Functor f) => (a -> b) -> f a -> f b
+\end{lstlisting}
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> liftM (*3) (Just 8)
+  Just 24
+  ghci> fmap (*3) (Just 8)
+  Just 24
+  ghci> runWriter $ liftM not $ Writer (True, "chickpeas")
+  (False,"chickpeas")
+  ghci> runWriter $ fmap not $ Writer (True, "chickpeas")
+  (False,"chickpeas")
+  ghci> runState (liftM (+100) pop) [1,2,3,4]
+  (101,[2,3,4])
+  ghci> runState (fmap (+100) pop) [1,2,3,4]
+  (101,[2,3,4])
+\end{lstlisting}
+
+新版的\acode{Monad} typeclass 已经将\acode{Applicative}作为类约束了，因此略过本段关于\acode{liftM}的描述。
+
+\subsubsection*{join 函数}
+
+一个思考：如果一个单子值的结果是另一个单子值，也就是单子值嵌套时，如何打平它们成为单个单子值呢？例如\acode{Just (Just 9)}，我们能将其
+变为\acode{Just 9}么？事实是任何嵌套的单子值都可以被打平，而这一特性是单子特有的。为此\acode{join}函数存在了。它的类型：
+
+\begin{lstlisting}[language=Haskell]
+  join :: (Monad m) => m (m a) -> m a
+\end{lstlisting}
+
+它接受一个嵌套的单子值并返回一个单子值，类似于打平了它。测试\acode{Maybe}：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> join (Just (Just 9))
+  Just 9
+  ghci> join (Just Nothing)
+  Nothing
+  ghci> join Nothing
+  Nothing
+\end{lstlisting}
+
+打平列表非常符合直觉：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> join [[1,2,3],[4,5,6]]
+  [1,2,3,4,5,6]
+\end{lstlisting}
+
+正如所见，对于列表而言\acode{join}即\acode{concat}。而对于嵌套的\acode{Writer}，我们需要\acode{mappend}幺半群的值：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> runWriter $ join (Writer (Writer (1,"aaa"),"bbb"))
+  (1,"bbbaaa")
+\end{lstlisting}
+
+外层的幺半群值\acode{"bbb"}先，然后再是追加\acode{"aaa"}。直觉而言，如果希望测试\acode{Writer}的值，必须先将其幺半群值输出至日志，
+这样才能检查到其中的内容。
+
+打平\acode{Either}与\acode{Maybe}类似：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> join (Right (Right 9)) :: Either String Int
+  Right 9
+  ghci> join (Right (Left "error")) :: Either String Int
+  Left "error"
+  ghci> join (Left "error") :: Either String Int
+  Left "error"
+\end{lstlisting}
+
+如果应用\acode{join}至一个结果也为状态性计算的状态性计算，那么先计算外层再计算内层：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> runState (join (State $ \s -> (push 10,1:2:s))) [0,0,0]
+  ((),[10,1,2,0,0,0])
+\end{lstlisting}
+
+这里的 lambda 接受一个状态并将\acode{2}与\acode{1}置入堆中并将\acode{push 10}作为结果。那么当整个被\acode{join}打平时，它
+首先将\acode{2}与\acode{1}置入堆中，接着计算\acode{push 10}，因此是将\acode{10}放置堆的顶端。
+
+\acode{join}的实现：
+
+\begin{lstlisting}[language=Haskell]
+  join :: (Monad m) => m (m a) -> m a
+  join mm = do
+      m <- mm
+      m
+\end{lstlisting}
+
+因为\acode{mm}的结果是一个单子值，单独用\acode{m <- mm}来取得其结果。这也说明了\acode{Maybe}只有当内外层的值都是\acode{Just}时，
+才会是\acode{Just}。如果把\acode{mm}设置成\acode{Just (Just 8)}，那么它看起来像是这样：
+
+\begin{lstlisting}[language=Haskell]
+  joinedMaybes :: Maybe Int
+  joinedMaybes = do
+      m <- Just (Just 8)
+      m
+\end{lstlisting}
+
+对于每个单子而言可能最有趣的地方就在于\acode{join}了，将一个单子值通过\acode{>>=}喂给一个函数等同于映射该函数再使用\acode{join}
+来打平嵌套的单子值！换言之，\acode{m >>= f}总是等同于\acode{join (fmap f m)}！假设我们有\acode{Just 9}以及函数
+\acode{\\x -> Just (x+1)}，如果映射该函数至\acode{Just 9}，将会得到\acode{Just (Just 10)}。
+
+如果我们在构建自己的\acode{Monad}实例时，\acode{m >>= f}等同于\acode{join (fmap f m)}的这个事实是非常有用的，因为打平一个嵌套
+单子值总是比思考实现\acode{>>=}要来的轻松。
+
+\subsubsection*{filterM}
+
+\acode{filter}是 Haskell 中非常重要的一个函数。它接受一个子句以及一个用于筛选的列表，返回一个满足条件的元素所构成的新列表。其类型：
+
+\begin{lstlisting}[language=Haskell]
+  filter :: (a -> Bool) -> [a] -> [a]
+\end{lstlisting}
+
+那么如果函数返回的是一个单子值呢？假设每个\acode{True}或\acode{False}都携带一个幺半群值，如\acode{["Accepted the number 5"]}
+或\acode{["3 is too small"]}，我们希望最后的结果也携带着 context。
+
+\acode{Control.Monad}模块中的\acode{filterM}函数正是我们想要的！其类型如下：
+
+\begin{lstlisting}[language=Haskell]
+  filterM :: (Monad m) => (a -> m Bool) -> [a] -> m [a]
+\end{lstlisting}
+
+子句返回一个单子值，其结果为\acode{Bool}类型，但由于是单子值，它的 context 有可能会是任何 context，例如可能会失败，非确定性，等等。
+一旦我们能保证 context 也会被保存在最后的结果中，其结果也会是一个单子值。
+
+以下是一个接受列表并过滤小于 4 的函数，先使用\acode{filter}函数：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> filter (\x -> x < 4) [9,1,5,2,10,3]
+  [1,2,3]
+\end{lstlisting}
+
+很简单，现在让我们做一个子句，除开展示\acode{True}或\acode{False}结果，同样提供一个日志。当然了，用的还是\acode{Writer}单子：
+
+\begin{lstlisting}[language=Haskell]
+  keepSmall :: Int -> Writer [String] Bool
+  keepSmall x
+    | x < 4 = do
+        tell ["Keeping " ++ show x]
+        return True
+    | otherwise = do
+        tell [show x ++ " is tool large, throwing it away"]
+        return False
+\end{lstlisting}
+
+没有直接返回一个\acode{Bool}，函数返回的是一个\acode{Writer [Stirng] Bool}，即一个 monadic 子句。
+
+现在将其传给\acode{filterM}，由于子句返回的是\acode{Writer}值，那么作为结果的列表同样也是一个\acode{Writer}值。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> fst $ runWriter $ filterM keepSmall [9,1,5,2,10,3]
+  [1,2,3]
+\end{lstlisting}
+
+测试\acode{Writer}的结果，可以看到有序的日志：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> mapM_ putStrLn $ snd $ runWriter $ filterM keepSmall [9,1,5,2,10,3]
+  9 is too large, throwing it away
+  Keeping 1
+  5 is too large, throwing it away
+  Keeping 2
+  10 is too large, throwing it away
+  Keeping 3
+\end{lstlisting}
+
+一个炫酷的技巧使用\acode{filterM}来产生一个列表的超集，即包含了所有子集所形成的集合。如果说列表是\acode{[1,2,3]}，那么它的超集如下：
+
+\begin{lstlisting}[language=Haskell]
+  [1,2,3]
+  [1,2]
+  [1,3]
+  [1]
+  [2,3]
+  [2]
+  [3]
+  []
+\end{lstlisting}
+
+让一个函数返回列表的超集，我们需要依赖非确定性。那么筛选列表，并使用一个子句能够同时保留以及丢弃列表中的每个元素。
+
+\begin{lstlisting}[language=Haskell]
+  powerset :: [a] -> [[a]]
+  powerset = filterM (const [True, False])
+\end{lstlisting}
+
+与原文不同之处在于 lambda 被替换成了\acode{const}。\acode{const x}是一个单元函数，用于将所有输入应用至\acode{x}上。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> powerset [1,2,3]
+  [[1,2,3],[1,2],[1,3],[1],[2,3],[2],[3],[]]
+\end{lstlisting}
+
+这样的写法需要好好的思考一番，但如果能接受列表其实就是非确定性值的话，那么要想通就会容易一些。
+
+\subsubsection*{foldM}
+
 % TODO
 
 \end{document}
