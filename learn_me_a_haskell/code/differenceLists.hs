@@ -35,6 +35,13 @@ gcd' a b
       tell (toDiffList [show a ++ " mod " ++ show b ++ " = " ++ show (a `mod` b)])
       return result
 
+finalCountDown :: Int -> Writer (DiffList String) ()
+finalCountDown 0 = do
+  tell (toDiffList ["0"])
+finalCountDown x = do
+  finalCountDown (x - 1)
+  tell (toDiffList [show x])
+
 main :: IO ()
 main = do
   putStrLn $ "test DiffList: " ++ show (fromDiffList (toDiffList [1, 2, 3, 4] <> toDiffList [1, 2, 3]))
@@ -43,3 +50,5 @@ main = do
   putStrLn $ "test new gcd: " ++ show (fst res)
   -- mapM_ putStrLn . fromDiffList . snd . runWriter $ gcd' 110 34
   mapM_ putStrLn (fromDiffList (snd res))
+
+  mapM_ putStrLn . fromDiffList . snd . runWriter $ finalCountDown 5000

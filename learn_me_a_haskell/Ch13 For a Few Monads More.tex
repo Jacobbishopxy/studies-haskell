@@ -431,6 +431,392 @@ instance Monoid (DiffList a) where
 
 \subsubsection*{性能比较}
 
+为了感受差异列表是如何提cdReverse高效率的，考虑一个从某数数到零的案例。我们像\acode{gcdReverse}那样反过来进行记录，这样日志实际
+上是从零到某个数。
+
+\begin{lstlisting}[language=Haskell]
+  finalCountDown :: Int -> Writer (DiffList String) ()
+  finalCountDown 0 = do
+    tell (toDiffList ["0"])
+  finalCountDown x = do
+    finalCountDown (x - 1)
+    tell (toDiffList [show x])
+\end{lstlisting}
+
+喂给它\acode{0}时只记录 0；喂给它其他正整数，则会先倒数到\acode{0}然后追加那些数至日志中。如果调用\acode{finalCountDown}并
+喂给它\acode{100}，那么日志最后的记录就会是\acode{"100"}。
+
+如果把这个函数加载至 GHCI 中并喂给它一个比较大的整数\acode{500000}，那么则会看到它无停滞的从\acode{0}开始数起：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> mapM_ putStrLn . fromDiffList . snd . runWriter $ finalCountDown 500000
+  0
+  1
+  2
+\end{lstlisting}
+
+如果我们用的是普通列表而不是差异列表：
+
+\begin{lstlisting}[language=Haskell]
+  finalCountDown :: Int -> Writer [String] ()
+  finalCountDown 0 = do
+      tell ["0"]
+  finalCountDown x = do
+      finalCountDown (x-1)
+      tell [show x]
+\end{lstlisting}
+
+并给出同样指令：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> mapM_ putStrLn . snd . runWriter $ finalCountDown 500000
+\end{lstlisting}
+
+我们会看到整个运算异常的卡顿。
+
+当然这并不是一个严谨的测试方法，不过这足够表明差异化列表是更有效率的写法。
+
+\subsection*{Reader 单子}
+
+在高级函子的章节中我们学习到了函数类型\acode{(->) r}是\acode{Functor}的实例。将函数\acode{f}应用在函数\acode{g}将会得到
+与参数输入\acode{g}后的结果再输入\acode{f}的一致的结果。因此本质上我们创造了一个类似\acode{g}的函数，只不过在返回结果之前又
+用\acode{f}应用在了该结果上。例如：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let f = (*5)
+  ghci> let g = (+3)
+  ghci> (fmap f g) 8
+  55
+\end{lstlisting}
+
+我们同样也见到了函数时高级函子。它们允许我们对函数的结果直接进行操作：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let f = (+) <$> (*2) <*> (+10)
+  ghci> f 3
+  19
+\end{lstlisting}
+
+表达式\acode{(+) <\$> (*2) <*> (+10)}创造了个函数，它接受一个值，并将该值分别进行\acode{*2}与\acode{+10}最后将两者加总
+起来。
+
+函数类型\acode{(->) r}不仅仅是一个函子，一个高级函子，同时还是一个单子。正如我们遇到过的其他单子值那样，函数同样可以被视为一个
+带有 context 的值。函数的 context 就是期待的某个还未出现的值，但我们知道会把它当做函数的参数，调用函数来得到结果。
+
+函数的\acode{Monad}实例位于\acode{Control.Monad.Instances}，类似于：
+
+\begin{lstlisting}[language=Haskell]
+  instance Monad ((->) r) where
+    return x = \_ -> x
+    h >>= f = \w -> f (h w) w
+\end{lstlisting}
+
+\acode{return}即\acode{pure}不多赘述。
+
+\acode{>>=}看起来有点神秘。当使用\acode{>>=}将一个单子值喂给一个函数时，结果总是一个单子值，那么在这里当我们将一个函数喂给
+另一个函数，返回的仍然是一个函数。这就是为什么返回的是一个 lambda。迄今为止，所有的\acode{>>=}实现总是以某种方式将内部与外部
+隔离开，然后在内部使用\acode{f}。这里也一样，要从一个函数得到一个结果，我们必须喂给它一些东西，这就是为什么用\acode{(h w)}
+得到结果后再对其应用\acode{f}。\acode{f}返回一个单子值，这里是一个函数，再将该函数应用至\acode{w}上。
+
+下面是使用该单子的一个\acode{do}表达式：
+
+\begin{lstlisting}[language=Haskell]
+  addStuff :: Int -> Int
+  addStuff = do
+    a <- (* 2)
+    b <- (+ 10)
+    return (a + b)
+\end{lstlisting}
+
+这与早前我们写的高级单子表达式是同一个东西，只不过现在依赖的是函数的单子特性。一个\acode{do}表达式总是返回一个单子值，这里也不
+例外，这里的单子值是一个函数。测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> addStuff 3
+  19
+\end{lstlisting}
+
+\acode{(*2)}与\acode{(+10)}都应用在了\acode{3}上。\acode{return (a+b)}亦是如此，只不过它会忽略\acode{3}并永远返回
+\acode{a+b}。正因如此，函数的单子性童谣被称为 reader 单子。所有的函数读取一个共同的源。为了更好的演示，我们来重写一下
+\acode{addStuff}：
+
+\begin{lstlisting}[language=Haskell]
+  addStuff :: Int -> Int
+  addStuff x =
+    let a = (* 2) x
+        b = (+ 10) x
+     in a + b
+\end{lstlisting}
+
+我们看到 reader 单子允许我们将函数视为带 context 的值。我们可以装作已经知道函数将要返回什么。它通过粘合若干函数成为一个函数的
+方式，并把这个函数的参数喂给所有被粘合函数。所以如果我们有很多函数都缺一个参数且它们最终将应用至同一值时，我们可以使用 reader
+单子来提取它们未来的返回，并通过\acode{>>=}来确保它们都能执行。
+
+\subsection*{美味的状态性计算}
+
+Haskell 是一个由函数构成的纯语言，函数不能修改任何全局状态或变量，仅能计算并返回值。然而有些问题依赖于时间变化的状态。而这些问题
+在 Haskell 中并不是问题，只不过模型的实现可能会很痛苦。这就是为什么 Haskell 提供了状态单子，处理起状态性的问题简单而不失纯性。
+
+在处理随机数的问题中，我们使用了接受随机生成器作为参数的函数，并返回一个随机值与一个新的随机生成器。如果想要生成若干随机数，我们
+必须使用前一个函数所返回的随机生成器。当创建一个接受\acode{StdGen}的函数，根据生成器抛三次硬币，我们需要这么做：
+
+\begin{lstlisting}[language=Haskell]
+  threeCoins :: StdGen -> (Bool, Bool, Bool)
+  threeCoins gen =
+    let (firstCoin, newGen) = random gen
+        (secondCoin, newGen') = random newGen
+        (thirdCoin, newGen'') = random newGen'
+     in (firstCoin, secondCoin, thirdCoin)
+\end{lstlisting}
+
+它接受生成器\acode{gen}接着\acode{random gen}生成一个\acode{Bool}值以及一个新的生成器。
+
+你可能认为为了避免手动处理状态性的计算，我们会放弃 Haskell 的纯性。然而实际上并不需要，因为存在一个特殊的状态单子用于处理所有状态
+而不失 Haskell 的纯性。
+
+那么为了更好的理解状态性计算，让我们给其一个类型。我们说状态性计算是一个函数，其接受某些状态并返回某些新状态。该函数类型如下：
+
+\begin{lstlisting}[language=Haskell]
+  s -> (a, s)
+\end{lstlisting}
+
+\acode{s}是状态的类型，而\acode{a}是状态计算的结果。
+
+这个状态性计算，即一个函数接受一个状态并返回一个结果与一个新的状态，可以被视为一个带有 context 的值。实际值是结果，而 context
+则是我们提供的某些初始状态用于获取结果，同时得到结果时获得一个新的状态。
+
+\subsubsection*{堆}
+
+假设我们希望对堆进行建模。我们可以在堆的顶部放置新项，或者移除已有项。
+
+这里用列表来代表这个堆，列表的头部则是堆的顶部。为此我们需要两个函数：\acode{pop}与\acode{push}。\acode{pop}接受一个堆，移除
+一项后，返回移除的这个项以及一个新的没有此项的堆。\acode{push}接受一个项以及一个堆，将该项置入堆头部，返回\acode{()}作为结果，
+以及一个新的堆：
+
+\begin{lstlisting}[language=Haskell]
+  type Stack = [Int]
+
+  pop :: Stack -> (Int, Stack)
+  pop (x : xs) = (x, xs)
+
+  push :: Int -> Stack -> ((), Stack)
+  push a xs = ((), a : xs)
+\end{lstlisting}
+
+注意是如何应用\acode{push}的第一个参数的，我们得到一个状态性计算。\acode{pop}由于其类型已经是一个状态性计算了。
+
+现在用这些函数测试：
+
+\begin{lstlisting}[language=Haskell]
+  stackManip :: Stack -> (Int, Stack)
+  stackManip stack =
+    let ((), newStack1) = push 3 stack
+        (a, newStack2) = pop newStack1
+     in pop newStack2
+\end{lstlisting}
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> stackManip [5,8,2,1]
+  (5,[8,2,1])
+\end{lstlisting}
+
+注意\acode{stackManip}它自身如何是一个状态性计算的。我们接受了一些状态性的计算，并将它们粘合在一起。Hmm，听起来很熟悉。
+
+上述代码看起来不轻松，因为我们手动的给每个状态性计算提供了状态，存储它们并将它们置入下一个计算中。如果无需为每个函数手动提供状态，
+而像是下面这样，会不会很酷：
+
+\begin{lstlisting}[language=Haskell]
+  stackManip = do
+    push 3
+    a <- pop
+    pop
+\end{lstlisting}
+
+使用状态单子将允许我们做这样的动作。通过状态单子我们具备了无需管理状态的状态性计算。
+
+\subsubsection*{状态单子}
+
+\acode{Control.Monad.State}模块提供了一个\acode{newtype}，其包装了状态性计算。以下是其定义：
+
+\begin{lstlisting}[language=Haskell]
+  newtype State s a = State { runState :: s -> (a,s) }
+\end{lstlisting}
+
+一个\acode{State s a}是一个状态性计算，操作类型\acode{s}的状态，并返回带有\acode{a}类型的结果。
+
+现在我们见识到了状态性计算，以及它们最终是如何被视为带有 context 的值，那么让我们看看它的\acode{Monad}实例：
+
+\begin{lstlisting}[language=Haskell]
+  instance Monad (State s) where
+    return x = State $ \s -> (x,s)
+    (State h) >>= f = State $ \s -> let (a, newState) = h s
+                                        (State g) = f a
+                                    in  g newState
+\end{lstlisting}
+
+让我们先来看看\acode{return}，它的目的是接受一个值进行一个状态性计算，做出一个改变状态的操作并总是返回该值。因此需要一个完整的
+lambda 函数\acode{\\s -> (x,s)}。我们总是展示\acode{x}作为状态性计算的结果，且不改变状态，因为\acode{return}总是将值
+置入最小 context 中。因此\acode{return}将做出一个状态性计算并展示确定值，并保持状态不变。
+
+那么\acode{>>=}呢？状态性计算喂给\acode{>>=}函数后也必须要返回另一个改变状态的计算，对吗？首先来看一下\acode{State}这个
+\acode{newtype}包装，内部是一个 lambda。该 lambda 则是我们新的状态性计算。那么里面发生了什么？我们以某种方式从第一个状态性
+计算中提取了值。因为我们正处于一个状态性计算中，我们可以给状态性计算\acode{h}当前的状态\acode{s}，其返回结果与新的状态：
+\acode{(a, newState)}。迄今为止我们每次实现\acode{>>=}时，一旦从单子值中提取出了结果，我们会将函数\acode{f}应用在该结果上
+来得到一个新的单子值。在\acode{Writer}中，在得到新的单子值后，我们仍然需要确保 context 通过\acode{mappend}连接了旧的单子值
+与新的单子值。这里我们使用\acode{f a}并得到一个新的状态性计算\acode{g}。现在我们有了一个新的状态性计算以及一个新的状态（即
+\acode{newState}），我们把\acode{newState}喂给\acode{g}，得到一个元组，其包含了最后的结果与最终的状态。
+
+有了\acode{>>=}就类似于将两个状态性计算粘合在了一起，只是第二个隐藏在一个函数中用于接受第一个的结果。由于\acode{pop}与
+\acode{push}已经是改变状态的计算了，因此可以把它们包进\acode{State}中：
+
+\begin{lstlisting}[language=Haskell]
+  pop :: State Stack Int
+  pop = state $ \(x : xs) -> (x, xs)
+
+  push :: Int -> State Stack ()
+  push a = state $ \xs -> ((), a : xs)
+\end{lstlisting}
+
+现在重写之前的\acode{stackManip}：
+
+\begin{lstlisting}[language=Haskell]
+  stackManip :: State Stack Int
+  stackManip = do
+    push 3
+    a <- pop
+    pop
+\end{lstlisting}
+
+看到我们是如何将一个 push 与两个 pops 粘合至一个状态性计算的了么？从\acode{newtype}解包后就得到了一个函数这样就可以供我们去
+提供一些初始化状态：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> runState stackManip [5,8,2,1]
+  (5,[8,2,1])
+\end{lstlisting}
+
+实际上，我们并不需要将\acode{pop}绑定至\acode{a}，因为我们完全没有用上\acode{a}，因此可以这样：
+
+\begin{lstlisting}[language=Haskell]
+  stackManip :: State Stack Int
+  stackManip = do
+      push 3
+      pop
+      pop
+\end{lstlisting}
+
+而利用绑定值：
+
+\begin{lstlisting}[language=Haskell]
+  stackStuff :: State Stack ()
+  stackStuff = do
+      a <- pop
+      if a == 5
+          then push 5
+          else do
+              push 3
+              push 8
+\end{lstlisting}
+
+很直接，测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> runState stackStuff [9,0,2,1,0]
+  ((),[8,3,0,2,1,0])
+\end{lstlisting}
+
+记住，\acode{do}表达式返回的是一个单子值，而在\acode{State}单子的情况下，\acode{do}也就是一个改变状态的函数。而由于
+\acode{stackManip}与\acode{stackStuff}都是改变状态的计算，因此才可以把它们粘合在一起：
+
+\begin{lstlisting}[language=Haskell]
+  import Control.Monad
+
+  moreStack :: State Stack ()
+  moreStack = do
+    a <- stackManip
+    when (a == 100) stackStuff
+\end{lstlisting}
+
+与原文不同之处在于使用了\acode{Control.Monad.when}函数。
+
+\acode{Control.Monad.State}模块提供了一个称为\acode{MonadState} 的 typeclass，它有两个非常有用的功能，名为\acode{get}
+以及\acode{put}。对于\acode{State}而言，\acode{get}函数的实现像是这样：
+
+\begin{lstlisting}[language=Haskell]
+  get = State $ \s -> (s,s)
+\end{lstlisting}
+
+即取出当前状态并什么都不做。而\acode{put}则会接受一个状态并取代现有的状态：
+
+\begin{lstlisting}[language=Haskell]
+  put newState = State $ \s -> ((),newState)
+\end{lstlisting}
+
+有了这两个状态就可以看到现在堆叠中有什么，或者把整个堆叠中的元素替换掉：
+
+\begin{lstlisting}[language=Haskell]
+  stackyStack :: State Stack ()
+  stackyStack = do
+    stackNow <- get
+    if stackNow == [1, 2, 3]
+      then put [8, 3, 1]
+      else put [9, 2, 1]
+\end{lstlisting}
+
+以下是作用于\acode{State}的\acode{>>=}类型：
+
+\begin{lstlisting}[language=Haskell]
+  (>>=) :: State s a -> (a -> State s b) -> State s b
+\end{lstlisting}
+
+状态\acode{s}的类型是保持不变的，而结果的类型可以从\acode{a}变为\acode{b}。这就意味着可以将若干状态性计算粘合在一起，它们的结果
+可以是不同类型而状态的类型却维持不变。那么这是为什么呢？例如\acode{Maybe}的\acode{>>=}类型为：
+
+\begin{lstlisting}[language=Haskell]
+  (>>=) :: Maybe a -> (a -> Maybe b) -> Maybe b
+\end{lstlisting}
+
+单子本身\acode{Maybe}是不变的。在两个不同的单子间使用\acode{>>=}是无意义的。而对于状态单子而言，实际上是\acode{State s}，如果
+\acode{s}不一致，那么就变成了两个不同的单子间使用\acode{>>=}。
+
+\subsubsection*{随机性与状态单子}
+
+本节的开头我们看到了生成随机数有时很笨拙，因为每个随机函数都接受一个生成器并返回一个带着新生成器的随机数，也就是说如果想要生成另一个
+随机数时就不能用旧的生成器（不然生成的随机数是一样的）。有了状态单子处理起来就简单多了。
+
+\acode{System.Random}模块中的\acode{random}函数拥有以下类型：
+
+\begin{lstlisting}[language=Haskell]
+  random :: (RandomGen g, Random a) => g -> (a, g)
+\end{lstlisting}
+
+意为接受一个随机生成器并生产一个带着新的生成器的随机数。可以看到这就是一个状态性计算，因此可以将其包装进\acode{State}的
+\acode{newtype}中，接着作为单子值来使用它：
+
+\begin{lstlisting}[language=Haskell]
+  import System.Random
+  import Control.Monad.State
+
+  threeCoins :: State StdGen (Bool,Bool,Bool)
+  threeCoins = do
+      a <- randomSt
+      b <- randomSt
+      c <- randomSt
+      return (a,b,c)
+\end{lstlisting}
+
+现在的\acode{threeCoins}是一个状态性计算，在接受一个初始化的随机数生成器后，传递给第一个\acode{randomSt}，生产出一个至以及一个
+新的生成器，新的生成器传递下去，以此类推。使用\acode{return (a,b,c)}来展示\acode{(a,b,c)}同时不改变最近一个生成器的状态：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> runState threeCoins (mkStdGen 33)
+  ((True,False,True),680029187 2103410263)
+\end{lstlisting}
+
+\subsubsection*{Error 单子}
+
 % TODO
 
 \end{document}
