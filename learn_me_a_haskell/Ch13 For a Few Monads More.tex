@@ -1088,6 +1088,196 @@ Haskell 说它不知道我们\acode{Either e a}中\acode{e}的类型，即使我
 
 \subsubsection*{foldM}
 
+与\acode{foldl}所 monadic 对应的是\acode{foldM}。前者接受一个二元函数，一个起始累加器以及一个用于 fold 的列表，接着将列表通过二元函数
+从左向右折叠成一个单值；后者做的事情一样，只不过它所接受的二元函数生产的是一个单子值，不出意外的返回值也是单子。\acode{foldl}类型：
+
+\begin{lstlisting}[language=Haskell]
+  foldl :: (a -> b -> a) -> a -> [b] -> a
+\end{lstlisting}
+
+而\acode{foldM}类型为：
+
+\begin{lstlisting}[language=Haskell]
+  foldM :: (Monad m) => (a -> b -> m a) -> a -> [b] -> m a
+\end{lstlisting}
+
+假设我们现在想要对一个列表求和，不过加上一个条件就是如果在列表中遇到任何值是大于\acode{9}的，那么就直接失败。以下是一个返回\acode{Maybe}
+累加器的二元函数：
+
+\begin{lstlisting}[language=Haskell]
+  binSmalls :: Int -> Int -> Maybe Int
+  binSmalls acc x
+      | x > 9     = Nothing
+      | otherwise = Just (acc + x)
+\end{lstlisting}
+
+正因为二元函数现在是一个 monadic 函数，那么便不可使用普通的\acode{foldl}函数了，不过我们有\acode{foldM}：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> foldM binSmalls 0 [2,8,3,1]
+  Just 14
+  ghci> foldM binSmalls 0 [2,11,3,1]
+  Nothing
+\end{lstlisting}
+
+\subsubsection*{构建一个安全的 RPN 计算器}
+
+早期的章节中我们实现了一个 RPN 计算器，我们也注意到它在遇到错误输入时并不安全，即直接导致程序崩溃。那么现在让我们用\acode{Maybe}单子来重新实现
+一个安全的版本。
+
+原来的代码：
+
+\begin{lstlisting}[language=Haskell]
+  solveRPN :: String -> Double
+  solveRPN = head . foldl foldingFunction [] . words
+
+  foldingFunction :: [Double] -> String -> [Double]
+  foldingFunction (x : y : ys) "*" = (x * y) : ys
+  foldingFunction (x : y : ys) "+" = (x + y) : ys
+  foldingFunction (x : y : ys) "-" = (y - x) : ys
+  foldingFunction xs numberString = read numberString : xs
+\end{lstlisting}
+
+现在将\acode{foldingFunction}改为返回\acode{Maybe}值：
+
+\begin{lstlisting}[language=Haskell]
+  foldingFunction :: [Double] -> String -> Maybe [Double]
+\end{lstlisting}
+
+所以它将返回\acode{Just}一个新的堆，或是失败\acode{Nothing}。
+
+\acode{reads}函数类似于\acode{read}，前者成功时会返回一个单例列表，失败时返回一个空列表。除开它读到的值，还会返回一个读取失败的字符串。我们假设
+它总是会消费所有的输入，在此创建一个\acode{readMaybe}函数：
+
+\begin{lstlisting}[language=Haskell]
+  readMaybe :: (Read a) => String -> Maybe a
+  readMaybe st = case reads st of
+    [(x, "")] -> Just x
+    _ -> Nothing
+\end{lstlisting}
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> readMaybe "1" :: Maybe Int
+  Just 1
+  ghci> readMaybe "GO TO HELL" :: Maybe Int
+  Nothing
+\end{lstlisting}
+
+看起来没问题，那么现在让我们改造函数成为可失败的 monadic 函数：
+
+\begin{lstlisting}[language=Haskell]
+  foldingFunction :: [Double] -> String -> Maybe [Double]
+  foldingFunction (x : y : ys) "*" = return ((x * y) : ys)
+  foldingFunction (x : y : ys) "+" = return ((x + y) : ys)
+  foldingFunction (x : y : ys) "-" = return ((y - x) : ys)
+  foldingFunction xs numberString = liftM (: xs) (readMaybe numberString)
+\end{lstlisting}
+
+前三个例子与旧代码类似，除了在最后用\acode{Just}来包装新的堆（这里使用了\acode{return}来实现，当然了也可以使用\acode{Just}）。最后一个例子使用了
+\acode{readMaybe numberString}并作用于\acode{(:xs)}。例如\acode{xs}是\acode{[1.o,2.0]}并且\acode{readMaybe numberString}返回一个
+\acode{Just 3.0}，那么结果就会是\acode{Just [3.0,1.0,2.0]}；如果\acode{readMaybe numberString}返回的是\acode{Nothing}，那么结果也会是
+\acode{Nothing}。测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> foldingFunction [3,2] "*"
+  Just [6.0]
+  ghci> foldingFunction [3,2] "-"
+  Just [-1.0]
+  ghci> foldingFunction [] "*"
+  Nothing
+  ghci> foldingFunction [] "1"
+  Just [1.0]
+  ghci> foldingFunction [] "1 wawawawa"
+  Nothing
+\end{lstlisting}
+
+看起来生效了！那么现在就是新改进的\acode{solveRPN}了。
+
+\begin{lstlisting}[language=Haskell]
+  solveRPN :: String -> Maybe Double
+  solveRPN st = do
+    [result] <- foldM foldingFunction [] (words st)
+    return result
+\end{lstlisting}
+
+跟之前一样，接受字符串并将其转为单词列表。接着使用折叠，空列表起始，不同于之前的一个普通的\acode{foldl}，这里使用\acode{foldM}。而\acode{foldM}的
+结果就是一个包含列表的\acode{Maybe}值（即最终的堆）以及一个单例列表。使用\acode{do}表达式获取值，并称其\acode{result}。测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> solveRPN "1 2 * 4 +"
+  Just 6.0
+  ghci> solveRPN "1 2 * 4 + 5 *"
+  Just 30.0
+  ghci> solveRPN "1 2 * 4"
+  Nothing
+  ghci> solveRPN "1 8 wharglbllargh"
+  Nothing
+\end{lstlisting}
+
+\subsubsection*{组合 monadic 函数}
+
+当我们在学习单子定律时，我们说\acode{<=<}函数就像是组合那样，只不过它不作用于普通函数例如\acode{a -> b}，而是作用于 monadic 函数例如\acode{a -> m b}。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let f = (+1) . (*100)
+  ghci> f 4
+  401
+  ghci> let g = (\x -> return (x+1)) <=< (\x -> return (x*100))
+  ghci> Just 4 >>= g
+  Just 401
+\end{lstlisting}
+
+上述例子中我们先组合了两个普通函数，将组合后的函数应用至\acode{4}；接着我们组合了两个 monadic 函数，并通过\acode{>>=}将\acode{Just 4}喂给它。
+
+如果我们有一个列表的函数，我们可以使用\acode{id}作为初始累加器以及\acode{.}函数作为二元函数，将它们组合成一个大函数。例如：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let f = foldr (.) id [(+1),(*100),(+1)]
+  ghci> f 1
+  201
+\end{lstlisting}
+
+函数\acode{f}接受一个数值，加\acode{1}后乘以\acode{100}再加\acode{1}。我们可以以同样的方式来组合 monadic 函数，不同之处在于使用\acode{<=<}而不是
+\acode{.}以及\acode{return}而不是\acode{id}。这里无需使用\acode{foldM}因为\acode{<=<}函数能确保组合是以 monadic 的方式进行的。
+
+上一章中提到的列表单子，我们用了棋盘中的骑士走三步来举例。\acode{moveKnight}函数接受骑士在棋盘上的起始位置，并返回下一步所有可能的移动。接着就是生成三步后
+所有可能的位置。
+
+\begin{lstlisting}[language=Haskell]
+  in3 start = return start >>= moveKnight >>= moveKnight >>= moveKnight
+\end{lstlisting}
+
+然后检查从\acode{start}至\acode{end}是否在三步中：
+
+\begin{lstlisting}[language=Haskell]
+  canReachIn3 :: KnightPos -> KnightPos -> Bool
+  canReachIn3 start end = end `elem` in3 start
+\end{lstlisting}
+
+使用 monadic 函数组合我们可以创建一个\acode{in3}函数，但我们希望它不只是三步的版本，而是任意步的版本。如果仔细观察\acode{in3}，它只不过用了\acode{>>=}
+以及\acode{moveKnight}把之前所有可能结果喂给了下一步。将其泛用化后如：
+
+\begin{lstlisting}[language=Haskell]
+  import Data.List
+
+  inMany :: Int -> KnightPos -> [KnightPos]
+  inMany x start = return start >>= foldr (<=<) return (replicate x moveKnight)
+\end{lstlisting}
+
+首先用\acode{replicate}构建一个列表，里面有\acode{x}份的\acode{moveKnight}，接着把所有函数合成后，得到从起点走\acode{x}步内所有可能的位置。然后
+我们只需将初始值喂给它即可。
+
+泛用化\acode{canReachIn3}：
+
+\begin{lstlisting}[language=Haskell]
+  canReachIn :: Int -> KnightPos -> KnightPos -> Bool
+  canReachIn x start end = end `elem` inMany x start
+\end{lstlisting}
+
+\subsection*{创造自己的单子}
+
 % TODO
 
 \end{document}
