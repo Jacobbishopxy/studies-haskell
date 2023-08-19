@@ -47,10 +47,6 @@ flipThree = do
   c <- loadedCoin
   return (all (== Tails) [a, b, c])
 
-getX x
-  | x == True = "a"
-  | otherwise = "b"
-
 getJoinedProb :: Prob Bool -> (Rational, Rational)
 getJoinedProb = foldr (\(x, p) (accT, accF) -> if x then (accT + p, accF) else (accT, accF + p)) (0, 0) . getProb
 
