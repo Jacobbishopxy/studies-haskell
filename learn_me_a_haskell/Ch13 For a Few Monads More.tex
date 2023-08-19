@@ -1218,7 +1218,7 @@ Haskell 说它不知道我们\acode{Either e a}中\acode{e}的类型，即使我
 
 \subsubsection*{组合 monadic 函数}
 
-当我们在学习单子定律时，我们说\acode{<=<}函数就像是组合那样，只不过它不作用于普通函数例如\acode{a -> b}，而是作用于 monadic 函数例如\acode{a -> m b}。
+当我们在学习单子定律时，我们说\acode{<=<}函数就像组合那样，只不过它不作用于普通函数如\acode{a -> b}，而是作用于 monadic 函数如\acode{a -> m b}。
 
 \begin{lstlisting}[language=Haskell]
   ghci> let f = (+1) . (*100)
@@ -1239,11 +1239,11 @@ Haskell 说它不知道我们\acode{Either e a}中\acode{e}的类型，即使我
   201
 \end{lstlisting}
 
-函数\acode{f}接受一个数值，加\acode{1}后乘以\acode{100}再加\acode{1}。我们可以以同样的方式来组合 monadic 函数，不同之处在于使用\acode{<=<}而不是
-\acode{.}以及\acode{return}而不是\acode{id}。这里无需使用\acode{foldM}因为\acode{<=<}函数能确保组合是以 monadic 的方式进行的。
+函数\acode{f}接受一个数值，加\acode{1}后乘以\acode{100}再加\acode{1}。我们可以以同样的方式来组合 monadic 函数，不同之处在于使用\acode{<=<}
+而不是\acode{.}以及\acode{return}而不是\acode{id}。这里无需使用\acode{foldM}因为\acode{<=<}函数能确保组合是以 monadic 的方式进行的。
 
-上一章中提到的列表单子，我们用了棋盘中的骑士走三步来举例。\acode{moveKnight}函数接受骑士在棋盘上的起始位置，并返回下一步所有可能的移动。接着就是生成三步后
-所有可能的位置。
+上一章中提到的列表单子，我们用了棋盘中的骑士走三步来举例。\acode{moveKnight}函数接受骑士在棋盘上的起始位置，并返回下一步所有可能的移动。接着就是生成
+三步后所有可能的位置。
 
 \begin{lstlisting}[language=Haskell]
   in3 start = return start >>= moveKnight >>= moveKnight >>= moveKnight
@@ -1256,8 +1256,8 @@ Haskell 说它不知道我们\acode{Either e a}中\acode{e}的类型，即使我
   canReachIn3 start end = end `elem` in3 start
 \end{lstlisting}
 
-使用 monadic 函数组合我们可以创建一个\acode{in3}函数，但我们希望它不只是三步的版本，而是任意步的版本。如果仔细观察\acode{in3}，它只不过用了\acode{>>=}
-以及\acode{moveKnight}把之前所有可能结果喂给了下一步。将其泛用化后如：
+使用 monadic 函数组合我们可以创建一个\acode{in3}函数，但我们希望它不只是三步的版本，而是任意步的版本。如果仔细观察\acode{in3}，它只不过用了
+\acode{>>=}以及\acode{moveKnight}把之前所有可能结果喂给了下一步。将其泛用化后如：
 
 \begin{lstlisting}[language=Haskell]
   import Data.List
@@ -1266,8 +1266,8 @@ Haskell 说它不知道我们\acode{Either e a}中\acode{e}的类型，即使我
   inMany x start = return start >>= foldr (<=<) return (replicate x moveKnight)
 \end{lstlisting}
 
-首先用\acode{replicate}构建一个列表，里面有\acode{x}份的\acode{moveKnight}，接着把所有函数合成后，得到从起点走\acode{x}步内所有可能的位置。然后
-我们只需将初始值喂给它即可。
+首先用\acode{replicate}构建一个列表，里面有\acode{x}份的\acode{moveKnight}，接着把所有函数合成后，得到从起点走\acode{x}步内所有可能的位置。
+然后我们只需将初始值喂给它即可。
 
 泛用化\acode{canReachIn3}：
 
@@ -1278,6 +1278,186 @@ Haskell 说它不知道我们\acode{Either e a}中\acode{e}的类型，即使我
 
 \subsection*{创造自己的单子}
 
-% TODO
+本节中我们将学习一个类型是如何构建的，定义成单子的并给与其合适的\acode{Monad}实例。我们通常不会为了构建一个单子而去创造一个单子，而经常发生的是在对
+一个问题建立模型时，发现定义的类型其实是一个单子，这才定义一个\acode{Monad}的实例。
+
+如我们见到的，列表用于表示非确定性的值。一个\acode{[3,5,9]}列表可被视为单个非确定的值，我们不能知道究竟是哪一个。当我们通过\acode{>>=}将列表喂给
+一个函数时，它就是把一串可能的选择都丢给函数，函数一个个去计算在那种情况下的结果，这个结果也是一个列表。
+
+如果我们把\acode{[3,5,9]}看作是\acode{3}，\acode{5}，\acode{9}各出现一次，我们注意到这并没有每一种数字出现的概率。那么如果把非确定的值视为
+\acode{[3,5,9]}的时候，需要\acode{3}出现的概率是 50\%，剩下的各 25\% 该怎么做呢？
+
+如果说列表中每个元素都带有其出现的概率，那么下面形式非常合理：
+
+\begin{lstlisting}[language=Haskell]
+  [(3,0.5),(5,0.25),(9,0.25)]
+\end{lstlisting}
+
+Haskell 提供了名为\acode{Rational}的有理数，其位于\acode{Data.Ratio}模块中。\acode{Rational}需要写成一个分数的形式。分子与分母用\acode{\%}
+分隔：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> 1%4
+  1 % 4
+  ghci> 1%2 + 1%2
+  1 % 1
+  ghci> 1%3 + 5%4
+  19 % 12
+\end{lstlisting}
+
+现在通过\acode{Rational}来表达概率：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> [(3,1%2),(5,1%4),(9,1%4)]
+  [(3,1 % 2),(5,1 % 4),(9,1 % 4)]
+\end{lstlisting}
+
+接下来是将上面提到的过得带有概率的列表用\acode{newtype}包裹：
+
+\begin{lstlisting}[language=Haskell]
+  import Data.Ratio
+
+  newtype Prob a = Prob {getProb :: [(a, Rational)]} deriving (Show)
+\end{lstlisting}
+
+那么它是函子吗？列表是函子，那么\acode{Prob}也应该是一个函子。
+
+\begin{lstlisting}[language=Haskell]
+  import Data.Bifunctor qualified as B
+
+  instance Functor Prob where
+    fmap f (Prob xs) = Prob $ map (B.first f) xs
+\end{lstlisting}
+
+与原文不同之处在于\acode{import Data.Bifunctor qualified as B}后使用了\acode{B.first f}来取代 lambda 函数\acode{\\(x, p) -> (f x, p)}。
+从\acode{newtype}中解包，将函数\acode{f}应用至值，保留概率不变。测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> fmap negate (Prob [(3,1%2),(5,1%4),(9,1%4)])
+  Prob {getProb = [(-3,1 % 2),(-5,1 % 4),(-9,1 % 4)]}
+\end{lstlisting}
+
+还有额外一点需要注意的是概率之和应该永远是\acode{1}。
+
+现在有一个大问题，那就是它是否为单子？鉴于列表是一个单子，它也应该是一个单子才对。首先让我们思考一下\acode{return}，它是如何作用于列表的？它接受一个值，
+并将其置入一个单例列表中。那么这里如何做呢？由于它必须是一个默认最小 context，那么也该创造一个单例列表。那么概率该怎么办？\acode{return x}理应构建一个
+单子值，并总是展示\acode{x}为其结果，那么概率为\acode{0}没有道理。如果总是将其展示为结果，那么概率应该是\acode{1}！
+
+那么\acode{>>=}该如何？似乎有点棘手，那么可以使用单子的\acode{m >>= f}等于\acode{join (fmap f m)}这个事实来思考该如何打平一个概率列表。例如，
+假设一个列表的\acode{'a'}与\acode{'b'}其中之一出现的概率是 25\%，另外一个列表的\acode{'c'}与\acode{'d'}其中之一出现的概率是 75\%。如图所示：
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.8\textwidth]{\subfix{./images/prob.png}}
+\end{figure}
+
+这种情况的概率列表的表达式：
+
+\begin{lstlisting}[language=Haskell]
+  thisSituation :: Prob (Prob Char)
+  thisSituation =
+    Prob
+      [ (Prob [('a', 1 % 2), ('b', 1 % 2)], 1 % 4),
+        (Prob [('c', 1 % 2), ('d', 1 % 2)], 3 % 4)
+      ]
+\end{lstlisting}
+
+注意它的类型是\acode{Prob (Prob Char)}。那么现在要考虑该如何打平一个嵌套的概率列表了，一旦逻辑成立，\acode{>>=}也就是\acode{join (fmap f m)}，
+即得到了一个单子。以下是一个\acode{flatten}来完成这件事：
+
+\begin{lstlisting}[language=Haskell]
+  flatten :: Prob (Prob a) -> Prob a
+  flatten (Prob xs) = Prob $ concatMap multAll xs
+    where
+      multAll (Prob innerxs, p) = map (B.second (p *)) innerxs
+\end{lstlisting}
+
+与原文不同之处在于\acode{concat \$ map}被\acode{concatMap}代替，且\acode{\\(x, r) -> (x, p * r)}被简化成\acode{(Data.Bifunctor.second (p *))}。
+函数\acode{multAll}接受一个概率列表，需要将列表里面的概率都乘以\acode{p}，返回一个新的概率列表。将\acode{multAll}映射到了概率列表时，即成功的打平了列表。
+
+现在来定义\acode{Monad}实例：
+
+\begin{lstlisting}[language=Haskell]
+  import Data.Bifunctor qualified as B
+  import Data.Ratio
+
+  instance Functor Prob where
+  fmap f (Prob xs) = Prob $ map (B.first f) xs
+
+  flatten :: Prob (Prob a) -> Prob a
+  flatten (Prob xs) = Prob $ concatMap multAll xs
+    where
+      multAll (Prob innerxs, p) = map (B.second (p *)) innerxs
+
+  instance Applicative Prob where
+    pure x = Prob [(x, 1 % 1)]
+    Prob fs <*> Prob xs = Prob $ [(f x, p * q) | (f, p) <- fs, (x, q) <- xs]
+
+  instance Monad Prob where
+    m >>= f = flatten (fmap f m)
+
+  instance MonadFail Prob where
+    fail _ = Prob []
+\end{lstlisting}
+
+与原文不同之处在于，GHC 7.10 之后\acode{Monad}的 superclass 是\acode{Applicative}，因此需要实现\acode{instance Applicative Prob}，详见
+\href{https://wiki.haskell.org/Typeclassopedia#Definition_3}{Haskell Wiki}。对于实现\acode{Applicative}的\acode{<*>}可以参考十一章的
+\acode{instance Applicative []}，即\acode{fs <*> xs = [f x | f <- fs, x <- xs]}。具体来讲\acode{fs}是一个函数列表，\acode{xs}为值列表，
+通过列表表达式将每个函数\acode{f}应用至每个值\acode{x}。那么在这里同理，\acode{Prob fs}是一个函数的概率列表，\acode{Prob xs}是一个值的概率列表，
+\acode{(f, p) <- fs}则是解构每个函数概率列表中的元素为\acode{f}函数与\acode{p}概率，而\acode{(x, q) <- xs}则是解构每个值概率列表中的元素为
+\acode{x}值与\acode{q}概率，然后将解构出来的函数\acode{f}应用至值\acode{x}，两个概率\acode{p}与\acode{q}相乘，最后得到新的元组所构成的概率列表。
+还有一点不同的在于\acode{fail}现在要单独实现在\acode{MonadFail}上。
+
+那么我们现在有了一个单子，那么我们可以用它做什么？好吧，它可以帮助我们计算概率，我们将概率事件的值视为带有 context，而概率单子可以确保这些概率能在最终的
+计算中反映出来。
+
+假设我们有两个普通硬币以及一个灌铅的硬币，后者在十次抛掷中有九次会出现正面，那么一次性丢这三个硬币，有多大的概率会出现三个正面呢？
+
+\begin{lstlisting}[language=Haskell]
+  data Coin = Heads | Tails deriving (Show, Eq)
+
+  coin :: Prob Coin
+  coin = Prob [(Heads, 1 % 2), (Tails, 1 % 2)]
+
+  loadedCoin :: Prob Coin
+  loadedCoin = Prob [(Heads, 1 % 10), (Tails, 9 % 10)]
+\end{lstlisting}
+
+接下来是投掷三个硬币：
+
+\begin{lstlisting}[language=Haskell]
+  import Data.List (all)
+
+  flipThree :: Prob Bool
+  flipThree = do
+    a <- coin
+    b <- coin
+    c <- loadedCoin
+    return (all (== Tails) [a, b, c])
+\end{lstlisting}
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> getProb flipThree
+  [(False,1 % 40),(False,9 % 40),(False,1 % 40),(False,9 % 40),
+   (False,1 % 40),(False,9 % 40),(False,1 % 40),(True,9 % 40)]
+\end{lstlisting}
+
+同时出现正面的机率是四十分之九，差不多是 25\% 的机会。单子并没有办法 join 所有都是 False 的情形，即所有硬币都是出现反面的情况。不过那不是个严重的问题，
+可以写个函数来将同样的结果变成一种结果。以下是用于聚合\acode{Prob Bool}的函数，返回值\acode{(Rational, Rational)}是一个分别代表正确概率与错误概率
+的元组：
+
+\begin{lstlisting}[language=Haskell]
+  getJoinedProb :: Prob Bool -> (Rational, Rational)
+  getJoinedProb = foldr (\(x, p) (accT, accF) -> if x then (accT + p, accF) else (accT, accF + p)) (0, 0) . getProb
+\end{lstlisting}
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> getJoinedProb flipThree
+  (9 % 40,31 % 40)
+\end{lstlisting}
 
 \end{document}
