@@ -52,6 +52,34 @@
 
 - [Learn me a haskell](./Learn%20Me%20a%20Haskell.pdf): reading notes from "Learn you a haskell" [ [link](http://learnyouahaskell.com/) ]
 
+  - [Ch01 Introduction](./learn_me_a_haskell/Ch01%20Introduction.tex)
+
+  - [Ch02 Starting Out](./learn_me_a_haskell/Ch02%20Starting%20Out.tex)
+
+  - [Ch03 Types and Typeclasses](./learn_me_a_haskell/Ch03%20Types%20and%20Typeclasses.tex)
+
+  - [Ch04 Syntax in Functions](./learn_me_a_haskell/Ch04%20Syntax%20in%20Functions.tex)
+
+  - [Ch05 Recursion](./learn_me_a_haskell/Ch05%20Recursion.tex)
+
+  - [Ch06 Higher Order Functions](./learn_me_a_haskell/Ch06%20Higher%20Order%20Functions.tex)
+
+  - [Ch07 Modules](./learn_me_a_haskell/Ch07%20Modules.tex)
+
+  - [Ch08 Making Our Own Types and Typeclasses](./learn_me_a_haskell/Ch08%20Making%20Our%20Own%20Types%20and%20Typeclasses.tex)
+
+  - [Ch09 Input and Output](./learn_me_a_haskell/Ch09%20Input%20and%20Output.tex)
+
+  - [Ch10 Functionally Solving Problems](./learn_me_a_haskell/Ch10%20Functionally%20Solving%20Problems.tex)
+
+  - [Ch11 Functors, Applicative Functors and Monoids](./learn_me_a_haskell/Ch11%20Functors,%20Applicative%20Functors%20and%20Monoids.tex)
+
+  - [Ch12 A Fistful of Monads](./learn_me_a_haskell/Ch12%20A%20Fistful%20of%20Monads.tex)
+
+  - [Ch13 For a Few Monads More](./learn_me_a_haskell/Ch13%20For%20a%20Few%20Monads%20More.tex)
+
+  - [Ch14 Zippers](./learn_me_a_haskell/Ch14%20Zippers.tex)
+
 ## Reference
 
 - [How to install Haskell toolchains (CN)](https://zhuanlan.zhihu.com/p/455688955)
