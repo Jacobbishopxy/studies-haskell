@@ -1,4 +1,4 @@
--- file: yes_no_typeclass.hs
+-- file: yesNoTypeclass.hs
 -- author: Jacob Xie
 -- date: 2023/07/17 08:58:12 Monday
 -- brief:

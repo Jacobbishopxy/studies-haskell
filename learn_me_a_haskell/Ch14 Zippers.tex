@@ -273,26 +273,273 @@
 
 \subsection*{专注于列表}
 
-% TODO
+Zippers 几乎可以用于任何数据结构，不出意外它可以被用于列表的列表。毕竟列表很像树，只不过在树中的节点有若干子树，而列表中的节点只包含一个子列表。我们在
+定义自己的列表类型那一章中，定义了如下数据类型：
 
 \begin{lstlisting}[language=Haskell]
-
+  data List a = Empty | Cons a (List a) deriving (Show, Read, Eq, Ord)
 \end{lstlisting}
+
+现在让我们为列表做一个 zipper。切换子列表关注，我们只需要向前或者向后移动（不同于树的向上，向左或向右）。在树的情景下，关注的部分是一颗子树，另外还携带
+就是移动后的面包屑。那么对于列表而言，单个面包屑应该由什么构成呢？在处理二元树时，面包屑必须包含父节点的根以及其它没有走过的子树，同时还要记住左右方向。
+因此它必须包含一个节点的所有信息，除了正在关注子树（存于 zipper 的第一部分）。
+
+列表比数简单多了，无需记住左右方向，因为只有一个方向即深入列表。又因为每个节点仅有一颗子树，也无需记住没有走过的路径。这么看上去只需要记住上一个元素即可。
+假设有一个列表\acode{[3,4,5]}且已知上一个元素是\acode{2}，那么可以将其放置在列表头部，得\acode{[2,3,4,5]}。
+
+由于单个面包屑在这里仅为一个元素，我们无需将其置入一个数据类型，比如为树所创建的\acode{Crumb}数据类型那样，只需要类型别名即可：
+
+\begin{lstlisting}[language=Haskell]
+  type ListZipper a = ([a], [a])
+\end{lstlisting}
+
+这里第一个列表代表正在关注着的列表，而第二个列表则是面包屑列表。下面是向前与向后的函数：
+
+\begin{lstlisting}[language=Haskell]
+  goForward :: ListZipper a -> ListZipper a
+  goForward (x : xs, bs) = (xs, x : bs)
+
+  goBack :: ListZipper a -> ListZipper a
+  goBack (xs, b : bs) = (b : xs, bs)
+\end{lstlisting}
+
+当向前时，我们关注当前列表的尾部并留下头部元素作为一个面包屑；当向后时，我们获取最近的面包屑并将其置入关注列表的头部。
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let xs = [1,2,3,4]
+  ghci> goForward (xs,[])
+  ([2,3,4],[1])
+  ghci> goForward ([2,3,4],[1])
+  ([3,4],[2,1])
+  ghci> goForward ([3,4],[2,1])
+  ([4],[3,2,1])
+  ghci> goBack ([4],[3,2,1])
+  ([3,4],[2,1])
+\end{lstlisting}
+
+可以看到面包屑在列表的情况下就是一个倒转的列表。移出的元素进入面包屑的头部，因此移动回去只需将面包屑的头部元素移动进关注列表。
+
+这也是为什么称其为一个拉链 zipper，因为这看上去就像是拉链上下移动。
 
 \subsection*{一个简单的文件系统}
 
-% TODO
+理解了 zipper 是如何运作的，现在让我们用树来表达一个简单的文件一同，接着为其构建一个 zipper，使得我们可以在文件夹之间移动，就像是我们通常使用文件系统
+进行跳转那样。
+
+简单的来看一个文件系统，基本上就是由文件与文件夹构成。以下是一些类型别名以及一个数据类型：
 
 \begin{lstlisting}[language=Haskell]
-
+  type Name = String
+  type Data = String
+  data FSItem = File Name Data | Folder Name [FSItem] deriving (Show)
 \end{lstlisting}
+
+文件包含了两个字符串，前者为名称，后者为数据。文件夹包含了一个字符串以及一个列表的文件系统，如果列表为空则意为空文件夹。
+
+以下是一个包含了文件和子文件夹的文件夹：
+
+\begin{lstlisting}[language=Haskell]
+  myDisk :: FSItem
+  myDisk =
+    Folder
+      "root"
+      [ File "goat_yelling_like_man.wmv" "baaaaaa",
+        File "pope_time.avi" "god bless",
+        Folder
+          "pics"
+          [ File "ape_throwing_up.jpg" "bleargh",
+            File "watermelon_smash.gif" "smash!!",
+            File "skull_man(scary).bmp" "Yikes!"
+          ],
+        File "dijon_poupon.doc" "best mustard",
+        Folder
+          "programs"
+          [ File "fartwizard.exe" "10gotofart",
+            File "owl_bandit.dmg" "mov eax, h00t",
+            File "not_a_virus.exe" "really not a virus",
+            Folder
+              "source code"
+              [ File "best_hs_prog.hs" "main = print (fix error)",
+                File "random.hs" "main = print 4"
+              ]
+          ]
+      ]
+\end{lstlisting}
+
+\subsubsection*{文件系统的 zipper}
+
+我们有了一个文件系统，我们需要一个 zipper 是我们可以走动，增加，修改，或者移除文件或文件夹。像是二元树或列表那样，用面包屑来保存走过路径的信息。一个面包屑
+就是一个节点，它包含了除了正在关注的子树之外的所有信息。
+
+在此，一个面包屑应该像是一个文件夹，它无需包含当前关注的文件夹。你可能会问为什么不是一个文件呢？因为如果关注在一个文件，我们就无法深入文件系统，因此留下一个
+从文件而来的面包屑没有意义。一个文件就类似于一颗空树。
+
+如果关注在\acode{"root"}文件夹，接着将关注转到文件\acode{"dijon_poupon.doc"}，那么这个时候的面包屑应该长什么样？它应该包含了父文件夹的名称，以及这个
+文件之前以及之后的所有项。通过两个独立的列表分别保存之前的项与之后的项，我们可以精确的知道回去时的地址。
+
+下面是面包屑的类型：
+
+\begin{lstlisting}[language=Haskell]
+  data FSCrumb = FSCrumb Name [FSItem] [FSItem] deriving (Show)
+\end{lstlisting}
+
+以及 zipper 的类型别名：
+
+\begin{lstlisting}[language=Haskell]
+  type FSZipper = (FSItem, [FSCrumb])
+\end{lstlisting}
+
+返回父节点非常的容易，仅需将最近的面包屑与当前所关注的进行组合：
+
+\begin{lstlisting}[language=Haskell]
+  fsUp :: FSZipper -> FSZipper
+  fsUp (item, FSCrumb name ls rs : bs) = (Folder name (ls ++ [item] ++ rs), bs)
+\end{lstlisting}
+
+因为面包屑知道父文件夹的名称，以及所关注项之前（\acode{ls}）与之后（\acode{rs}）的所有项，所以移动就很简单了。
+
+那么更深入文件系统呢？假设从\acode{"root"}到\acode{"dijon_poupon.doc"}，那么面包屑就包含了\acode{"root"}，以及在\acode{"dijon_poupon.doc"}
+之前的所有项以及之后的所有项。
+
+下面是一个函数，接受一个名称，并关注在当前文件夹下的一个文件或文件夹：
+
+\begin{lstlisting}[language=Haskell]
+  fsTo :: Name -> FSZipper -> FSZipper
+  fsTo name (Folder folderName items, bs) =
+    let (ls, item : rs) = break (nameIs name) items
+     in (item, FSCrumb folderName ls rs : bs)
+
+  nameIs :: Name -> FSItem -> Bool
+  nameIs name (Folder folderName _) = name == folderName
+  nameIs name (File fileName _) = name == fileName
+\end{lstlisting}
+
+\acode{fsTo}接受一个\acode{Name}与一个\acode{FSZipper}并返回一个新的\acode{FSZipper}，其关注移至给定名称。该文件必须处于当前所关注的文件夹下。
+
+这里首先用了\acode{break}来将列表分成前后两个列表。\acode{break}函数接受一个子句以及一个列表，返回两个列表，前者为不满足子句的所有项所组成的列表，
+而后者为第一个满足子句的项以及该项之后的所有项所组成的列表。
+
+那么在此，\acode{ls}就是一个在查询项之前的所有项，\acode{item}就是查询的项，而\acode{rs}则是\acode{item}后的所有项。有了这些，从\acode{break}
+所得到的项作为关注项，并构建一个面包屑。
+
+注意如果所查询的项并非一个文件夹，模式\acode{item:rs}则会尝试匹配一个空列表，继而报错。同理，如果当前关注的并非一个文件夹而是一个文件时，我们也会得到
+报错使得程序崩溃。
+
+现在可以对文件系统进行上下移动了。首先从根开始，再走到\acode{"skull_man(scary).bmp"}文件那儿。
+
+\begin{lstlisting}[language=Haskell]
+  let newFocus = (myDisk, []) -: fsTo "pics" -: fsTo "skull_man(scary).bmp"
+\end{lstlisting}
+
+\acode{newFocus}现在是一个 zipper，其关注在\acode{"skull_man(scary).bmp"}文件上。现在让我们看看它是否正确：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> fst newFocus
+  File "skull_man(scary).bmp" "Yikes!"
+\end{lstlisting}
+
+接着向上移动接着关注到相邻文件\acode{"watermelon_smash.gif"}：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let newFocus2 = newFocus -: fsUp -: fsTo "watermelon_smash.gif"
+  ghci> fst newFocus2
+  File "watermelon_smash.gif" "smash!!"
+\end{lstlisting}
+
+\subsubsection*{操作文件系统}
+
+我们现在知道了该如何在文件系统中移动，操作它们也很简单。以下函数用于对当前关注的文件或文件夹进行改名：
+
+\begin{lstlisting}[language=Haskell]
+  fsRename :: Name -> FSZipper -> FSZipper
+  fsRename newName (Folder name items, bs) = (Folder newName items, bs)
+  fsRename newName (File name dat, bs) = (File newName dat, bs)
+\end{lstlisting}
+
+将\acode{"pics"}文件夹改名为\acode{"cspi"}：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let newFocus = (myDisk,[]) -: fsTo "pics" -: fsRename "cspi" -: fsUp
+\end{lstlisting}
+
+接下来是创建新文件：
+
+\begin{lstlisting}[language=Haskell]
+  fsNewFile :: FSItem -> FSZipper -> FSZipper
+  fsNewFile item (Folder folderName items, bs) = (Folder folderName (item : items), bs)
+\end{lstlisting}
+
+让我们在\acode{"pics"}文件夹下创建一个新文件，然后再移动回跟目录：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let newFocus = (myDisk,[]) -: fsTo "pics" -: fsNewFile (File "heh.jpg" "lol") -: fsUp
+\end{lstlisting}
+
+这里很酷的一点就是当我们在修改文件系统时，它并没有真正的被修改，而是返回了一个新的文件系统。这样我们就可以访问我们旧的文件系统（即\acode{myDisk}），
+同时可以通过 zipper 访问新的系统（\acode{newFocus}的第一个部分），这样就自动获得了版本控制。这并不仅限于 zippers，而是 Haskell 的数据结构是
+不可变的特性。有了 zippers 我们可以更加轻松且有效率的处理数据结构，也因此 Haskell 数据结构的持久性才真正开始闪耀。
 
 \subsection*{注意你的脚步}
 
-% TODO
+迄今如此，当走过数据结构时，无论是二元树，列表还是文件系统，我们并没有关心走了几步。例如\acode{goLeft}函数接受一个二元树的 zipper，接着将关注移动
+至子树：
 
 \begin{lstlisting}[language=Haskell]
+  goLeft :: Zipper a -> Zipper a
+  goLeft (Node x l r, bs) = (l, LeftCrumb x r:bs)
+\end{lstlisting}
 
+如果我们走到了一个空树会如何呢？也就是说不是一个\acode{Node}，而是一个\acode{Empty}。这种情况下我们会得到一个运行时错误，因为模式匹配将失败，
+同时我们没有为空树设计匹配。
+
+让我们使用\acode{Maybe}单子来为我们的移动添加一个可能失败的 context。
+
+\begin{lstlisting}[language=Haskell]
+  goLeft :: Zipper a -> Maybe (Zipper a)
+  goLeft (Node x l r, bs) = Just (l, LeftCrumb x r : bs)
+  goLeft (Empty, _) = Nothing
+
+  goRight :: Zipper a -> Maybe (Zipper a)
+  goRight (Node x l r, bs) = Just (r, RightCrumb x l : bs)
+  goRight (Empty, _) = Nothing
+\end{lstlisting}
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> goLeft (Empty, [])
+  Nothing
+  ghci> goLeft (Node 'A' Empty Empty, [])
+  Just (Empty,[LeftCrumb 'A' Empty])
+\end{lstlisting}
+
+那么向上呢？
+
+\begin{lstlisting}[language=Haskell]
+  goUp :: Zipper a -> Maybe (Zipper a)
+  goUp (t, LeftCrumb x r : bs) = Just (Node x t r, bs)
+  goUp (t, RightCrumb x l : bs) = Just (Node x l t, bs)
+  goUp (_, []) = Nothing
+\end{lstlisting}
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  gchi> let newFocus = (freeTree,[]) -: goLeft -: goRight
+\end{lstlisting}
+
+由于现在返回的是\acode{Maybe (Zipper a)}而不是\acode{Zipper a}，那么链式函数的方法就不管用了。不过我们可以使用\acode{>>=}来解决这个问题。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let coolTree = Node 1 Empty (Node 3 Empty Empty)
+  ghci> return (coolTree,[]) >>= goRight
+  Just (Node 3 Empty Empty,[RightCrumb 1 Empty])
+  ghci> return (coolTree,[]) >>= goRight >>= goRight
+  Just (Empty,[RightCrumb 3 Empty,RightCrumb 1 Empty])
+  ghci> return (coolTree,[]) >>= goRight >>= goRight >>= goRight
+  Nothing
 \end{lstlisting}
 
 \end{document}
