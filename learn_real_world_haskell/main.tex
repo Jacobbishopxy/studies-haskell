@@ -1,0 +1,152 @@
+\PassOptionsToPackage{quiet}{fontspec}
+\documentclass[UTF8]{ctexart}
+
+\usepackage[a4paper, total={6in, 8in}]{geometry}
+\usepackage{lmodern}
+\usepackage{amsfonts}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usepackage{framed}
+\usepackage[leqno]{amsmath}
+\usepackage{hyperref}
+
+\graphicspath{\subfix{./images/}}
+
+\usepackage{blindtext}
+\usepackage{subfiles} % Best loaded last in the preamble
+
+
+
+\title{Learn Real World Haskell}
+\author{Jacob Bishop}
+\date{2023-08-20}
+
+% adding style
+\usepackage{../style}
+\lstset{style=mystyle}
+
+% adding commands
+\input{../commands}
+
+\begin{document}
+
+\maketitle
+\newpage
+
+\section{Getting started}
+\subfile{Ch1 Getting started}
+\newpage
+
+\section{Types and functions}
+\subfile{Ch2 Types and functions}
+\newpage
+
+\section{Defining types, streamlining functions}
+\subfile{Ch3 Defining types, streamlining functions}
+\newpage
+
+\section{Functional programming}
+\subfile{Ch4 Functional programming}
+\newpage
+
+\section{Writing a library: working with JSON data}
+\subfile{Ch5 Writing a library: working with JSON data}
+\newpage
+
+\section{Using typeclasses}
+\subfile{Ch6 Using typeclasses}
+\newpage
+
+\section{Input and output}
+\subfile{Ch7 Input and output}
+\newpage
+
+\section{Efficient file processing, regular expressions, and file name matching}
+\subfile{Ch8 Efficient file processing, regular expressions, and file name matching}
+\newpage
+
+\section{I/O case study: a library for searching the filesystem}
+\subfile{Ch9 IO case study: a library for searching the filesystem}
+\newpage
+
+\section{Code case study: parsing a binary data format}
+\subfile{Ch10 Code case study: parsing a binary data format}
+\newpage
+
+\section{Testing and quality assurance}
+\subfile{Ch11 Testing and quality assurance}
+\newpage
+
+\section{Barcode recognition}
+\subfile{Ch12 Barcode recognition}
+\newpage
+
+\section{Data structures}
+\subfile{Ch13 Data structures}
+\newpage
+
+\section{Monads}
+\subfile{Ch14 Monads}
+\newpage
+
+\section{Programming with monads}
+\subfile{Ch15 Programming with monads}
+\newpage
+
+\section{The Parsec parsing library}
+\subfile{Ch16 The Parsec parsing library}
+\newpage
+
+\section{The foreign function interface}
+\subfile{Ch17 The foreign function interface}
+\newpage
+
+\section{Monad transformers}
+\subfile{Ch18 Monad transformers}
+\newpage
+
+\section{Error handling}
+\subfile{Ch19 Error handling}
+\newpage
+
+\section{Systems programming}
+\subfile{Ch20 Systems programming}
+\newpage
+
+\section{Working with databases}
+\subfile{Ch21 Working with databases}
+\newpage
+
+\section{Web client programming}
+\subfile{Ch22 Web client programming}
+\newpage
+
+\section{GUI programming}
+\subfile{Ch23 GUI programming}
+\newpage
+
+\section{Basic concurrent and parallel programming}
+\subfile{Ch24 Basic concurrent and parallel programming}
+\newpage
+
+\section{Profiling and tuning for performance}
+\subfile{Ch25 Profiling and tuning for performance}
+\newpage
+
+\section{Advanced library design: building a Bloom filter}
+\subfile{Ch26 Advanced library design: building a Bloom filter}
+\newpage
+
+\section{Network programming}
+\subfile{Ch27 Network programming}
+\newpage
+
+\section{Software transactional memory}
+\subfile{Ch28 Software transactional memory}
+\newpage
+
+
+
+\end{document}

@@ -50,7 +50,7 @@
 
 ## Study Material
 
-- [Learn me a haskell](./Learn%20Me%20a%20Haskell.pdf): reading notes from "Learn you a haskell" [ [link](http://learnyouahaskell.com/) ]
+- [Learn Me a Haskell](./Learn%20Me%20a%20Haskell.pdf): reading notes from "Learn you a haskell" [ [link](http://learnyouahaskell.com/) ]
 
   - [Ch01 Introduction](./learn_me_a_haskell/Ch01%20Introduction.tex)
 
@@ -79,6 +79,64 @@
   - [Ch13 For a Few Monads More](./learn_me_a_haskell/Ch13%20For%20a%20Few%20Monads%20More.tex)
 
   - [Ch14 Zippers](./learn_me_a_haskell/Ch14%20Zippers.tex)
+
+- [Learn Real World Haskell](./Learn%20Real%20World%20Haskell.pdf): reading notes from "Real World Haskell" [ [link](https://book.realworldhaskell.org/read/) ]
+
+  - Ch1 Getting started
+
+  - Ch2 Types and functions
+
+  - Ch3 Defining types, streamlining functions
+
+  - Ch4 Functional programming
+
+  - Ch5 Writing a library: working with JSON data
+
+  - Ch6 Using typeclasses
+
+  - Ch7 Input and output
+
+  - Ch8 Efficient file processing, regular expressions, and file name matching
+
+  - Ch9 I/O case study: a library for searching the filesystem
+
+  - Ch10 Code case study: parsing a binary data format
+
+  - Ch11 Testing and quality assurance
+
+  - Ch12 Barcode recognition
+
+  - Ch13 Data structures
+
+  - Ch14 Monads
+
+  - Ch15 Programming with monads
+
+  - Ch16 The Parsec parsing library
+
+  - Ch17 The foreign function interface
+
+  - Ch18 Monad transformers
+
+  - Ch19 Error handling
+
+  - Ch20 Systems programming
+
+  - Ch21 Working with databases
+
+  - Ch22 Web client programming
+
+  - Ch23 GUI programming
+
+  - Ch24 Basic concurrent and parallel programming
+
+  - Ch25 Profiling and tuning for performance
+
+  - Ch26 Advanced library design: building a Bloom filter
+
+  - Ch27 Network programming
+
+  - Ch28 Software transactional memory
 
 ## Reference
 
