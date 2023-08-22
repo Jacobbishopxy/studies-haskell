@@ -1,0 +1,160 @@
+\PassOptionsToPackage{quiet}{fontspec}
+\documentclass[UTF8]{ctexart}
+
+\usepackage[a4paper, total={6in, 8in}]{geometry}
+\usepackage{lmodern}
+\usepackage{amsfonts}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usepackage{framed}
+\usepackage{amsthm,amssymb}
+\usepackage[leqno]{amsmath}
+\usepackage{hyperref}
+
+\graphicspath{\subfix{./images/}}
+
+\usepackage{blindtext}
+
+% adding style
+\usepackage{../style}
+\lstset{style=mystyle}
+
+% adding commands
+\input{../commands}
+
+% no indent
+\setlength{\parindent}{0pt}
+
+%
+\newtheoremstyle{sybs}{}{}{}{}{\bfseries}{}{.5em}{{\thmnumber{#2 }}{\thmname{#1}}{\thmnote{ (#3)}}}
+
+\theoremstyle{sybs}
+\newtheorem{syb}{}
+
+\title{Cheatsheet of Haskell Symbols}
+\author{}
+\date{}
+
+
+\begin{document}
+
+\maketitle
+
+\begin{syb}
+  \acode{!} strictness flag
+\end{syb}
+
+任何时候一个数据构造函数被应用，当且仅当关联的类型在代数数据类型中包含了严格标志（strictness flag），即用惊叹号\acode{!}表示，
+才会对构造函数的每个参数求值。
+
+\begin{lstlisting}[language=Haskell]
+  data Vec = Vec !Int
+\end{lstlisting}
+
+\begin{syb}
+  \acode{!} bang pattern
+\end{syb}
+
+GHC2021 开始所支持的严格模式，即消除 thunks。其主要的目的是在模式匹配中加入一个新的语法：
+
+\begin{lstlisting}[language=Haskell]
+  pat ::= !pat
+\end{lstlisting}
+
+匹配一个表达式\acode{e}至模版\acode{!p}上则是首先计算\acode{e}，然后再进行\acode{p}的匹配。
+
+以下定义令\acode{f1}严格在\acode{x}上，如果没有\acode{!}那么它则是惰性的。换言之\acode{f1}这个函数的入参，会在\acode{f1}
+被调用的时候第一时间被计算。
+
+\begin{lstlisting}[language=Haskell]
+  f1 !x = True
+\end{lstlisting}
+
+嵌套的 bang，\acode{f2}在\acode{x}上严格，而\acode{y}没有。换言之\acode{f2}这个参数的入参\acode{x}，会在函数被调用时
+第一时间被计算，而\acode{y}仍然是惰性的。
+
+\begin{lstlisting}[language=Haskell]
+  f2 (!x, y) = [x,y]
+\end{lstlisting}
+
+\begin{syb}
+  \acode{\#} MagicHash
+\end{syb}
+
+详见
+\href{https://downloads.haskell.org/ghc/latest/docs/users_guide/exts/primitives.html#glasgow-unboxed}{Unboxed 类型}。
+GHC 中大多数类型都是 boxed 的，意为该类型的值被表示成一个堆对象的指针。例如 Haskell 中的\acode{Int}，是一个堆对象。而 unboxed
+类型，则是该值本身，即没有指针或牵涉到堆分配。
+
+\textbf{MagicHash}还支持一些新的字面量：
+
+\begin{itemize}
+  \item $'x'\#$ 类型为 $Char\#$
+  \item $"foo"\#$ 类型为 $Addr\#$
+  \item $3\#$ 类型为 $Int\#$。通常而言，任何 Haskell 的整数语义加上 $\#$ 后就是一个 $Int\#$ 字面量，例如 $-0x3A\#$ 即 $32\#$
+  \item $3\#\#$ 类型为 $Word\#$。通常而言，任何非负 Haskell 的整数语义加上 $\#\#$ 后就是一个 $Word\#$
+  \item $3.2\#$ 类型为 $Float\#$
+  \item $3.2\#\#$ 类型为 $Double\#$
+\end{itemize}
+
+
+\begin{lstlisting}[language=Haskell]
+  data Int = I# Int#
+\end{lstlisting}
+
+\begin{syb}
+  \acode{\#} OverloadedLabels
+\end{syb}
+
+详见
+\href{https://downloads.haskell.org/ghc/latest/docs/users_guide/exts/overloaded_labels.html#overloaded-labels}{重载标签}。
+
+\begin{lstlisting}[language=Haskell]
+  example = #x (Point 1 2)
+\end{lstlisting}
+
+\begin{syb}
+  \acode{\#} C pre-processor's directive
+\end{syb}
+
+\textbf{CPP}语言扩展。通过命令行加上\acode{-x}前缀：
+
+\begin{lstlisting}[language=Haskell]
+  $ ghc -XCPP foo.hs
+\end{lstlisting}
+
+也可以使用 LANGUAGE pragma 生效：
+
+\begin{lstlisting}[language=Haskell]
+  {-# LANGUAGE CPP #-}
+\end{lstlisting}
+
+使用：
+
+\begin{lstlisting}[language=Haskell]
+  #include "MachDeps.h"
+\end{lstlisting}
+
+\begin{syb}
+  \acode{\#} hsc2hs command's operator
+\end{syb}
+
+详见
+\href{https://downloads.haskell.org/ghc/latest/docs/users_guide/utils.html#input-syntax}{Input syntax}
+
+\begin{lstlisting}[language=Haskell]
+  flag = #const VER_MAJORVERSION
+\end{lstlisting}
+
+\begin{syb}
+  \acode{?}
+\end{syb}
+
+% TODO
+
+引用：
+\href{https://github.com/takenobu-hs/haskell-symbol-search-cheatsheet}{haskell-symbol-search-cheatsheet}
+
+\end{document}

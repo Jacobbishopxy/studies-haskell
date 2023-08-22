@@ -48,6 +48,10 @@
 
 - `Cabal-fmt` installation: `cabal install cabal-fmt`
 
+## Cheatsheets
+
+- [Symbol](./cheatsheets/symbol.tex)
+
 ## Study Material
 
 - [Learn Me a Haskell](./Learn%20Me%20a%20Haskell.pdf): reading notes from "Learn you a haskell" [ [link](http://learnyouahaskell.com/) ]
