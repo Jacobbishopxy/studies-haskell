@@ -24,3 +24,9 @@ char c = undefined
 
 hcat :: [Doc] -> Doc
 hcat xs = undefined
+
+fsep :: [Doc] -> Doc
+fsep xs = undefined
+
+punctuate :: Doc -> [Doc] -> [Doc]
+punctuate = undefined

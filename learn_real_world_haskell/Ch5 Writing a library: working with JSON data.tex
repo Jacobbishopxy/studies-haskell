@@ -402,6 +402,58 @@ symbol 的编译错误（因为在\acode{Main.hs}中已经做了\acode{import Si
 
 \subsection*{数组与对象，以及模块头}
 
+相比于字符串的漂亮打印，数组和对象就是小菜一碟了。我们已经知道了它们两者其实很相似：都是由起始字符开始，接着是一系列由逗号分隔的值，
+最后接上结束字符。让我们编写一个函数捕获数组与对象的共同结构：
+
+\begin{lstlisting}[language=Haskell]
+  series :: Char -> Char -> (a -> Doc) -> [a] -> Doc
+  series open close item = enclose open close . fsep . punctuate (char ',') . map item
+\end{lstlisting}
+
+让我们首先从函数类型开始。它接受起始与结束字符，一个打印某些未知类型\acode{a}值的函数，以及一个类型为\acode{a}的列表，返回一个
+类型为\acode{Doc}的值。
+
+注意尽管我们的类型签名提及了四个参数，在函数定义中仅列出了三个。这遵循了简化定义的规则，如\acode{myLength xs = length xs}等同于
+\acode{myLength = length}。
+
+我们已经有了之前编写过的\acode{enclose}，即包装一个\acode{Doc}值进起始与结束字符之间。那么\acode{fsep}函数则位于
+\acode{Prettify}模块中，其结合一个\acode{Doc}值列表成为一个\acode{Doc}，在输出不适合单行的情况下还需要换行。
+
+\begin{lstlisting}[language=Haskell]
+  fsep :: [Doc] -> Doc
+  fsep xs = undefined
+\end{lstlisting}
+
+那么现在，遵循上述提供的例子，你应该能够定义你自己的\acode{Prettify.hs}的根文件了。这里不再显式的定义更多的根了。
+
+\acode{puctuate}函数同样位于\acode{Prettify}模块中：
+
+\begin{lstlisting}[language=Haskell]
+  punctuate :: Doc -> [Doc] -> [Doc]
+  punctuate p [] = []
+  punctuate p [d] = [d]
+  punctuate p (d : ds) = (d <> p) : punctuate p ds
+\end{lstlisting}
+
+通过\acode{series}的定义，漂亮打印一个数组就非常直接了：
+
+\begin{lstlisting}[language=Haskell]
+  renderJValue (JArray ary) = series '[' ']' renderJValue ary
+\end{lstlisting}
+
+对于对象而言，还需要额外的一些工作：每个元素同时需要处理名称与值：
+
+\begin{lstlisting}[language=Haskell]
+  renderJValue (JObject obj) = series '{' '}' field obj
+  where
+    field (name, val) =
+      string name
+        PrettyStub.<> text ": "
+        PrettyStub.<> renderJValue val
+\end{lstlisting}
+
+\subsection*{编写一个模块头}
+
 % TODO
 
 \end{document}

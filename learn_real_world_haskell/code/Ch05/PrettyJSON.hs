@@ -6,14 +6,33 @@
 import Data.Bits
 import Data.Char
 import Numeric
-import PrettyStub
+import Prettify
+
+-- ================================================================================================
+-- DAT
+-- ================================================================================================
+
+data JValue
+  = JString String
+  | JNumber Double
+  | JBool Bool
+  | JNull
+  | JObject [(String, JValue)]
+  | JArray [JValue]
+  deriving (Eq, Ord, Show)
+
+-- ================================================================================================
+-- Helper
+-- ================================================================================================
 
 string :: String -> Doc
 string = enclose '"' '"' . hcat . map oneChar
 
 enclose :: Char -> Char -> Doc -> Doc
-enclose left right x = char left PrettyStub.<> x PrettyStub.<> char right
+enclose left right x = char left <+> x <+> char right
 
+-- ================================================================================================
+-- Strings
 -- ================================================================================================
 
 oneChar :: Char -> Doc
@@ -33,13 +52,13 @@ simpleEscapes = zipWith ch "\b\n\f\r\t\\\"/" "bnfrt\\\"/"
 smallHex :: Int -> Doc
 smallHex x =
   text "\\u"
-    PrettyStub.<> text (replicate (4 - length h) '0')
-    PrettyStub.<> text h
+    <+> text (replicate (4 - length h) '0')
+    <+> text h
   where
     h = showHex x ""
 
 astral :: Int -> Doc
-astral n = smallHex (a + 0xd800) PrettyStub.<> smallHex (b + 0xdc00)
+astral n = smallHex (a + 0xd800) <+> smallHex (b + 0xdc00)
   where
     a = (n `shiftR` 10) .&. 0x3ff
     b = n .&. 0x3ff
@@ -50,3 +69,28 @@ hexEscape c
   | otherwise = astral (d - 0x10000)
   where
     d = ord c
+
+-- ================================================================================================
+-- Arrays and objects
+-- ================================================================================================
+
+series :: Char -> Char -> (a -> Doc) -> [a] -> Doc
+series open close item = enclose open close . fsep . punctuate (char ',') . map item
+
+-- ================================================================================================
+-- renderJValue
+-- ================================================================================================
+
+renderJValue :: JValue -> Doc
+renderJValue (JBool True) = text "true"
+renderJValue (JBool False) = text "false"
+renderJValue JNull = text "null"
+renderJValue (JNumber num) = double num
+renderJValue (JString str) = string str
+renderJValue (JArray ary) = series '[' ']' renderJValue ary
+renderJValue (JObject obj) = series '{' '}' field obj
+  where
+    field (name, val) =
+      string name
+        <+> text ": "
+        <+> renderJValue val
