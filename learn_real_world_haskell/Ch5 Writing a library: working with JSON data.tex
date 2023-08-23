@@ -220,6 +220,188 @@ symbol 的编译错误（因为在\acode{Main.hs}中已经做了\acode{import Si
 
 \subsection*{更加泛用的渲染}
 
+我们将更为泛用的打印模块称为\acode{Prettify}，那么其源文件即\acode{Prettify.hs}。
+
+为了使\acode{Prettify}满足实际需求，我们还要一个新的 JSON 渲染器来使用\acode{Prettify}的API。在\acode{Prettify}模块中将
+使用一个抽象类型\acode{Doc}。基于建立在抽象类型的泛用渲染库，我们可以选择灵活高效的实现。
+
+\acode{PrettyJSON.hs}示例：
+
+\begin{lstlisting}[language=Haskell]
+  renderJValue :: JValue -> Doc
+  renderJValue (JBool True)  = text "true"
+  renderJValue (JBool False) = text "false"
+  renderJValue JNull         = text "null"
+  renderJValue (JNumber num) = double num
+  renderJValue (JString str) = string str
+\end{lstlisting}
+
+这里的\acode{text}，\acode{double}以及\acode{string}都会在\acode{Prettify}模块中提供。
+
+\subsection*{开发 Haskell 代码而不发疯}
+
+一个用于快速开发程序框架的技巧就是编写占位符，或者类型与函数的\textit{根 stub}版本。例如上述\acode{string}，\acode{text}
+以及\acode{double}函数将被\acode{Prettify}模块提供。如果我们没有提供这些函数或者\acode{Doc}类型，那么“早点编译，经常编译”
+这个尝试就会失败。为了避免这个问题现在让我们编写一个不做任何事情的根程序。
+
+\begin{lstlisting}[language=Haskell]
+  import SimpleJSON
+
+  data Doc = ToBeDefined deriving (Show)
+
+  string :: String -> Doc
+  string str = undefined
+
+  text :: String -> Doc
+  text str = undefined
+
+  double :: Double -> Doc
+  double num = undefined
+\end{lstlisting}
+
+特殊值\acode{undefined}有一个\acode{a}类型，无论在哪里使用它，总是会有类型检查。如果尝试计算，则会使程序崩溃：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :type undefined
+  undefined :: a
+  ghci> undefined
+  *** Exception: Prelude.undefined
+  ghci> :type double
+  double :: Double -> Doc
+  ghci> double 3.14
+  *** Exception: Prelude.undefined
+\end{lstlisting}
+
+尽管还不能运行根代码，但是编译器的类型检查器可以确保我们的程序类型正确。
+
+\subsection*{漂亮的打印字符串}
+
+当需要打印一个漂亮的字符串时，我们必须遵循 JSON 的转义规则。字符串就是一系列被包裹在引号中的字符们。\acode{PrettyJSON.hs}：
+
+\begin{lstlisting}[language=Haskell]
+  string :: String -> Doc
+  string = enclose '"' '"' . hcat . map oneChar
+\end{lstlisting}
+
+以及\acode{enclose}函数将一个\acode{Doc}值简单的包裹在一个开始与结束字符之间：
+
+\begin{lstlisting}[language=Haskell]
+  enclose :: Char -> Char -> Doc -> Doc
+  enclose left right x = char left <> x <> char right
+\end{lstlisting}
+
+这里提供的\acode{<>}函数定义在\acode{Prettify}库中，它需要两个\acode{Doc}值，即\acode{Doc}版本的\acode{(++)}。还是
+先在根文件中定义：
+
+\begin{lstlisting}[language=Haskell]
+  (<>) :: Doc -> Doc -> Doc
+  a <> b = undefined
+
+  char :: Char -> Doc
+  char c = undefined
+\end{lstlisting}
+
+我们的库还需要提供\acode{hcat}，将若干\acode{Doc}值合成成为一个（类似于列表的\acode{concat}）：
+
+\begin{lstlisting}[language=Haskell]
+  hcat :: [Doc] -> Doc
+  hcat xs = undefined
+\end{lstlisting}
+
+我们的\acode{string}函数应用\acode{oneChar}函数到字符串中的每个字符，将它们连接，然后用引号包装。而\acode{oneChar}函数
+则是用来转义或包装一个独立的字符。在\acode{PrettyJSON.hs}中：
+
+\begin{lstlisting}[language=Haskell]
+  oneChar :: Char -> Doc
+  oneChar c = case lookup c simpleEscapes of
+    Just r -> text r
+    Nothing
+      | mustEscape c -> hexEscape c
+      | otherwise -> char c
+    where
+      mustEscape c = c < ' ' || c == '\x7f' || c > '\xff'
+
+  simpleEscapes :: [(Char, String)]
+  simpleEscapes = zipWith ch "\b\n\f\r\t\\\"/" "bnfrt\\\"/"
+    where
+      ch a b = (a, ['\\', b])
+\end{lstlisting}
+
+这里的\acode{simpleEscapes}是一个列表的二元组，我们称其为\textit{关联 association}列表，或者简称\acode{alist}。每个
+\acode{alist}的元素都将字符关联了它的转义表达，测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> take 4 simpleEscapes
+  [('\b',"\\b"),('\n',"\\n"),('\f',"\\f"),('\r',"\\r")]
+\end{lstlisting}
+
+我们的\acode{case}表达式尝试查看字符是否匹配关联列表。如果匹配则返回匹配值，如若不然则需要以更复杂的方式来转义该字符。只有当
+两种转义都不需要时，才会返回普通字符。保守起见，我们输出的唯一未转义字符是可打印的 ASCII 字符。
+
+更复杂的转义包含了将一个字符转为字符串\acode{"\\u"}并跟随四个十六进制的字符用于表达 Unicode 字符的数值。仍然是
+\acode{PrettyJSON.hs}：
+
+\begin{lstlisting}[language=Haskell]
+  smallHex :: Int -> Doc
+  smallHex x =
+    text "\\u"
+      <> text (replicate (4 - length h) '0')
+      <> text h
+    where
+      h = showHex x ""
+\end{lstlisting}
+
+这里的\acode{showHex}函数需要从\acode{Numeric}库中加载，其用于返回一个值的十六进制：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> showHex 114111 ""
+  "1bdbf"
+\end{lstlisting}
+
+\acode{replicate}函数则是由 Prelude 提供：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> replicate 5 "foo"
+  ["foo","foo","foo","foo","foo"]
+\end{lstlisting}
+
+\acode{smallHex}提供的四位编码只能表示最大\acode{0xffff}的 Unicode 字符，而有效的 Unicode 字符的范围可以达到
+\acode{0x10ffff}。为了正确的表达一个超出了\acode{0xffff}的 JSON 字符串，我们遵循一些复杂的规则将其分为两部分。这使我们
+有机会对 Haskell 的数执行一些位级操作。还是\acode{PrettyJSON.hs}：
+
+\begin{lstlisting}[language=Haskell]
+  astral :: Int -> Doc
+  astral n = smallHex (a + 0xd800) <> smallHex (b + 0xdc00)
+    where
+      a = (n `shiftR` 10) .&. 0x3ff
+      b = n .&. 0x3ff
+\end{lstlisting}
+
+这里\acode{shiftR}函数和\acode{(.&.)}函数都源自\acode{Data.Bits}模块，前者将一个数移动右一位，后者则是执行一个字节层面的
+两值\textit{and}操作。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> 0x10000 `shiftR` 4   :: Int
+  4096
+  ghci> 7 .&. 2   :: Int
+  2
+\end{lstlisting}
+
+现在有了\acode{smallHex}与\acode{astral}，我们可以提供\acode{hexEscape}的定义了：
+
+\begin{lstlisting}[language=Haskell]
+  hexEscape :: Char -> Doc
+  hexEscape c
+    | d < 0x10000 = smallHex d
+    | otherwise = astral (d - 0x10000)
+    where
+      d = ord c
+\end{lstlisting}
+
+其中\acode{ord}由\acode{Data.Char}模块提供。
+
+\subsection*{数组与对象，以及模块头}
+
 % TODO
 
 \end{document}
