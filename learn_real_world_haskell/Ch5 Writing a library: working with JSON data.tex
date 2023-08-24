@@ -573,6 +573,178 @@ symbol 的编译错误（因为在\acode{Main.hs}中已经做了\acode{import Si
 
 \subsubsection*{紧密渲染}
 
+我们需要频繁的使用包含尽可能少字符的数据。例如通过网络连接发送 JSON 数据就没有必要美观：软件并不在乎数据的美观与否，添加很多的空格
+只会带来性能下降。
+
+因此我们提供了一个紧密渲染的函数：
+
+\begin{lstlisting}[language=Haskell]
+  compact :: Doc -> String
+  compact x = transform [x]
+    where
+      transform [] = ""
+      transform (d : ds) = case d of
+        Empty -> transform ds
+        Char c -> c : transform ds
+        Text s -> s ++ transform ds
+        Line -> '\n' : transform ds
+        a `Concat` b -> transform (a : b : ds)
+        _ `Union` b -> transform (b : ds)
+\end{lstlisting}
+
+\acode{compact}函数将其参数包裹成一个列表，然后将帮助函数\acode{transform}应用至该列表。\acode{transform}函数视其参数为
+堆叠的项用于处理，列表的第一个元素即堆的顶部。
+
+\acode{transform}函数的\acode{(d:ds)}模式将堆顶部的元素取出\acode{d}并留下\acode{ds}。在\acode{case}表达式中，前面几个
+分支都在\acode{ds}上递归，每次递归消费堆顶部的元素；最后两个分支则是在\acode{ds}之前添加项：\acode{Concat}添加两个元素至堆，
+而\acode{Union}分支则忽略它左侧元素，调用的是\acode{flatten}，再将其右侧元素至堆。
+
+测试\acode{compact}：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let value = renderJValue (JObject [("f", JNumber 1), ("q", JBool True)])
+  ghci> :type value
+  value :: Doc
+  ghci> putStrLn (compact value)
+  {"f": 1.0,
+  "q": true
+  }
+\end{lstlisting}
+
+为了更好的理解代码是如何运作的，让我们用一个更简单的例子来展示细节：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> char 'f' <> text "oo"
+  Concat (Char 'f') (Text "oo")
+  ghci> compact (char 'f' <> text "oo")
+  "foo"
+\end{lstlisting}
+
+当我们应用\acode{compact}时，它会将它的参数转为一个列表后应用函数\acode{transform}。
+
+\begin{itemize}
+  \item 接下来\acode{transform}函数接受了一个单例列表，然后进行模式匹配\acode{(d:ds)}，这里的\acode{d}是
+        \acode{Concat (Char 'f') (Text "oo")}，而\acode{ds}则是一个空列表。
+
+        由于\acode{d}的构造函数是\acode{Concat}，其模式匹配就在\acode{case}表达式中。那么在右侧，添加\acode{Char 'f'}与
+        \acode{Text "oo"}值堆，然后递归的应用\acode{transform}。
+  \item \begin{itemize}
+          \item \acode{transform}函数接受了一个包含两项的列表，继续匹配\acode{d:ds}模式。此时变量\acode{d}绑定到了
+                \acode{Char 'f'}，而\acode{ds}则是\acode{[Text "oo"]}。
+
+                \acode{case}表达式匹配到了\acode{Char}分支。那么在右侧，使用\acode{(:)}来构建一个列表，其头部为\acode{'f'}，
+                其余部分则是递归应用\acode{transform}后的结果。
+          \item \begin{itemize}
+                  \item 递归的调用接受到一个单例列表，其变量\acode{d}绑定至\acode{Text "oo"}，\acode{ds}绑定至\acode{[]}。
+
+                        \acode{case}表达式匹配\acode{Text}分支。那么在右侧，使用\acode{(++)}来连接\acode{"oo"}与递归调用
+                        \acode{transform}后的结果。
+                  \item \begin{itemize}
+                          \item 最后的调用，\acode{transform}得到一个空列表，返回一个空字符串。
+                        \end{itemize}
+                  \item 结果是\acode{"oo" ++ ""}
+                \end{itemize}
+          \item 结果是\acode{'f' : "oo" ++ ""}
+        \end{itemize}
+\end{itemize}
+
+\subsubsection*{真实的漂亮打印}
+
+我们的\acode{compact}函数对于机器之间的交流是有帮助的，但是它的结果对人类而言并不易读：每行的信息很少。为了生成一个更可读的输出，
+我们将要编写另一个函数\acode{pretty}。相比于\acode{compact}，\acode{pretty}接受一个额外的参数：一行的最大宽度。
+
+\begin{lstlisting}[language=Haskell]
+  pretty :: Int -> Doc -> String
+\end{lstlisting}
+
+确切来说，\acode{Int}参数控制了\acode{pretty}在遇到一个\acode{softline}时的行为。在一个\acode{softline}时，\acode{pretty}
+会选择继续留在当前行还是另起一行。其余情况下，必须严格遵守漂亮打印函数所设定的指令。
+
+以下是实现的代码：
+
+\begin{lstlisting}[language=Haskell]
+  pretty width x = best 0 [x]
+  where
+    best col (d : ds) = case d of
+      Empty -> best col ds
+      Char c -> c : best (col + 1) ds
+      Text s -> s ++ best (col + length s) ds
+      Line -> '\n' : best 0 ds
+      a `Concat` b -> best col (a : b : ds)
+      a `Union` b -> nicest col (best col (a : ds)) (best col (b : ds))
+    best _ _ = ""
+    nicest col a b
+      | (width - least) `fits` a = a
+      | otherwise = b
+      where
+        least = min width col
+\end{lstlisting}
+
+\acode{best}帮助函数接受两个参数：当前行使用了的列数，以及剩余的仍需处理的\acode{Doc}列表。
+
+在简单的情况下，随着消费输入\acode{best}直接更新了\acode{col}变量。其中\acode{Concat}情况也很明显：将两个连接过的部分推至堆叠，
+且不触碰\acode{col}。
+
+有趣的情况在\acode{Union}构造函数。回想一下之前将\acode{flatten}应用至左侧元素，且不对右侧做任何操作。还有就是\acode{flatten}
+将新行替换成空格。因此我们则需要检查这两种布局，\acode{flatten}后的还是原始的，更适合我们的宽度限制。
+
+为此需要编写一个小的帮助函数来决定\acode{Doc}值的一行是否适合给定的长度：
+
+\begin{lstlisting}[language=Haskell]
+  fits :: Int -> String -> Bool
+  w `fits` _ | w < 0 = False
+  w `fits` "" = True
+  w `fits` ('\n' : _) = True
+  w `fits` (c : cs) = (w - 1) `fits` cs
+\end{lstlisting}
+
+\subsubsection*{遵循漂亮打印}
+
+为了理解代码如何工作的，首先考虑一个简单的\acode{Doc}值：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> empty </> char 'a'
+  Concat (Union (Char ' ') Line) (Char 'a')
+\end{lstlisting}
+
+我们将应用\acode{pretty 2}在该值。当我们首先应用\acode{best}，\acode{col}值为零。它匹配\acode{Concat}模式，接着将
+\acode{Union (Char ' ') Line}与\acode{Char 'a'}推至堆，接着是递归应用自身，它匹配了\acode{Union (Char ' ') Line}。
+
+此时我们忽略 Haskell 通常的计算顺序。现在有了两个子表达式，\acode{best 0 [Char ' ', char 'a']}以及
+\acode{best 0 [Line, Char 'a']}。前者计算得到\acode{" a"}，而后者得到\acode{"\na"}。接着将它们替换到外层的表达式中，得到
+\acode{nicest 0 " a" "\\na"}。
+
+为了明白\acode{nicest}的结果，我们做一个小小的替换。\acode{width}以及\acode{col}分别是 0 与 2，那么\acode{least}就是 0，
+\acode{width - least}就是 2。这里用\textbf{ghci}来计算一下\acode{2 `fits` " a"}：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> 2 `fits` " a"
+  True
+\end{lstlisting}
+
+计算得到\acode{True}，那么这里的\acode{nicest}结果就是\acode{" a"}。
+
+如果将\acode{pretty}函数应用到之前同样的 JSON 数据上，可以看到根据提供的最大长度，它会得到不同的结果：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> putStrLn (pretty 10 value)
+  {"f": 1.0,
+  "q": true
+  }
+  ghci> putStrLn (pretty 20 value)
+  {"f": 1.0, "q": true
+  }
+  ghci> putStrLn (pretty 30 value)
+  {"f": 1.0, "q": true }
+\end{lstlisting}
+
+\subsection*{创建一个库}
+
 % TODO
+
+% \begin{lstlisting}[language=Haskell]
+
+% \end{lstlisting}
+
 
 \end{document}
