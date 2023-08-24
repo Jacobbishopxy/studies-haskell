@@ -402,19 +402,19 @@ symbol 的编译错误（因为在\acode{Main.hs}中已经做了\acode{import Si
 
 \subsection*{数组与对象，以及模块头}
 
-相比于字符串的漂亮打印，数组和对象就是小菜一碟了。我们已经知道了它们两者其实很相似：都是由起始字符开始，接着是一系列由逗号分隔的值，
-最后接上结束字符。让我们编写一个函数捕获数组与对象的共同结构：
+相比于字符串的漂亮打印，数组和对象就是小菜一碟了。我们已经知道了它们两者其实很相似：都是由起始字符开始，接着是一系列由逗号分隔
+的值，最后接上结束字符。让我们编写一个函数捕获数组与对象的共同结构：
 
 \begin{lstlisting}[language=Haskell]
   series :: Char -> Char -> (a -> Doc) -> [a] -> Doc
   series open close item = enclose open close . fsep . punctuate (char ',') . map item
 \end{lstlisting}
 
-让我们首先从函数类型开始。它接受起始与结束字符，一个打印某些未知类型\acode{a}值的函数，以及一个类型为\acode{a}的列表，返回一个
-类型为\acode{Doc}的值。
+让我们首先从函数类型开始。它接受起始与结束字符，一个打印某些未知类型\acode{a}值的函数，以及一个类型为\acode{a}的列表，返回
+一个类型为\acode{Doc}的值。
 
-注意尽管我们的类型签名提及了四个参数，在函数定义中仅列出了三个。这遵循了简化定义的规则，如\acode{myLength xs = length xs}等同于
-\acode{myLength = length}。
+注意尽管我们的类型签名提及了四个参数，在函数定义中仅列出了三个。这遵循了简化定义的规则，如\acode{myLength xs = length xs}
+等同于\acode{myLength = length}。
 
 我们已经有了之前编写过的\acode{enclose}，即包装一个\acode{Doc}值进起始与结束字符之间。那么\acode{fsep}函数则位于
 \acode{Prettify}模块中，其结合一个\acode{Doc}值列表成为一个\acode{Doc}，在输出不适合单行的情况下还需要换行。
@@ -453,6 +453,125 @@ symbol 的编译错误（因为在\acode{Main.hs}中已经做了\acode{import Si
 \end{lstlisting}
 
 \subsection*{编写一个模块头}
+
+现在已经有了\acode{PrettyJSON.hs}文件，我们需要回到其顶部添加模块声明：
+
+\begin{lstlisting}[language=Haskell]
+  module PrettyJSON (renderJValue) where
+\end{lstlisting}
+
+这里导出了一个名称：\acode{renderJValue}，也就是我们的 JSON 渲染函数。模块中其它的定义都是用于支持\acode{renderJValue}的，
+因此没有必要对其它模块可见。
+
+\subsection*{充实我们的漂亮打印库}
+
+在\acode{Prettify}模块中，提供了\acode{Doc}类型作为一个代数数据类型：
+
+\begin{lstlisting}[language=Haskell]
+  data Doc
+    = Empty
+    | Char Char
+    | Text String
+    | Line
+    | Concat Doc Doc
+    | Union Doc Doc
+    deriving (Show)
+\end{lstlisting}
+
+观察可知\acode{Doc}类型实际上是一颗树。\acode{Concat}与\acode{Union}构造函数根据其它两个\acode{Doc}值创建一个内部节点，而
+\acode{Empty}以及其它简单的构造函数用于构建叶子。
+
+在模块的头部，我们导出该类型的名称，而不是它们的构造函数：这样可以防止使用 Doc 的构造函数被用于创建与模式匹配\acode{Doc}值。
+
+相反的，要创建一个\acode{Doc}，用户需要调用我们在\acode{Prettify}模块中所提供的函数：
+
+\begin{lstlisting}[language=Haskell]
+  empty :: Doc
+  empty = Empty
+
+  char :: Char -> Doc
+  char = Char
+
+  text :: String -> Doc
+  text "" = Empty
+  text s = Text s
+
+  double :: Double -> Doc
+  double = text . show
+\end{lstlisting}
+
+\acode{Line}构造函数代表一个换行，其创建的是一个\textit{hard}换行，即总是会在漂亮的打印中出现。有时我们想要一个\textit{soft}
+换行，即只会在窗口或者页面上过长显示时才会换行。稍后将会介绍\acode{softline}函数。
+
+\begin{lstlisting}[language=Haskell]
+  line :: Doc
+  line = Line
+\end{lstlisting}
+
+另外就是用于连接两个\acode{Doc}值的\acode{(<>)}函数（这里使用\acode{(<+>)}，因为\acode{(<>)}在 Prelude 中已经有定义了）：
+
+\begin{lstlisting}[language=Haskell]
+  (<+>) :: Doc -> Doc -> Doc
+  Empty <+> y = y
+  x <+> Empty = x
+  x <+> y = x `Concat` y
+\end{lstlisting}
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> text "foo" <> text "bar"
+  Concat (Text "foo") (Text "bar")
+  ghci> text "foo" <> empty
+  Text "foo"
+  ghci> empty <> text "bar"
+  Text "bar"
+\end{lstlisting}
+
+接下来是用于连接\acode{Doc}列表的\acode{hcat}函数：
+
+\begin{lstlisting}[language=Haskell]
+  hcat :: [Doc] -> Doc
+  hcat = fold (<+>)
+
+  fold :: (Doc -> Doc -> Doc) -> [Doc] -> Doc
+  fold f = foldr f empty
+\end{lstlisting}
+
+以及\acode{fsep}函数，它还依赖若干其它函数：
+
+\begin{lstlisting}[language=Haskell]
+  fsep :: [Doc] -> Doc
+  fsep = fold (</>)
+
+  (</>) :: Doc -> Doc -> Doc
+  x </> y = x <+> softline <+> y
+
+  softline :: Doc
+  softline = group line
+\end{lstlisting}
+
+这里需要解释一下，\acode{softline}函数应该在当前行特别宽的时候进行换行，否则插入空格。如果我们的\acode{Doc}类型不包含任何关于
+渲染的信息，那么该如何呢？答案就是每次遇到一个软换行，通过\acode{Union}构造函数来维护两个可选项：
+
+\begin{lstlisting}[language=Haskell]
+  group :: Doc -> Doc
+  group x = flatten x `Union` x
+\end{lstlisting}
+
+\acode{flatten}函数将一个\acode{Line}替换为空格，将两行转换为一个更长的行。
+
+\begin{lstlisting}[language=Haskell]
+  flatten :: Doc -> Doc
+  flatten (x `Concat` y) = flatten x `Concat` flatten y
+  flatten Line = Char ' '
+  flatten (x `Union` _) = flatten x
+  flatten other = other
+\end{lstlisting}
+
+注意总是调用\acode{flatten}在\acode{Union}的左元素上：每个\acode{Union}的左侧总是大于等于右侧宽度（字符距离）。
+
+\subsubsection*{紧密渲染}
 
 % TODO
 

@@ -3,6 +3,8 @@
 -- date: 2023/08/23 19:05:43 Wednesday
 -- brief:
 
+module PrettyJSON (renderJValue) where
+
 import Data.Bits
 import Data.Char
 import Numeric

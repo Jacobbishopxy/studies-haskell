@@ -56,7 +56,7 @@
 
 - [Learn Me a Haskell](./Learn%20Me%20a%20Haskell.pdf): reading notes from "Learn you a haskell" [ [link](http://learnyouahaskell.com/) ]
 
-  - [Ch01 Introduction](./learn_me_a_haskell/Ch01%20Introduction.tex)
+  - ~~Ch01 Introduction~~
 
   - [Ch02 Starting Out](./learn_me_a_haskell/Ch02%20Starting%20Out.tex)
 
@@ -86,15 +86,15 @@
 
 - [Learn Real World Haskell](./Learn%20Real%20World%20Haskell.pdf): reading notes from "Real World Haskell" [ [link](https://book.realworldhaskell.org/read/) ]
 
-  - Ch1 Getting started
+  - ~~Ch1 Getting started~~
 
-  - Ch2 Types and functions
+  - ~~Ch2 Types and functions~~
 
-  - Ch3 Defining types, streamlining functions
+  - ~~Ch3 Defining types, streamlining functions~~
 
-  - Ch4 Functional programming
+  - ~~Ch4 Functional programming~~
 
-  - Ch5 Writing a library: working with JSON data
+  - [Ch5 Writing a library: working with JSON data](./learn_real_world_haskell/Ch5%20Writing%20a%20library:%20working%20with%20JSON%20data.tex)
 
   - Ch6 Using typeclasses
 
