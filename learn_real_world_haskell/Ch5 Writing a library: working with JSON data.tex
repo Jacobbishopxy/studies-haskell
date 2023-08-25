@@ -110,8 +110,8 @@
   ghc -c SimpleJSON.hs
 \end{lstlisting}
 
-\acode{-c}选项告诉\textbf{ghc}仅生成对象代码。如果省略了该选项，那么编译器则会尝试生成一整个可执行文件。这会导致失败，因为
-我们并没有一个\acode{main}函数，即 GHC 所认为的一个独立程序的执行入口。
+\acode{-c}选项告诉\textbf{ghc}仅生成对象代码。如果省略了该选项，那么编译器则会尝试生成一整个可执行文件。这会导致失败，
+因为我们并没有一个\acode{main}函数，即 GHC 所认为的一个独立程序的执行入口。
 
 编译后会得到两个新文件：\acode{SimpleJSON.hi}与\acode{SimpleJSON.o}。前者是一个\textit{接口 interface}文件，即
 \textbf{ghc}以机器码的形式存储模块导出的名称信息；后者是一个\textit{对象 object}文件，其包含了生产的机器码。
@@ -139,7 +139,7 @@
 与原文\acode{ghc -o simple Main.hs SimpleJSON.o}不同，现在没了\acode{SimpleJSON.o}这个文件，加上后会报错重复
 symbol 的编译错误（因为在\acode{Main.hs}中已经做了\acode{import SimpleJSON}导入了）。
 
-这次省略掉了\acode{-c}选项，因此编译器尝试生成一个可执行。生成可执行的这个过程被称为\textit{链接 linking}（与 C++ 一样），
+这次省略掉了\acode{-c}选项，因此编译器尝试生成一个可执行。生成可执行的过程被称为\textit{链接 linking}（与 C++ 一样），
 即在一次编译中链接源文件与可执行文件。
 
 这里给了\textbf{ghc}一个新选项\acode{-o}，其接受一个参数：可执行文件的名称，这里是\acode{simple}，执行它：
@@ -191,7 +191,7 @@ symbol 的编译错误（因为在\acode{Main.hs}中已经做了\acode{import Si
   upcaseFirst (c:cs) = toUpper c -- forgot ":cs" here
 \end{lstlisting}
 
-这里希望的是单词首字母大写，但是忘记了将剩余的字符放进结果中。我们认为函数的类型是\acode{String -> String}，但是编译器则会
+这里希望单词首字母大写，但是忘记了将剩余的字符放进结果中。我们认为函数的类型是\acode{String -> String}，但是编译器则会
 将其视为\acode{String -> Char}。假设我们尝试在其他地方调用该函数：
 
 \begin{lstlisting}[language=Haskell]
@@ -215,15 +215,15 @@ symbol 的编译错误（因为在\acode{Main.hs}中已经做了\acode{import Si
   Failed, modules loaded: none.
 \end{lstlisting}
 
-注意这里的报错是在使用\acode{upcaseFirst}函数处，那么假设我们认为\acode{upcaseFirst}的定义与类型是正确的，那么查找到真正的
+注意这里的报错是在\acode{upcaseFirst}函数处，那么假设我们认为\acode{upcaseFirst}的定义与类型是正确的，那么查找到真正的
 错误可能会花掉一些时间。
 
 \subsection*{更加泛用的渲染}
 
 我们将更为泛用的打印模块称为\acode{Prettify}，那么其源文件即\acode{Prettify.hs}。
 
-为了使\acode{Prettify}满足实际需求，我们还要一个新的 JSON 渲染器来使用\acode{Prettify}的API。在\acode{Prettify}模块中将
-使用一个抽象类型\acode{Doc}。基于建立在抽象类型的泛用渲染库，我们可以选择灵活高效的实现。
+为了使\acode{Prettify}满足实际需求，我们还要一个新的 JSON 渲染器来使用\acode{Prettify}的API。在\acode{Prettify}模块中
+将使用一个抽象类型\acode{Doc}。基于建立在抽象类型的泛用渲染库，我们可以选择灵活高效的实现。
 
 \acode{PrettyJSON.hs}示例：
 
@@ -335,8 +335,8 @@ symbol 的编译错误（因为在\acode{Main.hs}中已经做了\acode{import Si
   [('\b',"\\b"),('\n',"\\n"),('\f',"\\f"),('\r',"\\r")]
 \end{lstlisting}
 
-我们的\acode{case}表达式尝试查看字符是否匹配关联列表。如果匹配则返回匹配值，如若不然则需要以更复杂的方式来转义该字符。只有当
-两种转义都不需要时，才会返回普通字符。保守起见，我们输出的唯一未转义字符是可打印的 ASCII 字符。
+我们的\acode{case}表达式尝试查看字符是否匹配关联列表。如果匹配则返回匹配值，如若不然则需要以更复杂的方式来转义该字符。只有
+当两种转义都不需要时，才会返回普通字符。保守起见，我们输出的唯一未转义字符是可打印的 ASCII 字符。
 
 更复杂的转义包含了将一个字符转为字符串\acode{"\\u"}并跟随四个十六进制的字符用于表达 Unicode 字符的数值。仍然是
 \acode{PrettyJSON.hs}：
@@ -573,8 +573,8 @@ symbol 的编译错误（因为在\acode{Main.hs}中已经做了\acode{import Si
 
 \subsubsection*{紧密渲染}
 
-我们需要频繁的使用包含尽可能少字符的数据。例如通过网络连接发送 JSON 数据就没有必要美观：软件并不在乎数据的美观与否，添加很多的空格
-只会带来性能下降。
+我们需要频繁的使用包含尽可能少字符的数据。例如通过网络连接发送 JSON 数据就没有必要美观：软件并不在乎数据的美观与否，添加很多
+空格只会带来性能下降。
 
 因此我们提供了一个紧密渲染的函数：
 
