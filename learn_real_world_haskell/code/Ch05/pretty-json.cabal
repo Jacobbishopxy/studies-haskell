@@ -1,32 +1,34 @@
 cabal-version:      2.4
-name:               learn-me-a-haskell
+name:               pretty-json
 version:            0.1.0.0
-
--- A short (one-line) description of the package.
--- synopsis:
-
--- A longer description of the package.
--- description:
+synopsis:           My pretty printing library, with JSON support
+description:
+  A simple pretty printing library that illustrates how to
+  develop a Haskell library.
 
 -- A URL where users can report bugs.
 -- bug-reports:
 
--- The license under which the package is released.
 -- license:
-author:             jacob
+author:             jacob xie
 maintainer:         jacobbishopxy@gmail.com
 
 -- A copyright notice.
 -- copyright:
 -- category:
-extra-source-files: CHANGELOG.md
+extra-source-files:
+  CHANGELOG.md
+  README.md
 
 library
   default-language: Haskell2010
   build-depends:    base
-  exposed-modules:  Lmah
+  exposed-modules:
+    Prettify
+    PrettyJSON
+    SimpleJSON
 
-executable learn-me-a-haskell
+executable pretty-json
   main-is:          Main.hs
 
   -- Modules included in this executable, other than Main.
@@ -35,5 +37,5 @@ executable learn-me-a-haskell
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:
   build-depends:    base ^>=4.16.4.0
-  hs-source-dirs:   code
+  hs-source-dirs:   app
   default-language: Haskell2010

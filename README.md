@@ -20,6 +20,24 @@
 
 - Package install: `cabal install --lib random`
 
+### Lib Construction and Installation
+
+1. `cabal init` to create a `.cabal` file
+
+1. `touch Setup.hs` and put:
+
+  ```hs
+  #!/usr/bin/env runhaskell
+  import Distribution.Simple
+  main = defaultMain
+  ```
+
+1. `runghc Setup configure --prefix=$HOME --user`
+
+1. `runghc Setup build`
+
+1. `runghc Setup install`
+
 ## VsCode Setting
 
 `settings.json` (use `ghcup tui` to get versions):

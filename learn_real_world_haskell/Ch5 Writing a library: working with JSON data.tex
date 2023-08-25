@@ -710,9 +710,8 @@ symbol 的编译错误（因为在\acode{Main.hs}中已经做了\acode{import Si
 我们将应用\acode{pretty 2}在该值。当我们首先应用\acode{best}，\acode{col}值为零。它匹配\acode{Concat}模式，接着将
 \acode{Union (Char ' ') Line}与\acode{Char 'a'}推至堆，接着是递归应用自身，它匹配了\acode{Union (Char ' ') Line}。
 
-此时我们忽略 Haskell 通常的计算顺序。现在有了两个子表达式，\acode{best 0 [Char ' ', char 'a']}以及
-\acode{best 0 [Line, Char 'a']}。前者计算得到\acode{" a"}，而后者得到\acode{"\na"}。接着将它们替换到外层的表达式中，得到
-\acode{nicest 0 " a" "\\na"}。
+现在忽略 Haskell 通常的计算顺序，两个子表达式，\acode{best 0 [Char ' ', char 'a']}与\acode{best 0 [Line, Char 'a']}，
+前者计算得到\acode{" a"}，而后者得到\acode{"\na"}。接着将它们替换到外层的表达式中，得到\acode{nicest 0 " a" "\\na"}。
 
 为了明白\acode{nicest}的结果，我们做一个小小的替换。\acode{width}以及\acode{col}分别是 0 与 2，那么\acode{least}就是 0，
 \acode{width - least}就是 2。这里用\textbf{ghci}来计算一下\acode{2 `fits` " a"}：
@@ -740,11 +739,108 @@ symbol 的编译错误（因为在\acode{Main.hs}中已经做了\acode{import Si
 
 \subsection*{创建一个库}
 
-% TODO
+Haskell 社区构建了一个标准工具库，名为 Cabal，其用于构建，安装，以及分发软件。Cabal 以\acode{包 package}的方式管理软件，
+一个包包含了一个库，以及若干可执行程序。
 
-% \begin{lstlisting}[language=Haskell]
+\subsubsection*{编写一个包的描述}
 
-% \end{lstlisting}
+要使用包，Cabal 需要一些描述。这些描述保存在一个文本文件中，以\acode{.cabal}后缀命名。该文件应位于项目的根目录。
 
+包描述由一系列的全局属性开始，其应用于包中所有的库以及可执行。
+
+\begin{lstlisting}
+  name:               pretty-json
+  version:            0.1.0.0
+\end{lstlisting}
+
+包名称必须是唯一的。如果你创建并安装了一个同名包在你的系统上，GHC 会感到迷惑。
+
+\begin{lstlisting}
+  synopsis:           My pretty printing library, with JSON support
+  description:
+    A simple pretty printing library that illustrates how to
+    develop a Haskell library.
+  author:             jacob xie
+  maintainer:         jacobbishopxy@gmail.com
+\end{lstlisting}
+
+这里还要有 license 信息，大多数 Haskell 包都使用 BSD license，Cabal 称为 BSD3。
+
+另外就是 Cabal 的版本：
+
+\begin{lstlisting}[language=Haskell]
+  cabal-version:      2.4
+\end{lstlisting}
+
+在一个包中要描述一个独立的库，需要\textit{library}这个部分。注意缩进在这里很重要。
+
+\begin{lstlisting}[language=Haskell]
+  library
+    default-language: Haskell2010
+    build-depends:    base
+    exposed-modules:
+      Prettify
+      PrettyJSON
+      SimpleJSON
+\end{lstlisting}
+
+\acode{exposed-modules}字段包含了一个模块列表，用于暴露给使用该包的用户导入。另一个可选字段\acode{other-modules}包含了一个
+\textit{内部 internal}模块的列表，它们提供给\acode{exposed-modules}内的模块使用，而对用户不可见。
+
+\acode{build-depends}字段包含了一个逗号分隔的包列表，它们是我们库所需的依赖。\acode{base}包中包含了 Haskell 很多核心模块，例如
+Prelude，所以它总是必须的。
+
+\subsubsection*{GHC 的包管理器}
+
+GHC 包含了一个简单的包管理器用于追踪安装了哪些包，以及这些包的版本号。一个名为\textbf{ghc-pkg}的命令行工具提供了包数据库的管理。
+
+这里说\textit{数据库 database}是因为 GHC 区分了\textit{系统级别}的包，即对所有用户可用；以及用户可见的包，即仅对当前用户可用。
+后者可以避免管理员权限来安装包。
+
+\textbf{ghc-pkg}提供了不同的子命令，多数时候我们仅需两个命令：\acode{ghc-pkg list}用于查看已安装的包；当需要删除包时则使用
+\acode{ghc-pkg unregister}。
+
+\subsubsection*{设置，构建与安装}
+
+除了一个\acode{.cabal}文件，一个包还必须包含一个\textit{setup}文件。在包需要的情况下，它允许 Cabal 的构建过程中包含大量的定制。
+
+\acode{Setup.hs}示例：
+
+\begin{lstlisting}[language=Haskell]
+  #!/usr/bin/env runhaskell
+
+  import Distribution.Simple
+
+  main = defaultMain
+\end{lstlisting}
+
+一旦有了\acode{.cable}与\acode{Setup.hs}文件，那么就剩下三步了。
+
+指导 Cabal 如何构建以及在哪里安装包，只需一个简单命令：
+
+\begin{lstlisting}[language=Haskell]
+  runghc Setup configure
+\end{lstlisting}
+
+这可以确保我们所需要的包都是可用的，并且保存设定为了之后的 Cabal 命令。
+
+如果没有为 \acode{configure} 提供任何参数，Cabal 则会将包安装在系统层的包数据库。要在 home 路径安装则需要提供一些额外的信息：
+
+\begin{lstlisting}[language=Haskell]
+  runghc Setup configure --prefix=$HOME --user
+\end{lstlisting}
+
+接下来就是包的构建：
+
+\begin{lstlisting}[language=Haskell]
+  runghc Setup build
+\end{lstlisting}
+
+如果成功了，我们就可以安装这个包了。我们无需指定其安装的位置：Cabal 会使用我们在\acode{configure}步骤中所提供的配置。即安装在
+我们自己的路径，并更新 GHC 的用于层包数据库。
+
+\begin{lstlisting}[language=Haskell]
+  runghc Setup install
+\end{lstlisting}
 
 \end{document}
