@@ -2,6 +2,729 @@
 
 \begin{document}
 
-WIP
+Typeclasses 是 Haskell 中最强大的特性。它们允许我们定义通用性的接口，为各种类型提供公共特性集。Typeclasses 是一些语言特性的核心，
+例如相等性测试和数字运算符。
+
+\subsection*{对 Typeclasses 的需求}
+
+假设在没有相等性测试\acode{==}的情况下需要构建一个简单的\acode{color}类型，那么相等测试就应该如下：
+
+\begin{lstlisting}[language=Haskell]
+  data Color = Red | Green | Blue
+
+  colorEq :: Color -> Color -> Bool
+  colorEq Red Red = True
+  colorEq Green Green = True
+  colorEq Blue Blue = True
+  colorEq _ _ = False
+\end{lstlisting}
+
+现在假设我们想为\acode{StringS}增加一个相等性测试。由于 Haskell 的\acode{String}是字符列表，我们可以编写一个简单的函数用于测试。
+这里为了简化我们使用\acode{==}操作符用于说明。
+
+\begin{lstlisting}[language=Haskell]
+  stringEq :: [Char] -> [Char] -> Bool
+  stringEq [] [] = True
+  stringEq (x:xs) (y:ys) = x == y && stringEq xs ys
+  stringEq _ _ = False
+\end{lstlisting}
+
+现在已经发现问题了：我们必须为每个不同的类型使用不同名称的比较函数，这是很低效且令人讨厌的。因此需要一个通用的函数可用于比较任何东西。
+此外，当新的数据类型之后被创建时，已经存在的代码不能被改变。
+
+Haskell 的 typeclasses 就是设计用来解决上述问题的。
+
+\subsection*{什么是 typeclasses}
+
+Typeclasses 定义了一系列的函数，它们可以根据给定的数据类型有不同的实现。
+
+首先我们必须定义 typeclass 本身。我们希望一个函数接受同样类型的两个参数，返回一个\acode{Bool}来表示它们是否相等。我们无需在意类型
+是什么，但需要两个参数的类型相同。下面是 typeclass 的第一个定义：
+
+\begin{lstlisting}[language=Haskell]
+  class BasicEq a where
+    isEqual :: a -> a -> Bool
+\end{lstlisting}
+
+通过\textbf{ghci}的类型检查\acode{:type}可以得知\acode{isEqual}的类型：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :type isEqual
+  isEqual :: (BasicEq a) => a -> a -> Bool
+\end{lstlisting}
+
+现在可以为特定类型定义\acode{isEqual}：
+
+\begin{lstlisting}[language=Haskell]
+  instance BasicEq Bool where
+    isEqual True True = True
+    isEqual False False = True
+    isEqual _ _ = False
+\end{lstlisting}
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> isEqual False False
+  True
+  ghci> isEqual False True
+  False
+  ghci> isEqual "Hi" "Hi"
+
+  <interactive>:1:0:
+      No instance for (BasicEq [Char])
+        arising from a use of `isEqual' at <interactive>:1:0-16
+      Possible fix: add an instance declaration for (BasicEq [Char])
+      In the expression: isEqual "Hi" "Hi"
+      In the definition of `it': it = isEqual "Hi" "Hi"
+\end{lstlisting}
+
+注意在尝试比较两个字符串时，\textbf{ghci}发现我们并未给\acode{String}提供\acode{BasicEq}的实例。因此\acode{ghci}并不知道该
+如何对\acode{String}进行比较，同时提议我们可以通过为\acode{[Char]}定义\acode{BasicEq}实例来解决这个问题。
+
+下面是定义一个包含了两个函数的 typeclass：
+
+\begin{lstlisting}[language=Haskell]
+  class BasicEq2 a where
+    isEqual2 :: a -> a -> Bool
+    isNotEqual2 :: a -> a -> Bool
+\end{lstlisting}
+
+虽然\acode{BasicEq2}的定义没有问题，但是它让我们做了额外的事情。就逻辑而言，如果我们知道了\acode{isEqual}或\acode{isNotEqual}
+中的一个，我们便知道了另一个。那么与其让用户定义 typeclass 中两个函数，我们可以提供一个默认的实践。
+
+\begin{lstlisting}[language=Haskell]
+  class BasicEq3 a where
+    isEqual3 :: a -> a -> Bool
+    isEqual3 x y = not (isNotEqual3 x y)
+
+    isNotEqual3 :: a -> a -> Bool
+    isNotEqual3 x y = not (isEqual3 x y)
+\end{lstlisting}
+
+\subsection*{声明 typeclass 实例}
+
+现在知道了如何定义 typeclasses，接下来就是直到如何定义 typeclasses 的实例。回忆一下，类型是由一个个特定 typeclass 所构成的实例
+所赋予了意义，这些 typeclasses 又实现了必要的函数。
+
+之前为我们的\acode{Color}类型创建了相等性测试，现在让我们试试让其成为\acode{BasicEq3}的实例：
+
+\begin{lstlisting}[language=Haskell]
+  instance BasicEq3 Color where
+    isEqual3 Red Red = True
+    isEqual3 Green Green = True
+    isEqual3 Blue Blue = True
+    isEqual3 _ _ = False
+\end{lstlisting}
+
+注意这里提供了与之前定义的一样的函数，实际上实现是完全相同的。不过在这种情况下，我们可以使用\acode{isEqual3}在\textit{任何}定义了
+\acode{BasicEq3}实例的类型上。
+
+另外注意\acode{BasicEq3}定义了\acode{isEqual3}与\acode{isNotEqual3}，而我们仅实现了它们其中一个。这是因为\acode{BasicEq3}
+包含了默认实现，因此没有显式定义\acode{isNotEqual3}时，编译器自动的使用了\acode{BasicEq3}中的默认实现。
+
+\subsection*{重要的内建 Typeclasses}
+
+\subsubsection*{Show}
+
+\acode{Show} typeclass 用于将值转换为\acode{String}。可能最常用于将数字转换为字符串，很多类型都有它的实例，因此还可以用于转换
+更多的类型。如果自定义类型实现了\acode{Show}的实例，那么就可以在\textbf{ghci}上展示或者在程序中打印出来。
+
+\acode{Show}中最重要的函数就是\acode{show}，它接受一个参数：用于转换的数据，返回一个\acode{String}来表示该数据。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :type show
+  show :: (Show a) => a -> String
+\end{lstlisting}
+
+一些其它的例子：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> show 1
+  "1"
+  ghci> show [1, 2, 3]
+  "[1,2,3]"
+  ghci> show (1, 2)
+  "(1,2)"
+\end{lstlisting}
+
+\textbf{ghci}展示的结果与输入到 Haskell 程序中的结果相同。表达式\acode{show 1}返回的是单个字符的字符串，其包含数字\acode{1}，
+也就是说引号并不是字符串本身。通过\acode{putStrLn}可以更清楚的看到：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> putStrLn (show 1)
+  1
+  ghci> putStrLn (show [1,2,3])
+  [1,2,3]
+\end{lstlisting}
+
+我们也可以使用\acode{show}在字符串上：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> show "Hello!"
+  "\"Hello!\""
+  ghci> putStrLn (show "Hello!")
+  "Hello!"
+  ghci> show ['H', 'i']
+  "\"Hi\""
+  ghci> putStrLn (show "Hi")
+  "Hi"
+  ghci> show "Hi, \"Jane\""
+  "\"Hi, \\\"Jane\\\"\""
+  ghci> putStrLn (show "Hi, \"Jane\"")
+  "Hi, \"Jane\""
+\end{lstlisting}
+
+现在为我们自己的类型实现\acode{Show}的实例：
+
+\begin{lstlisting}[language=Haskell]
+  instance Show Color where
+    show Red = "Red"
+    show Green = "Green"
+    show Blue = "Blue"
+\end{lstlisting}
+
+\subsubsection*{Read}
+
+\acode{Read} typeclass 基本就是相反的\acode{Show}：它定义了函数接受一个\acode{String}，分析它，并返回属于\acode{Read}
+成员的任何类型的数据。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :type read
+  read :: (Read a) => String -> a
+\end{lstlisting}
+
+以下是一个\acode{read}与\acode{show}的例子：
+
+\begin{lstlisting}[language=Haskell]
+  main = do
+    putStrLn "Please enter a Double:"
+    inpStr <- getLine
+    let inpDouble = read inpStr :: Double
+    putStrLn $ "Twice" ++ show inpDouble ++ " is " ++ show (inpDouble * 2)
+\end{lstlisting}
+
+\acode{read}的类型：\acode{(Read a) => String -> a}。这里的\acode{a}是每个\acode{Read}实例的类型。也就是说特定的解析
+函数是根据预期的\acode{read}返回类型所决定的。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> (read "5.0")::Double
+  5.0
+  ghci> (read "5.0")::Integer
+  *** Exception: Prelude.read: no parse
+\end{lstlisting}
+
+在尝试解析\acode{5.0}为\acode{Integer}时异常。当预期返回值的类型是\acode{Integer}时，\acode{Integer}的解析函数并不接受
+小数，因此异常被抛出。
+
+\acode{Read} 提供了一些相当复杂的解析器。你可以通过实现\acode{readsPrec}函数定义一个简单的解析。该实现在解析成功时，返回只
+包含一个元组的列表，如果解析失败则返回空列表。下面是一个实现\acode{Color}的\acode{Read}实例的例子：
+
+\begin{lstlisting}[language=Haskell]
+  instance Read Color where
+  -- readsPrec is the main function for parsing input
+  readsPrec _ value =
+    -- We pass tryParse a list of pairs. Each pair has a string
+    -- and the desired return value. tryParse will try to match
+    -- the input to one of these strings
+    tryParse [("Red", Red), ("Green", Green), ("Blue", Blue)]
+    where
+      -- If there is nothing left to try, fail
+      tryParse [] = []
+      tryParse ((attempt, result) : xs) =
+        -- Compare the start of the string to be parsed to the
+        -- text we are looking for.
+        if take (length attempt) value == attempt
+          then -- If we have a match, return the result and the remaining input
+            [(result, drop (length attempt) value)]
+          else -- If we don't have a match, try the next pair in the list of attempts.
+            tryParse xs
+\end{lstlisting}
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> (read "Red")::Color
+  Red
+  ghci> (read "Green")::Color
+  Green
+  ghci> (read "Blue")::Color
+  Blue
+  ghci> (read "[Red]")::[Color]
+  [Red]
+  ghci> (read "[Red,Red,Blue]")::[Color]
+  [Red,Red,Blue]
+  ghci> (read "[Red, Red, Blue]")::[Color]
+  *** Exception: Prelude.read: no parse
+\end{lstlisting}
+
+注意最后一个例子的异常。这是因为我们的解析器并没有聪明到能处理空格。
+
+\begin{anote}
+  Read 并没有大范围的被使用
+
+  虽然可以使用\acode{Read} typeclass 来构建复杂的解析器，但许多人发现使用 Parsec 会更容易，且仅依赖\acode{Read}来处理简单的
+  任务。在第 16 章会详细介绍 Parsec。
+\end{anote}
+
+\subsubsection*{通过 Read 和 Show 进行序列化}
+
+我们经常需要存储一个内存中的数据结构至硬盘供未来使用或者通过网络发送出去，那么将内存中数据转换为一个平坦的字节序列用于存储的这个过程
+就被称为\textit{序列化 serialization}。
+
+\begin{anote}
+  解析大型字符串
+
+  在 Haskell 中字符串的处理通常都是惰性的，因此\acode{read}与\acode{show}可以被用于处理很大的数据结构而不发生异常。Haskell
+  内建的\acode{read}与\acode{show}实例是高效的，并且都是纯 Haskell。如何处理解析异常的更多细节将会在第 19 章中详细介绍。
+\end{anote}
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let d1 = [Just 5, Nothing, Nothing, Just 8, Just 9]::[Maybe Int]
+  ghci> putStrLn (show d1)
+  [Just 5,Nothing,Nothing,Just 8,Just 9]
+  ghci> writeFile "test" (show d1)
+\end{lstlisting}
+
+再是反序列：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> input <- readFile "test"
+  "[Just 5,Nothing,Nothing,Just 8,Just 9]"
+  ghci> let d2 = read input
+
+  <interactive>:1:9:
+      Ambiguous type variable `a' in the constraint:
+        `Read a' arising from a use of `read' at <interactive>:1:9-18
+      Probable fix: add a type signature that fixes these type variable(s)
+  ghci> let d2 = (read input)::[Maybe Int]
+  ghci> print d1
+  [Just 5,Nothing,Nothing,Just 8,Just 9]
+  ghci> print d2
+  [Just 5,Nothing,Nothing,Just 8,Just 9]
+  ghci> d1 == d2
+  True
+\end{lstlisting}
+
+这里解释器并不知道\acode{d2}的类型，因此抛出了异常。
+
+以下是一些稍微复杂点的数据结构：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> putStrLn $ show [("hi", 1), ("there", 3)]
+  [("hi",1),("there",3)]
+  ghci> putStrLn $ show [[1, 2, 3], [], [4, 0, 1], [], [503]]
+  [[1,2,3],[],[4,0,1],[],[503]]
+  ghci> putStrLn $ show [Left 5, Right "three", Left 0, Right "nine"]
+  [Left 5,Right "three",Left 0,Right "nine"]
+  ghci> putStrLn $ show [Left 0, Right [1, 2, 3], Left 5, Right []]
+  [Left 0,Right [1,2,3],Left 5,Right []]
+\end{lstlisting}
+
+\newpage
+\subsubsection*{数值类型}
+
+Haskell 拥有强大的数值类型。
+
+\begin{center}
+  \begin{tabular}{|l|l|}
+    \hline
+    \multicolumn{2}{|c|}{\textbf{选定的数值类型}}        \\
+    \hline
+    类型       & 描述                                 \\
+    \hline
+    Double   & 双精度浮点数。浮点数的通常选择。                   \\
+    Float    & 单精度浮点数。通常用于与 C 交互。                 \\
+    Int      & 带方向的确定精度整数；最小范围 $[-2^29..2^29-1]$。 \\
+    Int8     & 8-bit 带方向的整数                       \\
+    Int16    & 16-bit 带方向的整数                      \\
+    Int32    & 32-bit 带方向的整数                      \\
+    Int64    & 64-bit 带方向的整数                      \\
+    Integer  & 带方向的任意精度整数；范围仅受机器限制。很常用。           \\
+    Rational & 带方向的任意精度的有理数。以两个 Integers 进行存储。    \\
+    Word     & 无方向的确定精度整数；存储大小与 Int 一致            \\
+    Word8    & 8-bit 无方向的整数                       \\
+    Word16   & 16-bit 无方向的整数                      \\
+    Word32   & 32-bit 无方向的整数                      \\
+    Word64   & 64-bit 无方向的整数                      \\
+    \hline
+  \end{tabular}
+\end{center}
+
+有很多不同的数值类型。有些运算，比如加法对所有类型都适用；还有其它类型的计算例如\acode{asin}，仅适用于浮点类型。
+
+\begin{center}
+  \begin{tabular}{|l|p{6cm}|l|p{3cm}|}
+    \hline
+    \multicolumn{4}{|c|}{\textbf{选定的数值函数与常量}}                                                             \\
+    \hline
+    项              & 类型                                        & 模块         & 描述                          \\
+    \hline
+    (*)            & Num a => a -> a -> a                      & Prelude    & 加法                          \\
+    (-)            & Num a => a -> a -> a                      & Prelude    & 减法                          \\
+    (*)            & Num a => a -> a -> a                      & Prelude    & 乘法                          \\
+    (/)            & Fractional a => a -> a -> a               & Prelude    & 除法                          \\
+    (**)           & Floating a => a -> a -> a                 & Prelude    & 幂                           \\
+    (\^)           & (Num a, Integral b) => a -> b -> a        & Prelude    & 非负数的幂                       \\
+    (^^)           & (Fractional a, Integral b) => a -> b -> a & Prelude    & 分数的幂                        \\
+    (\%)           & Integral a => a -> a -> Ratio a           & Data.Ratio & 比例                          \\
+    (.\&.)         & Bits a => a -> a -> a                     & Data.Bits  & Bitwise 和                   \\
+    (.|.)          & Bits a => a -> a -> a                     & Data.Bits  & Bitwise 或                   \\
+    abs            & Num a => a -> a                           & Prelude    & 绝对值                         \\
+    approxRational & RealFrac a => a -> a -> Rational          & Data.Ratio & 基于分数分子与分母的近似有理组合            \\
+    cos            & Floating a => a -> a                      & Prelude    & Cosine，还有 acos，cosh，与 acosh \\
+    div            & Integral a => a -> a -> a                 & Prelude    & 整数除法，总是向下取整，quot 同理         \\
+    fromInteger    & Num a => Integer -> a                     & Prelude    & 从 Integer 类型转换为任意数值类型       \\
+    fromIntegral   & (Integral a, Num b) => a -> b             & Prelude    & 比上述更泛化的转换                   \\
+    fromRational   & Fractional a => Rational -> a             & Prelude    & 从 Rational 转换，可能有损          \\
+    log            & Floating a => a -> a                      & Prelude    & 自然 log                      \\
+    logBase        & Floating a => a -> a -> a                 & Prelude    & 显式底的 log                    \\
+    maxBound       & Bounded a => a                            & Prelude    & bound 类型的最大值                \\
+    minBound       & Bounded a => a                            & Prelude    & bound 类型的最小值                \\
+    mod            & Integral a => a -> a -> a                 & Prelude    & 整数模                         \\
+    pi             & Floating a => a                           & Prelude    & 数学常数的派                      \\
+    quot           & Integral a => a -> a -> a                 & Prelude    & 整数除法；商的小数部分向零截断             \\
+    \hline
+  \end{tabular}
+\end{center}
+
+接上表
+
+\begin{center}
+  \begin{tabular}{|l|p{6cm}|l|p{3cm}|}
+    \hline
+    项          & 类型                                 & 模块        & 描述                          \\
+    \hline
+    recip      & Fractional a => a -> a             & Prelude   & 倒数                          \\
+    rem        & Integral a => a -> a -> a          & Prelude   & 整数除法的余数                     \\
+    round      & (RealFrac a, Integral b) => a -> b & Prelude   & 向最接近的整数方向取整                 \\
+    shift      & Bits a => a -> Int -> a            & Bits      & 左移指定 bits，右移可能为负            \\
+    sin        & Floating a => a -> a               & Prelude   & Sine，另 asin，sinh，与 asinh    \\
+    sqrt       & Floating a => a -> a               & Prelude   & 平方根                         \\
+    tan        & Floating a => a -> a               & Prelude   & Tangent，令 atan，tanh，与 atanh \\
+    toInteger  & Integral a => a -> Integer         & Prelude   & 转换任意 Integral 至一个 Integer   \\
+    toRational & Real a => a -> Rational            & Prelude   & 转换 Real 至 Rational          \\
+    truncate   & (RealFrac a, Integral b) => a -> b & Prelude   & 向零截断数值                      \\
+    xor        & Bits a => a -> a -> a              & Data.Bits & Bitwise 的异或                 \\
+    \hline
+  \end{tabular}
+\end{center}
+
+\newblock
+
+\begin{center}
+  \begin{tabular}{|p{1.8cm}|l|l||l|l|l||l|l|l|}
+    \hline
+    \multicolumn{9}{|c|}{\textbf{数值类型的 Typeclass 实例}}                                                \\
+    \hline
+    项                     & Bits & Bounded & Floating & Fractional & Integral & Num & Rea & RealFrac \\
+    \hline
+    Double                &      &         & X        & X          &          & X   & X   & X        \\
+    Float                 & X    & X       &          &            & X        & X   & X   &          \\
+    Int                   & X    & X       &          &            & X        & X   & X   &          \\
+    Int16                 & X    & X       &          &            & X        & X   & X   &          \\
+    Int32                 & X    & X       &          &            & X        & X   & X   &          \\
+    Int64                 & X    & X       &          &            & X        & X   & X   &          \\
+    Integer               & X    &         &          &            & X        & X   & X   &          \\
+    Rational or any Ratio &      &         &          & X          &          & X   & X   & X        \\
+    Word                  & X    & X       &          &            & X        & X   & X   &          \\
+    Word16                & X    & X       &          &            & X        & X   & X   &          \\
+    Word32                & X    & X       &          &            & X        & X   & X   &          \\
+    Word64                & X    & X       &          &            & X        & X   & X   &          \\
+    \hline
+  \end{tabular}
+\end{center}
+
+在数值类型间转换是另一个常用的需求。
+
+
+\begin{center}
+  \begin{tabular}{|l|l|l|l|l|}
+    \hline
+    \multicolumn{5}{|c|}{\textbf{数值类型之间的转换}}                                                         \\
+    \hline
+    \textbf{原始类型} & \multicolumn{4}{|c|}{\textbf{目标类型}}                                              \\
+    \hline
+                  & Double, Float                       & Int, Word    & Integer      & Rational     \\
+    \hline
+    Double, Float & fromRational . toRational           & truncate *   & truncate *   & toRational   \\
+    Int, Word     & fromIntegral                        & fromIntegral & fromIntegral & fromIntegral \\
+    Integer       & fromIntegral                        & fromIntegral & N/A          & fromIntegral \\
+    Rational      & fromRational                        & truncate *   & truncate *   & N/A          \\
+    \hline
+  \end{tabular}
+\end{center}
+
+\subsection*{自动化派生}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+\subsection*{Typeclasses 实战：令 JSON 使用起来更方便}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+\subsubsection*{更多有帮助的错误}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+\subsection*{活在开放世界}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+\subsubsection*{放宽 typeclasses 的某些限制}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+\subsection*{如何给类型一个新的身份}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+\subsubsection*{data 与 newtype 声明的区别}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+\subsection*{JSON typeclasses 没有重合的实例}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+\subsection*{可怕的单态限制}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
 
 \end{document}
