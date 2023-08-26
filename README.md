@@ -26,17 +26,21 @@
 
 1. `touch Setup.hs` and put:
 
-  ```hs
-  #!/usr/bin/env runhaskell
-  import Distribution.Simple
-  main = defaultMain
-  ```
+    ```hs
+    #!/usr/bin/env runhaskell
+    import Distribution.Simple
+    main = defaultMain
+    ```
 
-1. `runghc Setup configure --prefix=$HOME --user`
+1. `runghc Setup configure --prefix=$HOME --user`: config to user level's repo
 
-1. `runghc Setup build`
+1. `runghc Setup build`: build package
 
-1. `runghc Setup install`
+1. `runghc Setup install`: install package
+
+1. `ghc-pkg list`: list all installed packages
+
+1. `ghc-pkg unregister`: remove a package
 
 ## VsCode Setting
 
