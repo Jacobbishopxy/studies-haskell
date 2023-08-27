@@ -459,115 +459,293 @@ Haskell 拥有强大的数值类型。
 
 \subsection*{自动化派生}
 
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
+对于很多简单的数据类型，Haskell 编译器可以自动的为我们派生出\acode{Read}，\acode{Show}，\acode{Bounded}，\acode{Enum}，
+\acode{Eq}以及\acode{Ord}的实例。这将大大的节省用户编写代码的时间。
 
 \begin{lstlisting}[language=Haskell]
-
+  data Color = Red | Green | Blue
+    deriving (Read, Show, Eq, Ord)
 \end{lstlisting}
 
-
+测试：
 
 \begin{lstlisting}[language=Haskell]
-
+  ghci> show Red
+  "Red"
+  ghci> (read "Red")::Color
+  Red
+  ghci> (read "[Red,Red,Blue]")::[Color]
+  [Red,Red,Blue]
+  ghci> (read "[Red, Red, Blue]")::[Color]
+  [Red,Red,Blue]
+  ghci> Red == Red
+  True
+  ghci> Red == Blue
+  False
+  ghci> Data.List.sort [Blue,Green,Blue,Red]
+  [Red,Green,Blue,Blue]
+  ghci> Red < Blue
+  True
 \end{lstlisting}
+
+自动派生也不总是能成功。例如如果定义了一个类型\acode{data MyType = MyType (Int -> Bool)}，编译器将不能为其派生\acode{show}
+的实例，因为它不知道如何渲染一个函数。这种情况下我们会得到一个编译错误。
+
+当我们自动派生某些 typeclass 的实例时，在数据声明中引用的类型也必须是该 typeclass 的实例（手动或自动的）。
+
+\begin{lstlisting}[language=Haskell]
+  data CannotShow = CannotShow
+  -- deriving (Show)
+
+  -- will not compile, since CannotShow is not an instance of Show
+  data CannotDeriveShow = CannotDeriveShow CannotShow
+            deriving (Show)
+
+  data OK = OK
+
+  instance Show OK where
+  show _ = "OK"
+
+  data ThisWorks = ThisWorks OK
+    deriving (Show)
+\end{lstlisting}
+
+注意\acode{CannotShow}的\acode{deriving (Show)}是被注释掉的，因此\acode{CannotDeriveShow}才无法派生\acode{Show}。
 
 \subsection*{Typeclasses 实战：令 JSON 使用起来更方便}
 
+上一章讲述的\acode{JValue}处理 JSON 并不容易。例如，下面是一个实际 JSON 数据的删减整理的片段：
 
-
-\begin{lstlisting}[language=Haskell]
-
+\begin{lstlisting}
+  {
+    "query": "awkward squad haskell",
+    "estimatedCount": 3920,
+    "moreResults": true,
+    "results":
+    [{
+      "title": "Simon Peyton Jones: papers",
+      "snippet": "Tackling the awkward squad: monadic input/output ...",
+      "url": "http://research.microsoft.com/~simonpj/papers/marktoberdorf/",
+     },
+     {
+      "title": "Haskell for C Programmers | Lambda the Ultimate",
+      "snippet": "... the best job of all the tutorials I've read ...",
+      "url": "http://lambda-the-ultimate.org/node/724",
+     }]
+  }
 \end{lstlisting}
 
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
+以及在 Haskell 中的表达：
 
 \begin{lstlisting}[language=Haskell]
+  import SimpleJSON
 
+  result :: JValue
+  result = JObject [
+    ("query", JString "awkward squad haskell"),
+    ("estimatedCount", JNumber 3920),
+    ("moreResults", JBool True),
+    ("results", JArray [
+       JObject [
+        ("title", JString "Simon Peyton Jones: papers"),
+        ("snippet", JString "Tackling the awkward ..."),
+        ("url", JString "http://.../marktoberdorf/")
+       ]])
+    ]
 \end{lstlisting}
+
+因为 Haskell 并不支持列表中包含不同类型的值，我们不能直接表示一个包含了多个类型的 JSON 对象。我们必须将每个值通过\acode{JValue}
+构造函数来进行包装。这限制了我们的灵活性：如果想要更换数值\acode{3920}成为一个字符串\acode{"3,920"}，我们必须更换构造函数，即
+\acode{JNumber}变为\acode{JString}。
+
+Haskell 的 typeclasses 为此类问题提供了一个诱人的解决方案：
+
+\begin{lstlisting}[language=Haskell]
+  type JSONError = String
+
+  class JSON a where
+    toJValue :: a -> JValue
+    fromJValue :: JValue -> Either JSONError a
+
+  instance JSON JValue where
+    toJValue = id
+    fromJValue = Right
+\end{lstlisting}
+
+现在无需再将类似\acode{JNumber}这样的构造函数应用在值上将值包裹，直接应用\acode{toJValue}函数在该值上即可。
+
+我们同样提供了一个\acode{fromJValue}函数，用于将一个\acode{JValue}转换成一个我们所期望的类型。
 
 \subsubsection*{更多有帮助的错误}
 
-
+让我们构造一下自己的\acode{Maybe}与\acode{Either}：
 
 \begin{lstlisting}[language=Haskell]
+  data Maybe a
+  = Nothing
+  | Just a
+  deriving (Eq, Ord, Read, Show)
 
+data Either a b
+  = Left a
+  | Right b
+  deriving (Eq, Ord, Read, Show)
 \end{lstlisting}
 
-
+在\acode{Bool}值实例中尝试一下：
 
 \begin{lstlisting}[language=Haskell]
-
+  instance JSON Bool where
+    toJValue = JBool
+    fromJValue (JBool b) = Right b
+    fromJValue _ = Left "not a JSON boolean"
 \end{lstlisting}
 
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
+\subsubsection*{通过类型同义词来创建一个实例}
 
 \begin{lstlisting}[language=Haskell]
-
+  instance JSON String where
+    toJValue = JString
+    fromJValue (JString s) = Right s
+    fromJValue _ = Left "not a JSON string"
 \end{lstlisting}
 
 \subsection*{活在开放世界}
 
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
+Haskell 的 typeclasses 允许我们在任何合适的时候创建新的 typeclass 实例。
 
 \begin{lstlisting}[language=Haskell]
+  doubleToJValue :: (Double -> a) -> JValue -> Either JSONError a
+  doubleToJValue f (JNumber v) = Right (f v)
+  doubleToJValue _ _ = Left "not a JSON number"
 
+  instance JSON Int where
+    toJValue = JNumber . realToFrac
+    fromJValue = doubleToJValue round
+
+  instance JSON Integer where
+    toJValue = JNumber . realToFrac
+    fromJValue = doubleToJValue round
+
+  instance JSON Double where
+    toJValue = JNumber
+    fromJValue = doubleToJValue id
 \end{lstlisting}
 
-
+我们还希望转换一个列表成为 JSON，暂时用\acode{undefined}作为实例的方法。
 
 \begin{lstlisting}[language=Haskell]
-
+  instance (JSON a) => JSON [a] where
+    toJValue = undefined
+    fromJValue = undefined
 \end{lstlisting}
 
-
+对象亦是如此：
 
 \begin{lstlisting}[language=Haskell]
-
+  instance (JSON a) => JSON [(String, a)] where
+    toJValue = undefined
+    fromJValue = undefined
 \end{lstlisting}
 
+\subsubsection*{合适重叠实例会导致问题}
 
+如果我们将这些定义放入一个原文件中，并加载至\acode{ghci}，每个初始化看起来都没问题：
 
 \begin{lstlisting}[language=Haskell]
-
+  ghci> :load BrokenClass
+  [1 of 2] Compiling SimpleJSON       ( ../ch05/SimpleJSON.hs, interpreted )
+  [2 of 2] Compiling BrokenClass      ( BrokenClass.hs, interpreted )
+  Ok, modules loaded: SimpleJSON, BrokenClass.
 \end{lstlisting}
 
-
+然而当我们尝试\textit{使用}元组的列表时，错误便发生了。
 
 \begin{lstlisting}[language=Haskell]
+  ghci> toJValue [("foo","bar")]
 
+  <interactive>:1:0:
+      Overlapping instances for JSON [([Char], [Char])]
+        arising from a use of `toJValue' at <interactive>:1:0-23
+      Matching instances:
+        instance (JSON a) => JSON [a]
+          -- Defined at BrokenClass.hs:(44,0)-(46,25)
+        instance (JSON a) => JSON [(String, a)]
+          -- Defined at BrokenClass.hs:(50,0)-(52,25)
+      In the expression: toJValue [("foo", "bar")]
+      In the definition of `it': it = toJValue [("foo", "bar")]
 \end{lstlisting}
+
+重叠实例的问题是 Haskell 的开放世界假设的结果。下面用一个更简单的例子来说明到底发生了什么：
+
+\begin{lstlisting}[language=Haskell]
+  class Borked a where
+    bork :: a -> String
+
+  instance Borked Int where
+    bork = show
+
+  instance Borked (Int, Int) where
+    bork (a, b) = bork a ++ ", " ++ bork b
+
+  instance (Borked a, Borked b) => Borked (a, b) where
+    bork (a, b) = ">>" ++ bork a ++ " " ++ bork b ++ "<<"
+\end{lstlisting}
+
+我们有两个 typeclass \acode{Borked} 的 pairs 实例：一对是\acode{Int}，另一对是其它任意值。
+
+假设我们希望\acode{bork}一对\acode{Int}值，那么编译器必须选择一个实例来使用。由于这些实例相邻，那么看起来就能够简单的选择更加
+明确的实例。
+
+然而 GHC 默认是保守的，它会坚持必须只有一个可能的实例。因此最终在使用\acode{bork}时会抛出异常。
+
+\begin{anote}
+  \textbf{什么时候重叠的实例会有影响？}
+
+  正如我们之前提到的那样，我们可以将一个 typeclass 的实例散落在若干模块中。GHC 并不会抱怨重叠实例的存在。而真正抱怨的时候就是
+  当我们尝试使用这个受影响 typeclass 的方法时，也就是当强制要求选择哪一个实例需要使用的时候。
+\end{anote}
 
 \subsubsection*{放宽 typeclasses 的某些限制}
 
+通常而言，我们不可以编写一个特定多态类型的 typeclass 实例。例如\acode{[Char]}类型就是\acode{[a]}指定\acode{Char}类型的
+多态。因此禁止将\acode{[Char]}声明为 typeclass 的实例。这个非常的不方便，因为字符串在真实代码中处处存在。
 
+\acode{TypeSynonymInstances}语言扩展移除了这个限制，允许我们编写上述的实例。
+
+GHC 还支持另一个有用的语言扩展，\acode{OverlappingInstances}，专门用于处理重叠实例。当存在若干重叠实例需要选择时，该扩展使
+编译器选择最明确的那个。
+
+我们通常将该扩展与\acode{TypeSynoymInstances}一起使用。例如：
 
 \begin{lstlisting}[language=Haskell]
+  import Data.List
 
+  class Foo a where
+    foo :: a -> String
+
+  instance {-# OVERLAPS #-} Foo a => Foo [a] where
+    -- foo = concat . intersperse ", " . map foo
+    foo = intercalate ", " . map foo
+
+  instance {-# OVERLAPS #-} Foo Char where
+    foo c = [c]
+
+  instance {-# OVERLAPS #-} Foo String where
+    foo = id
+
+  main :: IO ()
+  main = do
+    putStrLn $ "foo: " ++ foo "SimpleClass"
+    putStrLn $ "foo: " ++ foo ["a", "b", "c"]
 \end{lstlisting}
+
+与原文不同之处在于，注解\acode{\{-\# LANGUAGE OverlappingInstances \#-\}}在 6.8.1 后被弃用，现在则是在\acode{instance}
+后使用\acode{\{-\# OVERLAPS \#-\}}来表示重叠的实例，
+详见\href{https://ghc.gitlab.haskell.org/ghc/doc/users_guide/exts/instances.html#overlapping-instances}{文档}。
+
+如果我们将\acode{foo}应用至一个\acode{String}，编译器将使用\acode{String}指定的实现。尽管存在\acode{[a]}与\acode{Char}
+的\acode{Foo}实例，但是\acode{String}的实例更加的明确，因此 GHC 会选择它。
 
 \subsection*{如何给类型一个新的身份}
 
