@@ -749,160 +749,143 @@ GHC 还支持另一个有用的语言扩展，\acode{OverlappingInstances}，专
 
 \subsection*{如何给类型一个新的身份}
 
-
+略。
 
 \begin{lstlisting}[language=Haskell]
+  data DataInt = D Int
+    deriving (Eq, Ord, Show)
 
+  newtype NewtypeInt = N Int
+    deriving (Eq, Ord, Show)
 \end{lstlisting}
 
+略。
 
+总结：三总命名类型的方法：
+
+\begin{itemize}
+  \item \acode{data}关键字引入了一个真实的新的代数数据类型。
+  \item \acode{type}关键字给予了已存在的类型一个同义词。我们可以替换的使用类型与其同义词。
+  \item \acode{newtype}关键字给予已存在类型一个新的身份。原始类型和新的类型是不可替换的。
+\end{itemize}
+
+\subsection*{JSON typeclasses 没有重叠的实例}
+
+现在需要帮助编译器区分 JSON 数组的\acode{[a]}，以及 JSON 对象的\acode{[(String,[a])]}。它们是造成重叠问题的原因。我们将列表
+类型包裹起来，这样编译器则不会视其为列表：
 
 \begin{lstlisting}[language=Haskell]
-
+  newtype JAry a = JAry {fromJAry :: [a]}
+    deriving (Eq, Ord, Show)
 \end{lstlisting}
 
-
+当需要将其从模块中导出时，我们需要导出该类型的所有细节。我们模块头看起来像是这样：
 
 \begin{lstlisting}[language=Haskell]
-
+  module JSONClass (JAry (..)) where
 \end{lstlisting}
 
-\subsubsection*{data 与 newtype 声明的区别}
-
-
+接下来是另一个包装类型用于隐藏 JSON 对象：
 
 \begin{lstlisting}[language=Haskell]
-
+  newtype JObj a = JObj {fromJObj :: [(String, a)]}
+    deriving (Eq, Ord, Show)
 \end{lstlisting}
 
-
+有了这些类型定义，那么就可以对\acode{JValue}类型做点小修改：
 
 \begin{lstlisting}[language=Haskell]
-
+  data JValue
+    = JString String
+    | JNumber Double
+    | JBool Bool
+    | JNull
+    | JObject (JObj JValue) -- was [(String, JValue)]
+    | JArray (JAry JValue) -- was [JValue]
+    deriving (Eq, Ord, Show)
 \end{lstlisting}
 
-
+这个改动并不会影响已经写过的\acode{JSON} typeclass 实例，不过还是需要为\acode{JAry}与\acode{JObj}类型编写\acode{JSON}
+typeclass 实例。
 
 \begin{lstlisting}[language=Haskell]
+  jaryFromJValue :: (JSON a) => JValue -> Either JSONError (JAry a)
 
+  jaryToJValue :: (JSON a) => JAry a -> JValue
+
+  instance (JSON a) => JSON (JAry a) where
+    toJValue = jaryToJValue
+    fromJValue = jaryFromJValue
 \end{lstlisting}
 
-
+让我们慢慢的看一下将\acode{JAry a}转换成\acode{JValue}的每个步骤。给定一个列表，我们知道其所有元素都是\acode{JSON}实例，
+将其转换成一个列表的\acode{JValue}很简单。
 
 \begin{lstlisting}[language=Haskell]
-
+  listToJValues :: (JSON a) => [a] -> [JValue]
+  listToJValues = map toJValue
 \end{lstlisting}
 
-
+有了上述代码后，将其变为一个\acode{JAry JValue}就仅仅是应用\acode{newtype}类型构造函数即可：
 
 \begin{lstlisting}[language=Haskell]
-
+  jvaluesToJAry :: [JValue] -> JAry JValue
+  jvaluesToJAry = JAry
 \end{lstlisting}
 
-
+（记住这并没有性能损耗，仅仅只是告诉编译器隐藏我们在使用一个列表的事实。）将其转换成一个\acode{JValue}，我们应用赢一个类型构造
+函数：
 
 \begin{lstlisting}[language=Haskell]
-
+  jaryOfJValuesToJValue :: JAry JValue -> JValue
+  jaryOfJValuesToJValue = JArray
 \end{lstlisting}
 
-\subsection*{JSON typeclasses 没有重合的实例}
-
-
+将这些部分用函数组合的方式集成起来，就获得了一个简洁的一行代码转换成一个\acode{JValue}：
 
 \begin{lstlisting}[language=Haskell]
-
+  jaryToJValue = JArray . JAry . map toJValue . fromJAry
 \end{lstlisting}
 
-
+从\acode{JValue}转换至一个\acode{JAry a}则需要更多的工作，我们还是将其分解成可复用的部分。基础函数很直接：
 
 \begin{lstlisting}[language=Haskell]
-
+  jaryFromJValue (JArray (JAry a)) = whenRight JAry (mapEithers fromJValue a)
+  jaryFromJValue _ = Left "not a JSON array"
 \end{lstlisting}
 
-
+\acode{whenRight}函数检查它的参数：如果是由\acode{Right}构造函数构建的它则调用一个函数，如果是由\acode{Left}构造则保留值
+不变：
 
 \begin{lstlisting}[language=Haskell]
-
+  whenRight :: (b -> c) -> Either a b -> Either a c
+  whenRight _ (Left err) = Left err
+  whenRight f (Right a) = Right (f a)
 \end{lstlisting}
 
-
+更复杂的是\acode{mapEithers}，它的行为类似于普通的\acode{map}函数，但是如果遇到一个\acode{Left}值，它会立刻返回，而不是
+继续累积一个\acode{Right}值的列表。
 
 \begin{lstlisting}[language=Haskell]
-
+  mapEithers :: (a -> Either b c) -> [a] -> Either b [c]
+  mapEithers f (x : xs) = case mapEithers f xs of
+    Left err -> Left err
+    Right ys -> case f x of
+      Left err -> Left err
+      Right y -> Right (y : ys)
+  mapEithers _ _ = Right []
 \end{lstlisting}
 
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
+由于隐藏在\acode{JObj}类型的列表中的元素有少许结构，因此它与\acode{JValue}之间的转换会变得更复杂。幸运的是我们可以复用刚刚
+定义好的函数：
 
 \begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-\subsection*{可怕的单态限制}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
+  instance (JSON a) => JSON (JObj a) where
+    toJValue = JObject . JObj . map (second toJValue) . fromJObj
+    fromJValue (JObject (JObj o)) = whenRight JObj (mapEithers unwrap o)
+      where
+        unwrap (k, v) = whenRight (k,) (fromJValue v)
+    fromJValue _ = Left "not a JSON object"
 \end{lstlisting}
 
 \end{document}

@@ -118,7 +118,7 @@
 
   - [Ch5 Writing a library: working with JSON data](./learn_real_world_haskell/Ch5%20Writing%20a%20library:%20working%20with%20JSON%20data.tex)
 
-  - Ch6 Using typeclasses
+  - [Ch6 Using typeclasses](./learn_real_world_haskell/Ch6%20Using%20typeclasses.tex)
 
   - Ch7 Input and output
 
