@@ -2,6 +2,130 @@
 
 \begin{document}
 
-WIP
+\subsection*{Haskell 中的经典 I/O}
+
+略
+
+\subsection*{处理文件以及句柄}
+
+Haskell 为 I/O 定义了相当多的基本函数，其中许多函数与其它编程语言中的函数相似。\acode{System.IO}库中提供了所有的基础 I/O 函数。
+
+使用\acode{openFile}会返回一个文件的\acode{Handle}，它用于对文件执行指定的操作。Haskell 提供了例如\acode{hPutStrLn}这样的
+函数，其类似于\acode{putStrLn}，不同在于接受一个额外的参数 -- 一个\acode{Handle} -- 指定哪个文件被操作。当我们结束时，需要用
+\acode{hClose}来结束\acode{Handle}。这些函数都定义在\acode{System.IO}中，“h” 开头的函数对应了几乎所有的非 “h” 开头的函数；
+例如\acode{print}打印在屏幕上，而\acode{hPrint}打印至一个文件。
+
+一个例子：
+
+\begin{lstlisting}[language=Haskell]
+  import Data.Char (toUpper)
+  import System.IO
+
+  main :: IO ()
+  main = do
+    inh <- openFile "input.txt" ReadMode
+    outh <- openFile "output.txt" WriteMode
+    mainloop inh outh
+    hClose inh
+    hClose outh
+
+    putStrLn "whatever"
+
+  mainloop :: Handle -> Handle -> IO ()
+  mainloop inh outh = do
+    ineof <- hIsEOF inh
+    if ineof
+      then return ()
+      else do
+        inpStr <- hGetLine inh
+        hPutStrLn outh (map toUpper inpStr)
+        mainloop inh outh
+\end{lstlisting}
+
+\acode{mainloop}首先检查输入是否结束（EOF），如果没有则读取一行，将该行转为大写后写入输出文件中，再递归的调用\acode{mainloop}。
+
+略
+
+\begin{center}
+  \begin{tabular}{|l|l|l|l|l|}
+    \hline
+    \multicolumn{5}{|c|}{\textbf{可能的 IOMode 值}}                                     \\
+    \hline
+    IOMode        & \textbf{可读？} & \textbf{可写？} & \textbf{起始位置} & \textbf{说明}       \\
+    \hline
+    ReadMode      & Yes          & No           & 文件起始          & 文件必须存在            \\
+    WriteMode     & No           & Yes          & 文件起始          & 文件存在时会被清空         \\
+    ReadWriteMode & Yes          & Yes          & 文件起始          & 文件不存在时创建；否则现有数据保留 \\
+    AppendMode    & No           & Yes          & 文件尾部          & 文件不存在时创建；否则现有数据保留 \\
+    \hline
+  \end{tabular}
+\end{center}
+
+\subsubsection*{关闭句柄}
+
+上述例子中我们已经见到了\acode{hClose}用于关闭文件的句柄。在之后的小节中我们将了解缓存 Buffering 这个概念，即 Haskell 在内部
+为文件维护了缓存。这样做能显著的提升性能，然而这就意味着在对打开的文件调用\acode{hClose}之前，数据可能不会被刷新到操作系统中。
+
+另一个原因是打开着的文件消耗系统的资源。如果程序运行的时间很长，开开了很多文件但是并没有关闭它们，那么程序很可能会因为资源枯竭而
+导致崩溃。
+
+\subsubsection*{Seek 与 Tell}
+
+从一个关联了磁盘文件的\acode{Handle}读写时，操作系统会维护一个关于当前位置的内部记录。每当进行下一层读取的时，操作系统返回下一个
+数据块，其起始点为当前位置，且增加的位置反应了读取了多少数据。
+
+你可以使用\acode{hTell}来找到文件中当前的位置。当文件被创建时，它是空的且你的位置将会是 0。在编写 5 个字节后，你的位置则变为了
+5，以此类推。\acode{hTell}接受一个\acode{Handle}并返回一个\acode{IO Integer}来表示你的位置。
+
+\acode{hTell}的同伴是\acode{hSeek}，它允许你更改文件的位置，其三个参数为：\acode{Handle}，\acode{SeekMode}以及一个位置。
+
+\acode{SeekMode}有三个不同类型，用于指定如何解析给定的位置。\acode{AbsoluteSeek}为文件中的精确位置，等同于\acode{hTell}；
+\acode{RelativeSeek}意为当前位置开始的多少位置，正值向后，负值向前；\acode{SeekFromEnd}则是从文件末尾往前多少的位置。
+
+并不是所有的\acode{Handle}都是可以 seek 的。一个\acode{Handle}通常关联一个文件，但是它还可以关联其它的东西，比如网络连接，
+磁带机，或者终端。可以使用\acode{hIsSeekable}来查看给定的\acode{Handle}是否可以 seek。
+
+\subsubsection*{标准输入，输出以及错误}
+
+较早之前我们指出每个非“h”函数通常都会有与其关联的“h”函数用作于任何\acode{Handle}上。实际上非“h”函数只不过是“h”函数的一种缩写。
+
+在\acode{System.IO}中有三个预定义的\acode{Handle}：\acode{stdin}标准输入，通常是键盘；\acode{stdout}标准输出，通常是
+显示器；\acode{stderr}标准错误，通常也是显示器。
+
+像是\acode{getLine}类似的函数可以简单的定义成：
+
+\begin{lstlisting}[language=Haskell]
+  getLine = hGetLine stdin
+  putStrLn = hPutStrLn stdout
+  print = hPrint stdout
+\end{lstlisting}
+
+\subsubsection*{删除与文件重命名}
+
+\acode{System.Directory}模块提供了两个比较有用的函数：\acode{removeFile}接受单个参数，即文件名，然后删除该文件；
+\acode{renameFile}接受两个文件名，一个旧名称以及一个新的名称，如果新的文件名是一个不同的路径，那么可以认为这是一个移动。
+旧的文件名必须在调用\acode{renameFile}之前就存在，另外如果新文件已经存在，则重命名后将其删除。
+
+跟很多其它接受一个文件名的函数一样，如果“旧”名称不存在，\acode{renameFile}则会抛出异常。
+
+\acode{System.Directory}模块中还有很多其他的函数，像是创建或移除文件夹，在路径中查找文件列表，测试文件是否存在，等等。
+
+\subsubsection*{临时文件}
+
+程序员频繁的需要临时文件。这些文件被用于存储大量等待计算的数据，可被其它程序所用的数据，等等。
+
+通过名为\acode{openTempFile}的函数（以及相关联的\acode{openBinaryTempFile}）可以帮助我们解决不少问题。
+
+\acode{openTempFile}接受两个参数：创建文件的路径，以及一个“template”用于命名文件。路径可以是\acode{.}来代表当前路径，或者
+也可以使用\acode{System.Directory.getTemporaryDirectory}来找到操作系统所给出的最佳放置临时文件的位置。template 则将一些
+随机字符添加至文件，用以确保结果是真正唯一的。实际上它保证了可以在一个唯一的文件名上工作。
+
+\acode{openTempFile}的返回类型是\acode{IO (FilePath, Handle)}。元组的第一部分是被创建文件的名称，第二部分则是一个模式为
+\acode{ReadWriteMode}的打开了文件的\acode{Handle}。当我们使用完文件，我们希望用\acode{hClose}来操作\acode{Handle}用于
+关闭文件，接着调用\acode{removeFile}来删除它。接下来我们会看到一个例子用于展示这些函数的用法。
+
+\subsection*{扩展案例：函数式 I/O 以及临时文件}
+
+% TODO
 
 \end{document}
