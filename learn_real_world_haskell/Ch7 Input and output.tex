@@ -433,10 +433,230 @@ Haskell 程序员经常使用\acode{hGetContents}作为筛选。从一个文件�
 
 \subsection*{IO 单子}
 
-% TODO
+\subsubsection*{Actions}
+
+大多数语言不会区分纯函数和非纯函数。Haskell 的函数有其数学意义：它们是存粹的计算，且不会被任何外界的东西改变。另外，计算可以在
+任何时刻进行。
+
+那么就需要另一些工具来处理 I/O 了。这个工具在 Haskell 中叫做\textit{actions}。Actions 类似于函数，在定义的时候不会做任何
+事情，而是在执行任务时才会被唤醒。I/O actions 被定义在\acode{IO}单子中。我们会在第十四章中讲解单子。看看一些类型：
 
 \begin{lstlisting}[language=Haskell]
-
+  ghci> :type putStrLn
+  putStrLn :: String -> IO ()
+  ghci> :type getLine
+  getLine :: IO String
 \end{lstlisting}
+
+\acode{putStrLn}的类型跟其它函数无异。函数接受一个参数并返回一个\acode{IO ()}。这个\acode{IO ()}就是 action。我们可以
+存储以及传递 actions 至纯代码中，尽管这并不常用。一个 action 不会做任何事情直到它被唤起。看看例子：
+
+\begin{lstlisting}[language=Haskell]
+  str2action :: String -> IO ()
+  str2action input = putStrLn $ "Data: " ++ input
+
+  list2actions :: [String] -> [IO ()]
+  list2actions = map str2action
+
+  numbers :: [Int]
+  numbers = [1 .. 10]
+
+  strings :: [String]
+  strings = map show numbers
+
+  actions :: [IO ()]
+  actions = list2actions strings
+
+  printitall :: IO ()
+  printitall = runall actions
+
+  -- Take a list of actions, and execute each of them in turn.
+  runall :: [IO ()] -> IO ()
+  runall [] = return ()
+  runall (fst : remaining) = do
+    fst
+    runall remaining
+
+  main :: IO ()
+  main = do
+    str2action "Start of the program"
+    printitall
+    str2action "Done!"
+\end{lstlisting}
+
+\acode{str2action}这个函数接受一个参数并返回一个\acode{IO ()}。在\acode{main}的结尾，可以在另一个 action 中直接使用它，
+并打印出一行。或者可以存储 -- 而不是执行 -- 这个 action 到纯代码中。在\acode{list2actions}中 -- 使用了\acode{map}应用
+在\acode{str2action}上并返回一个列表的 actions，正如我们在纯代码中的那样。可以看到通过\acode{printitall}的所有内容都是
+使用纯的工具构建的。
+
+尽管定义了\acode{printitall}，它不会被执行直到它的 action 在某处被计算。注意在\acode{main}中是如何将\acode{str2action}
+作为一个 I/O action 被执行的，而之前我们在 I/O 单子外使用它，并将结果转为一个列表。
+
+可以这么理解：每个声明，除了\acode{let}，在一个\acode{do}代码块中必须产生一个将要执行的 I/O action。
+
+对\acode{printitall}的调用最终执行所有这些操作。实际上由于 Haskell 是惰性的，所以直到这里才会生成 actions。
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  % runhaskell actions.hs
+  Data: Start of the program
+  Data: 1
+  Data: 2
+  Data: 3
+  Data: 4
+  Data: 5
+  Data: 6
+  Data: 7
+  Data: 8
+  Data: 9
+  Data: 10
+  Data: Done!
+\end{lstlisting}
+
+实际上我们可以将其写成更紧凑的形式。以下是重构：
+
+\begin{lstlisting}[language=Haskell]
+  str2message :: String -> String
+  str2message input = "Data: " ++ input
+
+  str2action :: String -> IO ()
+  str2action = putStrLn . str2message
+
+  numbers :: [Int]
+  numbers = [1 .. 10]
+
+  main :: IO ()
+  main = do
+    str2action "Start of the program"
+    mapM_ (str2action . show) numbers
+    str2action "Done!"
+\end{lstlisting}
+
+注意\acode{str2action}中使用了标准函数组合操作符。在\acode{main}中，调用了\acode{mapM_}，该函数类似于\acode{map}
+接受一个函数与一个列表。而提供给\acode{mapM_}的函数则是一个应用至列表中每个元素的 I/O action 。\acode{mapM_}会抛出函数的
+结果，不过如果有需要，也可以使用\acode{mapM}返回 I/O 结果的列表。看一下它们的类型：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :type mapM
+  mapM :: (Monad m) => (a -> m b) -> [a] -> m [b]
+  ghci> :type mapM_
+  mapM_ :: (Monad m) => (a -> m b) -> [a] -> m ()
+\end{lstlisting}
+
+\begin{anote}
+  实际上这些函数并不仅仅作用于 I/O；它们可用于任何\acode{Monad}。
+\end{anote}
+
+为什么有了\acode{map}还需要\acode{mapM}呢？因为\acode{map}是一个返回列表的纯函数，它不能直接执行 actions，而\acode{mapM}
+则是\acode{IO}单子中的工具，可用于实际执行 actions。
+
+回到\acode{main}，\acode{mapM_}应用了\acode{(str2action . show)}在每个\acode{numbers}中的元素上。\acode{show}将每个
+数值转为\acode{String}，而\acode{str2action}转换每个\acode{String}为一个 action。\acode{mapM_}结合这些独立的 actions
+成为一个大的 action 并打印出来。
+
+\subsubsection*{Sequencing}
+
+\acode{do}代码块其实是合并所有 actions 的简便注解。在不使用\acode{do}时还有两个操作符可以使用：\acode{>>}与\acode{>>=}。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :type (>>)
+  (>>) :: (Monad m) => m a -> m b -> m b
+  ghci> :type (>>=)
+  (>>=) :: (Monad m) => m a -> (a -> m b) -> m b
+\end{lstlisting}
+
+\acode{>>}操作符将两个 actions 串联起来：先执行第一个 action，再执行第二个 action。整个计算的结果则是第二个 action 的结果，
+而第一个 action 的结果则被丢弃。这类似于\acode{do}代码块中的一行。可以用\acode{putStrLn "line 1" >> putStrLn "line 2"}
+来测试一下。它将会打印出两行，将第一个\acode{putStrLn}的结果丢弃，将第二个的结果作为返回。
+
+\acode{>>=}操作符运行一个 action，然后将其结果传给一个返回 action 的函数。第二个 action 也将运行，整个表达式的结果还是第二个
+action 的结果。例如，可以用\acode{getLine >>= putStrLn}测试，它从键盘读取一行然后再将其输出。
+
+现在不用\acode{do}代码块来重写一下之前的例子：
+
+\begin{lstlisting}[language=Haskell]
+  main :: IO ()
+  main = do
+    putStrLn "Greetings! What is your name?"
+    inpStr <- getLine
+    putStrLn $ "Welcome to Haskell, " ++ inpStr ++ "!"
+\end{lstlisting}
+
+不使用\acode{do}：
+
+\begin{lstlisting}[language=Haskell]
+  main :: IO ()
+  main =
+    putStrLn "Greetings! What is your name?"
+      >> getLine
+      >>= (\inpStr -> putStrLn $ "Welcome to Haskell, " ++ inpStr ++ "!")
+\end{lstlisting}
+
+在定义\acode{do}代码块时，Haskell 编译器内部会执行类似的转换。
+
+\subsubsection*{Return 的本质}
+
+在本章开头我们提到了\acode{return}可能并不像是它长得那样。很多语言的关键字\acode{return}是立刻终结函数的执行并返回一个值给到
+调用者。
+
+Haskell 中的\acode{return}函数则大相径庭。Haskell 中的\acode{return}将数据包装进单子中。在谈及 I/O 时，\acode{return}
+用于将纯数据放入 IO 单子中。
+
+为什么要这么做呢？记住，任何结果依赖于 I/O 的东西都必须在 IO 单子内。因此，如果我们正在编写一个执行 I/O 的函数，那么一个纯计算，
+我们需要使用\acode{return}来使这个纯计算成为函数的正确返回值。例如：
+
+\begin{lstlisting}[language=Haskell]
+  import Data.Char (toUpper)
+
+  isGreen :: IO Bool
+  isGreen = do
+    putStrLn "Is green your favorite color?"
+    inpStr <- getLine
+    return $ (toUpper . head $ inpStr) == 'Y'
+\end{lstlisting}
+
+我们有一个返回\acode{Bool}的纯计算。计算传递给\acode{return}，将其放入\acode{IO}单子内。由于它是\acode{do}代码块中的最后
+一个值，它变成了\acode{isGreen}的返回值，但这并不因为我们使用了\acode{return}函数。
+
+下面是同样一个程序，只不过将纯计算剥离成为一个独立的函数。这样可以隔离纯函数，同样使得意图更加的清晰。
+
+\begin{lstlisting}[language=Haskell]
+  import Data.Char (toUpper)
+
+  isYes :: String -> Bool
+  isYes inpStr = (toUpper . head $ inpStr) == 'Y'
+
+  isGreen :: IO Bool
+  isGreen = do
+    putStrLn "Is green your favorite color?"
+    isYes <$> getLine
+\end{lstlisting}
+
+与原文不同之处在于使用了\acode{<\$>}，即\acode{fmap}函数，替换掉了之前的\acode{inpStr <- getLine}以及\acode{return}。
+
+最后是一个做作的例子用于展示\acode{return}并不需要位于\acode{do}代码块的结尾。
+
+\begin{lstlisting}[language=Haskell]
+  returnTest :: IO ()
+  returnTest =
+      do one <- return 1
+         let two = 2
+         putStrLn $ show (one + two)
+\end{lstlisting}
+
+\subsection*{Haskell 真的是命令式的吗？}
+
+\subsection*{Lazy I/O 的副作用}
+
+\subsection*{缓存}
+
+\subsection*{读取命令行参数}
+
+\subsection*{环境变量}
+
+% \begin{lstlisting}[language=Haskell]
+
+% \end{lstlisting}
 
 \end{document}
