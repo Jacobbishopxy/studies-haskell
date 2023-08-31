@@ -647,16 +647,68 @@ Haskell 中的\acode{return}函数则大相径庭。Haskell 中的\acode{return}
 
 \subsection*{Haskell 真的是命令式的吗？}
 
+这些\acode{do}代码块看起来像是命令式的语言。毕竟大多数情况下我们都是在按顺序运行命令。
+
+但是 Haskell 本质上仍然是一种惰性语言。虽然有时有必要对 I/O 操作进行排序，但这是使用了 Haskell 中的工具来完成的。Haskell 还
+通过 IO 单子实现了 I/O 与语言其他部分的良好分离。
+
 \subsection*{Lazy I/O 的副作用}
+
+本章提到的\acode{hGetContents}，其返回的\acode{String}可以用在纯代码中。
+
+我们需要更具体的了解副作用是什么。当我们说 Haskell 没有副作用时，这到底是什么意思？
+
+某种层度上，副作用总是可能的。一个没有优化的循环，即使是用纯代码写的，也有可能导致系统的内存耗尽然后导致程序崩溃。或者它可能导致
+数据被交换到磁盘。
+
+当我们提到没有副作用，意思其实是 Haskell 的纯代码不会运行能触发副作用的命令。纯函数不会修改一个全局变量，I/O 请求，或者运行一个
+命令关闭系统。
+
+当你有一个\acode{hGetContents}而来的字符串被传递至一个纯函数时，函数不会知道\acode{String}是从磁盘文件而来的。它只会表现得
+跟通常那样，但处理该\acode{String}可能会导致环境发出 I/O 命令。纯函数不会这么做；它们是纯函数处理的结果，就像将内存交换到磁盘的
+例子一样。
+
+在某些情况下，你可能需要更多的控制 I/O 发生的确切时间。也许是正在交互式的从用户那里读取数据，或者通过管道从另一个程序读取数据，并
+需要直接与用户通信。这些情况下，\acode{hGetContents}可能不合适。
 
 \subsection*{缓存}
 
+\subsubsection*{缓存模式}
+
+Haskell 有三种不同的缓存模式：\acode{BufferMode}类型：\acode{NoBuffering}，\acode{LineBuffering}以及
+\acode{BlockBuffering}。
+
+\acode{NoBuffering}正如其名 -- 无缓存。通过例如\acode{hGetLine}等函数读取的数据将每次从操作系统重读取一个字符。写入的数据
+将立刻写入，也经常一次写入一个字符。通常\acode{NoBuffering}的性能很差，不适合通用用途。
+
+\acode{LineBuffering}使输出缓冲区在输出换行符或缓存过大时被写入。在输入时，它通常会尝试读取任何可用的数据块，直到它第一次看到
+换行符。当从终端读取数据时，每次按下回车键后应该立刻返回数据。这通常是合理的默认值。
+
+\acode{BlockBuffering}使 Haskell 在可能的情况下以固定大小块来读写数据。在批量处理大量数据时，这是性能最好的方法，即使这些
+数据是以行记录的。然而它不能用于交互式程序，因为它会阻塞输入，直到读取到完整的块。\acode{BlockBuffering}接受\acode{Maybe}
+类型的参数：如果\acode{Nothing}，它将使用定义好的缓存大小；或者你可以使用\acode{Just 4096}之类的设置将缓存设置为 4096
+字节。
+
+默认和缓存模式取决于操作系统和 Haskell 的实现。可以通过调用\acode{hGetBuffering}向系统询问当前的缓存模式。当前的缓存模式
+可以通过\acode{hSetBuffering}设置，它接受\acode{Handle}和\acode{BufferMode}。
+例如\acode{hSetBuffering stdin (BlockBuffering Nothing)}。
+
+\subsubsection*{刷新缓存}
+
+对于任何类型的缓存，有时我们会希望强制 Haskell 写出保存在缓存中的任何数据。有些时候这会自动发生：比如说调用\acode{hClose}时。
+而调用\acode{hFlush}将强制立刻写入任何挂起的数据。当\acode{Handle}是一个网络 socket 且想要立刻传输数据时，或者是想要将
+磁盘上的数据提供给可能并发读取它的其它程序时，这会很有用。
+
 \subsection*{读取命令行参数}
+
+\acode{System.Environment.getArgs}以\acode{IO [String]}返回所有参数。类似 C 里的\acode{argv}，始于\acode{argv[1]}。
+程序名（C 中的\acode{argv[0]}）则可以通过\acode{System.Environment.getProgName}得到。
+
+\acode{System.Console.GetOpt}模块提供了一些解析命令行选项的工具。如果我们的程序有一些复杂的选项，该模块则很有帮助。
 
 \subsection*{环境变量}
 
-% \begin{lstlisting}[language=Haskell]
-
-% \end{lstlisting}
+读取环境变量可以用\acode{System.Environment}的两个函数：\acode{getEnv}或\acode{getEnvironment}。前者查找特定变量，
+变量不存在时抛出异常；后者将所有环境变量以\acode{[(String, String)]}输出，可以使用例如\acode{lookup}函数来找到所需的变量。
 
 \end{document}

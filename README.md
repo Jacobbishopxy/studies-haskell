@@ -120,7 +120,7 @@
 
   - [Ch6 Using typeclasses](./learn_real_world_haskell/Ch6%20Using%20typeclasses.tex)
 
-  - Ch7 Input and output
+  - [Ch7 Input and output](./learn_real_world_haskell/Ch7%20Input%20and%20output.tex)
 
   - Ch8 Efficient file processing, regular expressions, and file name matching
 
