@@ -2,6 +2,170 @@
 
 \begin{document}
 
-WIP
+\subsection*{高效文件处理}
+
+下面是一个简单的微基准测试，读取一个全是数字的文本文件，打印它们的总和：
+
+\begin{lstlisting}[language=Haskell]
+  main :: IO ()
+  main = do
+    contents <- getContents
+    print $ sumFile contents
+    where
+      sumFile = sum . map read . words
+\end{lstlisting}
+
+尽管\acode{String}是用于读写文件的默认类型，它并不高效，因此像这样一个简单的程序性能是很差的。
+
+\acode{String}代表着\acode{Char}值的列表；列表中每个元素的内存分配都是独立的，需要额外的开销。这些因素会影响必须读写文本或
+二进制数据程序的内存消耗和性能。像这样的简单基准测试，即使是用解释性语言（如 Python）编写的程序，性能也比使用\acode{String}
+的 Haskell 代码高出一个数量级。
+
+\acode{bytestring}库提供了一个快速并且又低开销的\acode{String}类型替代品。通过\acode{bytestring}编写的代码通常可以
+媲美或超过 C 语言的性能和内存消耗，同时还保持了 Haskell 的表现力和简洁性。
+
+该库提供了两个模块。每个定义的函数几乎都是\acode{String}对应函数的直接替代品：
+
+\begin{itemize}
+  \item \acode{Data.ByteString}模块定义了一个\textit{严格 strict}类型的\acode{ByteString}。其以二进制或文本数据的
+        数组形式来表示字符串。
+  \item \acode{Data.ByteString.Lazy}模块提供了\textit{惰性 lazy}类型的\acode{ByteString}。其以\textit{块 chunks}
+        数组来表示字符串，最大大小为 64KB。
+\end{itemize}
+
+两个\acode{ByteString}类型在特定环境都有更好的表现。对于流式处理一个大数据（几百 MB 至 TB），惰性\acode{ByteString}类型
+表现的最好。它的块大小被调整为适合现代 CPU 的 L1 缓存，且垃圾回收可以快速丢弃不再使用的流数据块。
+
+而严格的\acode{ByteString}类型在不太关心内存占用或需要随机访问数据的环境下性能更好。
+
+\subsubsection*{二进制 I/O 与 qualified imports}
+
+现在来开发一个函数来说明\acode{ByteString}的一些 API。我们将决定一个文件是否为 ELF 对象：这种格式多用于现代 Unix 类型系统的
+可执行文件。
+
+查看文件的首四个字节，检查它们是否匹配一个字节列表：
+
+\begin{lstlisting}[language=Haskell]
+  import Data.ByteString.Lazy qualified as L
+
+  hasElfMagic :: L.ByteString -> Bool
+  hasElfMagic content = L.take 4 content == elfMagic
+    where
+      elfMagic = L.pack [0x7f, 0x45, 0x4c, 0x46]
+\end{lstlisting}
+
+\acode{ByteString}的惰性模块以及严格模块意图解决二进制 I/O。Haskell 用 \acode{Word8} 来展示字节的数据类型；可以通过
+\acode{Data.Word}来引入它。
+
+上述例子的\acode{L.pack}函数接受一个\acode{Word8}列表，打包它们成为一个惰性的\acode{ByteString}。（\acode{L.unpack}
+函数作用相反。）而\acode{hasElfMagic}函数则是比较\acode{ByteString}的前四个字符。
+
+以下是将其运用在一个文件上的例子：
+
+\begin{lstlisting}[language=Haskell]
+  isElfFile :: FilePath -> IO Bool
+  isElfFile path = do
+    content <- L.readFile path
+    return $ hasElfMagic content
+\end{lstlisting}
+
+\acode{L.readFile}函数是\acode{readFile}的惰性\acode{ByteString}版本，即按需读取。它效率很高，每次读取最大 64KB。惰性
+\acode{ByteString}很适合我们的任务：因为我们至多读取文件的前四个字节，因此我们可以安全的使用该函数在任何大小的文件上。
+
+\subsubsection*{Text I/O}
+
+\acode{bytestring}库还提供了两个模块用于 text I/O 功能，\acode{Data.ByteString.Char8}以及
+\acode{Data.ByteString.Lazy.Char8}。它们将单独的字符串元素导出成\acode{Char}而不是\acode{Word8}。
+
+\begin{awarn}
+  上述模块中的函数进作用于字节大小的\acode{Char}值，也就是仅适用于 ASCII 以及某些欧洲字符集。超过 255 的字符会被截断。
+\end{awarn}
+
+面向字符的\acode{bytestring}模块为文本处理提供了一些有用的函数。以下是包含了月度的股票价格的文件：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> putStr =<< readFile "prices.csv"
+  Date,Open,High,Low,Close,Volume,Adj Close
+  2008-08-01,20.09,20.12,19.53,19.80,19777000,19.80
+  2008-06-30,21.12,21.20,20.60,20.66,17173500,20.66
+  2008-05-30,27.07,27.10,26.63,26.76,17754100,26.76
+  2008-04-30,27.17,27.78,26.76,27.41,30597400,27.41
+\end{lstlisting}
+
+如何找到最高价呢？收盘价在第四列，用都好分隔。下面是得到收盘价的函数：
+
+\begin{lstlisting}[language=Haskell]
+  closing = readPrice . (!! 4) . L.split ','
+\end{lstlisting}
+
+由于该函数是 point-free 风格，我们需要从右往左阅读。\acode{L.split}函数将一个惰性的\acode{ByteString}分隔开来，分隔发生在
+每一次找到匹配值时。\acode{(!!)}操作符则是获取列表中第 k 个元素。\acode{readPrice}函数将一个代表分数的字符串转换为数值：
+
+\begin{lstlisting}[language=Haskell]
+  readPrice :: L.ByteString -> Maybe Int
+  readPrice str = case L.readInt str of
+    Nothing -> Nothing
+    Just (dollars, rest) ->
+      case L.readInt (L.tail rest) of
+        Nothing -> Nothing
+        Just (cents, more) ->
+          Just (dollars * 100 + cents)
+\end{lstlisting}
+
+上面使用了\acode{L.readInt}函数，即解析整数，返回整数以及字符串剩余部分。
+
+找到最高收盘价的函数：
+
+\begin{lstlisting}[language=Haskell]
+  highestClose = maximum . (Nothing :) . map closing . L.lines
+
+  highestCloseFrom path = do
+    contents <- L.readFile path
+    print $ highestClose contents
+\end{lstlisting}
+
+这里使用了一个小技巧。当我们提供一个空列表给\acode{maximum}函数会抛出异常：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> maximum [3,6,2,9]
+  9
+  ghci> maximum []
+  *** Exception: Prelude.maximum: empty list
+\end{lstlisting}
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :load HighestClose
+  [1 of 1] Compiling Main             ( HighestClose.hs, interpreted )
+  Ok, modules loaded: Main.
+  ghci> highestCloseFrom "prices.csv"
+  Loading package array-0.1.0.0 ... linking ... done.
+  Loading package bytestring-0.9.0.1 ... linking ... done.
+  Just 2741
+\end{lstlisting}
+
+因为从逻辑中分离了 I/O，测试空数据时不需要创建一个空文件：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> highestClose L.empty
+  Nothing
+\end{lstlisting}
+
+\subsection*{文件名匹配}
+
+\subsection*{Haskell 中的正则表达式}
+
+\subsection*{更多的关于正则表达式}
+
+\subsection*{将一个 glob 模式转为一个正则表达式}
+
+\subsection*{重要的一点：编写惰性函数}
+
+\subsection*{使用我们的模式匹配}
+
+\subsection*{通过 API 设计来处理错误}
+
+\subsection*{运行我们的代码}
 
 \end{document}
