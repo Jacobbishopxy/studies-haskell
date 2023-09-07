@@ -154,9 +154,284 @@
 
 \subsection*{文件名匹配}
 
+很多面向系统的编程语言都提供了根据模式来匹配文件的功能。尽管 Haskell 的标准库有不错的系统编程工具，它并没有提供这类的匹配函数。
+
+这类模式通常被称为\acode{glob 模式}，通配符模式或者 shell 样式模式。它们有一些简单的规则：
+
+\begin{itemize}
+  \item 将字符串与模式进行匹配，从字符串的开头开始，到末尾结束。
+  \item 大多字面字符都匹配自己。例如，模式中的文本 foo 将匹配输入字符串中的 foo，且仅匹配 foo。
+  \item \acode{*}（星号）字符表示“匹配任何内容“；它将匹配任何文本，包括空字符串。
+  \item \acode{?}（问号）字符匹配任何单个字符。模式\acode{pic??.jpg}将匹配\acode{picaa.jpg}或\acode{pic01.jpg}等名称。
+  \item \acode{[}（开方括号）字符开始一个字符类，以\acode{]}结束。它的意思是“匹配这个类中的任何字符”。字符类可以在\acode{[}
+        后面加一个\acode{!}来表示“匹配不属于这个类的任何字符”。
+
+        作为一种简写，一个字符后面跟着一个\acode{-}（破折号），后面跟着另一个字符，表示一个范围：”匹配此集合中的任何字符“
+\end{itemize}
+
+虽然 Haskell 的标准库中没有提供 glob 模式的匹配，但是它提供了一个非常好的正则表达式库。
+
 \subsection*{Haskell 中的正则表达式}
 
+首先让我们加载\acode{Text.Regex.Posix}库
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :module +Text.Regex.Posix
+\end{lstlisting}
+
+根据\href{https://wiki.haskell.org/Regular_expressions}{官方 Wiki}提到的\acode{regex-posix}速度非常的慢，在生产代码
+中需要换成别的库。
+
+我们这里只需要正则表达式匹配的函数，一个中缀操作符\acode{(=~)}即可（从 Perl 中借用）。要克服的第一个障碍是 Haskell 的 regexp
+库大量使用了多态。因此\acode{(=~)}操作符的类型签名很难理解，因此这里暂时不做解释。
+
+\acode{=~}操作符对它的两个参数和返回类型都是用了 typeclasses。第一个参数（即\acode{=~}左侧）是要匹配的文本；第二个参数（右侧）
+则是要匹配的正则表达式。我们可以传\acode{String}或\acode{ByteString}作为参数。
+
+\subsubsection*{结果的多种类型}
+
+\acode{=~}操作符的结果类型是多态的，因此 Haskell 编译器需要知道其类型。在真实代码中，它有可能根据使用的场景被推导出正确的类型。
+但是\textbf{ghci}没法这么做，它没有足够的信息来进行推导。
+
+当\textbf{ghci}不能推导\acode{target}类型时，我们需要进行显式指定：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> "my left foot" =~ "foo" :: Bool
+  Loading package array-0.1.0.0 ... linking ... done.
+  Loading package containers-0.1.0.1 ... linking ... done.
+  Loading package bytestring-0.9.0.1 ... linking ... done.
+  Loading package mtl-1.1.0.0 ... linking ... done.
+  Loading package regex-base-0.93.1 ... linking ... done.
+  Loading package regex-posix-0.93.1 ... linking ... done.
+  True
+  ghci> "your right hand" =~ "bar" :: Bool
+  False
+  ghci> "your right hand" =~ "(hand|foot)" :: Bool
+  True
+\end{lstlisting}
+
+正则表达式库的核心是一个名为\acode{RegexContext}的 typeclass，用于描述\acode{target}类型的行为；基础库为我们定义了很多实例。
+\acode{Bool}类型就定义了该 typeclass 的实例，因此我们能得到可用的结果。另一个实例就是\acode{Int}：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> "a star called henry" =~ "planet" :: Int
+  0
+  ghci> "honorificabilitudinitatibus" =~ "[aeiou]" :: Int
+  13
+\end{lstlisting}
+
+如果寻求的是\acode{String}结果，我们将得到第一个匹配的子字符串，或是不匹配时得到一个空字符串。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> "I, B. Ionsonii, uurit a lift'd batch" =~ "(uu|ii)" :: String
+  "ii"
+  ghci> "hi ludi, F. Baconis nati, tuiti orbi" =~ "Shakespeare" :: String
+  ""
+\end{lstlisting}
+
+另外一个可作为结果的类型是\acode{[String]}，其返回\textit{所有}匹配字符串的列表：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> "I, B. Ionsonii, uurit a lift'd batch" =~ "(uu|ii)" :: [String]
+
+  <interactive>:1:0:
+      No instance for (RegexContext Regex [Char] [String])
+        arising from a use of `=~' at <interactive>:1:0-50
+      Possible fix:
+        add an instance declaration for
+        (RegexContext Regex [Char] [String])
+      In the expression:
+              "I, B. Ionsonii, uurit a lift'd batch" =~ "(uu|ii)" :: [String]
+      In the definition of `it':
+          it = "I, B. Ionsonii, uurit a lift'd batch" =~ "(uu|ii)" ::
+               [String]
+  ghci> "hi ludi, F. Baconis nati, tuiti orbi" =~ "Shakespeare" :: [String]
+
+  <interactive>:1:0:
+      No instance for (RegexContext Regex [Char] [String])
+        arising from a use of `=~' at <interactive>:1:0-54
+      Possible fix:
+        add an instance declaration for
+        (RegexContext Regex [Char] [String])
+      In the expression:
+              "hi ludi, F. Baconis nati, tuiti orbi" =~ "Shakespeare" :: [String]
+      In the definition of `it':
+          it = "hi ludi, F. Baconis nati, tuiti orbi" =~ "Shakespeare" ::
+               [String]
+\end{lstlisting}
+
+\begin{anote}
+  注意字符串返回
+
+  如果期望结果是一个\acode{String}，那么就要小心了。因为\acode{(=~)}返回一个空字符传来表示”没有匹配“，如果空字符串也可能是
+  regexp 的有效匹配，那么就会难以识别。在这种情况下就应该是有一个不同的返回类型，例如\acode{[String]}。
+\end{anote}
+
+上述都是”简单的“返回类型，这远没有结束。继续往下推进前，让我们定义一个在之后例子中都会用到的匹配：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let pat = "(foo[a-z]*bar|quux)"
+\end{lstlisting}
+
+我们可以获得关于匹配发生的上下文的大量信息。如果期望是\acode{(String,String,String)}元组，则会在第一个匹配\textit{之前}
+获得文本，匹配成功\textit{的}文本，以及\textit{紧随}其后的文本。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> "before foodiebar after" =~ pat :: (String,String,String)
+  ("before ","foodiebar"," after")
+\end{lstlisting}
+
+如果匹配失败，那么整个文本则会在元组中以”之前“元素作为返回，而其它两个元素为空：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> "no match here" =~ pat :: (String,String,String)
+  ("no match here","","")
+\end{lstlisting}
+
+请求一个四元素元组则会给我们第四个元素，它是匹配模式中所有组的列表：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> "before foodiebar after" =~ pat :: (String,String,String,[String])
+  ("before ","foodiebar"," after",["foodiebar"])
+\end{lstlisting}
+
+我们还可以获取匹配的数值信息。一对\acode{Int}给出的第一个匹配的起始偏移量以及长度。如果我们请求这些配对的列表，我们将得到所有
+匹配的信息。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> "before foodiebar after" =~ pat :: (Int,Int)
+  (7,9)
+  ghci> "i foobarbar a quux" =~ pat :: [(Int,Int)]
+
+  <interactive>:1:0:
+      No instance for (RegexContext Regex [Char] [(Int, Int)])
+        arising from a use of `=~' at <interactive>:1:0-26
+      Possible fix:
+        add an instance declaration for
+        (RegexContext Regex [Char] [(Int, Int)])
+      In the expression: "i foobarbar a quux" =~ pat :: [(Int, Int)]
+      In the definition of `it':
+          it = "i foobarbar a quux" =~ pat :: [(Int, Int)]
+\end{lstlisting}
+
+如果请求单个元组，则用值\acode{-1}作为元组的第一个元素（匹配偏移量）表示匹配失败；如果请求元组列表，则用空列表表示匹配失败：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> "eleemosynary" =~ pat :: (Int,Int)
+  (-1,0)
+  ghci> "mondegreen" =~ pat :: [(Int,Int)]
+
+  <interactive>:1:0:
+      No instance for (RegexContext Regex [Char] [(Int, Int)])
+        arising from a use of `=~' at <interactive>:1:0-18
+      Possible fix:
+        add an instance declaration for
+        (RegexContext Regex [Char] [(Int, Int)])
+      In the expression: "mondegreen" =~ pat :: [(Int, Int)]
+      In the definition of `it': it = "mondegreen" =~ pat :: [(Int, Int)]
+\end{lstlisting}
+
 \subsection*{更多的关于正则表达式}
+
+\subsubsection*{混合与匹配字符串类型}
+
+之前提到\acode{=~}操作符使用 typeclasses 作为其参数类型以及返回类型。可以使用\acode{String}或严格\acode{ByteString}
+的值来进行正则表达式计算。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :module +Data.ByteString.Char8
+  ghci> :type pack "foo"
+  pack "foo" :: ByteString
+\end{lstlisting}
+
+可以尝试不同组合的\acode{String}与\acode{ByteString}：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> pack "foo" =~ "bar" :: Bool
+  False
+  ghci> "foo" =~ pack "bar" :: Int
+  0
+  ghci> pack "foo" =~ pack "o" :: [(Int, Int)]
+
+  <interactive>:1:0:
+      No instance for (RegexContext Regex ByteString [(Int, Int)])
+        arising from a use of `=~' at <interactive>:1:0-21
+      Possible fix:
+        add an instance declaration for
+        (RegexContext Regex ByteString [(Int, Int)])
+      In the expression: pack "foo" =~ pack "o" :: [(Int, Int)]
+      In the definition of `it':
+          it = pack "foo" =~ pack "o" :: [(Int, Int)]
+\end{lstlisting}
+
+不过需要注意的是，如果期望匹配结果中包含字符串值，那么所匹配的文本必须是同一类型的字符串：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> pack "good food" =~ ".ood" :: [ByteString]
+
+  <interactive>:1:0:
+      No instance for (RegexContext Regex ByteString [ByteString])
+        arising from a use of `=~' at <interactive>:1:0-25
+      Possible fix:
+        add an instance declaration for
+        (RegexContext Regex ByteString [ByteString])
+      In the expression: pack "good food" =~ ".ood" :: [ByteString]
+      In the definition of `it':
+          it = pack "good food" =~ ".ood" :: [ByteString]
+\end{lstlisting}
+
+上述例子中，使用\acode{pack}将\acode{String}转为了\acode{ByteString}。类型检查器可以接受是因为\acode{ByteString}在
+结果类型中展示出来了。但是如果尝试获取一个\acode{String}，则不会成功：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> "good food" =~ ".ood" :: [ByteString]
+
+  <interactive>:1:0:
+      No instance for (RegexContext Regex [Char] [ByteString])
+        arising from a use of `=~' at <interactive>:1:0-20
+      Possible fix:
+        add an instance declaration for
+        (RegexContext Regex [Char] [ByteString])
+      In the expression: "good food" =~ ".ood" :: [ByteString]
+      In the definition of `it':
+          it = "good food" =~ ".ood" :: [ByteString]
+\end{lstlisting}
+
+我们可以通过将左侧的字符串类型与结果再次匹配来简单的修复这个问题：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> "good food" =~ ".ood" :: [String]
+
+  <interactive>:1:0:
+      No instance for (RegexContext Regex [Char] [String])
+        arising from a use of `=~' at <interactive>:1:0-20
+      Possible fix:
+        add an instance declaration for
+        (RegexContext Regex [Char] [String])
+      In the expression: "good food" =~ ".ood" :: [String]
+      In the definition of `it': it = "good food" =~ ".ood" :: [String]
+\end{lstlisting}
+
+\subsubsection*{其它需要注意的事项}
+
+查看 Haskell 库文档时，可以看到几个与 regexp 相关的模块。\acode{Text.Regex.Base}模块定义了所有其他 regexp 模块所遵循的
+通用API。可以同时安装 regexp API 的多个实现。在编写本文时，GHC与一个实现\acode{Text.Regex.Posix}捆绑在一起。顾名思义，
+这个包提供 POSIX regexp 语义。
+
+\begin{anote}
+  Perl 与 POSIX 正则表达式
+
+  如果是从 Perl、Python 或 Java 等语言来学习 Haskell的，并且在其中一种语言中使用过正则表达式，那么应该意识到由
+  \acode{Text.Regex.Posix}模块处理的 POSIX regexp 与 Perl 风格的\acode{regexp}在某些重要方面是不同的。
+  以下是一些比较明显的区别。
+
+  Perl regexp 引擎在匹配备选项时执行左偏匹配，而 POSIX 引擎选择最贪婪的匹配。这意味着给定一个正则表达式\acode{(foo|fo*)}
+  和一个文本字符串\acode{foooooo}, perl 风格的引擎将给出\acode{foo}的匹配（最左边的匹配），而 POSIX 引擎将匹配整个字符串
+  （最贪婪的匹配）。
+
+  POSIX regexp 的语法不如 perl 风格的 regexp 统一。它们还缺乏 perl 风格的 regexp 提供的许多功能，例如零宽度断言和
+  对贪婪匹配的控制。
+\end{anote}
 
 \subsection*{将一个 glob 模式转为一个正则表达式}
 
