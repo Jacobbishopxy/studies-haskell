@@ -98,8 +98,8 @@
   closing = readPrice . (!! 4) . L.split ','
 \end{lstlisting}
 
-由于该函数是 point-free 风格，我们需要从右往左阅读。\acode{L.split}函数将一个惰性的\acode{ByteString}分隔开来，分隔发生在
-每一次找到匹配值时。\acode{(!!)}操作符则是获取列表中第 k 个元素。\acode{readPrice}函数将一个代表分数的字符串转换为数值：
+该函数是 point-free 风格，需要从右往左阅读。\acode{L.split}将一个惰性的\acode{ByteString}分隔开来，分隔发生在每一次找到
+匹配值时。\acode{(!!)}操作符则是获取列表中第 k 个元素。\acode{readPrice}函数将一个代表分数的字符串转换为数值：
 
 \begin{lstlisting}[language=Haskell]
   readPrice :: L.ByteString -> Maybe Int
@@ -185,8 +185,8 @@
 我们这里只需要正则表达式匹配的函数，一个中缀操作符\acode{(=~)}即可（从 Perl 中借用）。要克服的第一个障碍是 Haskell 的 regexp
 库大量使用了多态。因此\acode{(=~)}操作符的类型签名很难理解，因此这里暂时不做解释。
 
-\acode{=~}操作符对它的两个参数和返回类型都是用了 typeclasses。第一个参数（即\acode{=~}左侧）是要匹配的文本；第二个参数（右侧）
-则是要匹配的正则表达式。我们可以传\acode{String}或\acode{ByteString}作为参数。
+\acode{=~}对它的两个参数和返回类型使用了 typeclasses。第一个参数（即\acode{=~}左侧）是要匹配的文本；第二个参数（右侧）则是要
+匹配的正则表达式。我们可以传\acode{String}或\acode{ByteString}作为参数。
 
 \subsubsection*{结果的多种类型}
 
@@ -434,6 +434,119 @@
 \end{anote}
 
 \subsection*{将一个 glob 模式转为一个正则表达式}
+
+我们已经见识到了很多种将文本域正则表达式匹配的方法，让我们将注意力转回到 glob 模式。我们希望编写一个接受一个 glob 模式的函数，
+将其表示形式返回为正则表达式。glob 模式和正则表达式两者都是 text 字符串，因此函数的类型就很明确了：
+
+\begin{lstlisting}[language=Haskell]
+  module GlobRegex
+    ( globToRegex,
+    )
+  where
+
+  import Text.Regex.Posix ((=~))
+
+  globToRegex :: String -> String
+\end{lstlisting}
+
+我们生成的正则表达式必须是\textit{固定的}，使得它可以从同到尾的匹配字符串。
+
+\begin{lstlisting}[language=Haskell]
+  globToRegex cs = '^' : globToRegex' cs ++ "$"
+\end{lstlisting}
+
+由于\acode{String}就是\acode{[Char]}的别名，这里\acode{:}操作符将一个值（这里是\acode{^}字符）放到一个列表的头部，而
+这个列表则是还未出现的\acode{globToRegex}函数所返回的。
+
+\begin{anote}
+  在定义一个值之前使用它
+
+  Haskell 使用一个值或者函数时，并不需要它们被声明或者在一个源文件中定义。一个定义出现在第一个被使用的地方之后是很正常的。
+  Haskell 编译器并不关心这一层面上的顺序。这使我们可以灵活的按照逻辑来构建代码，而不是遵循编译器编写者的顺序。
+
+  Haskell 模块的编写者通常会使用这个灵活性来让“更加重要”的代码前置于源文件中。这正式我们编写\acode{globToRegex}函数以及其
+  帮助函数的方式。
+\end{anote}
+
+有了正则表达式以后\acode{globToRegex'}函数则用作于大部分的翻译工作。以下使用 Haskell 的模式匹配来进行编码：
+
+\begin{lstlisting}[language=Haskell]
+  globToRegex' :: String -> String
+  globToRegex' "" = ""
+  globToRegex' ('*' : cs) = ".*" ++ globToRegex' cs
+  globToRegex' ('?' : cs) = '.' : globToRegex' cs
+  globToRegex' ('[' : '!' : c : cs) = "[^" ++ c : charClass cs
+  globToRegex' ('[' : c : cs) = '[' : c : charClass cs
+  globToRegex' ('[' : _) = error "unterminated character class"
+  globToRegex' (c : cs) = escape c ++ globToRegex' cs
+\end{lstlisting}
+
+第一个子句规定了如果达到了 glob 模式的末尾（到那时会看到空字符串），返回\acode{\$}，即正则表达式中的“匹配到了末尾”。接下来的
+是的子句则是一系列从 glob 语义切换到正则表达语义的模式。最后一个子句处理其它的每个字符，转义优先。
+
+\acode{escape}函数确保正则引擎不会解释某些特定字符：
+
+\begin{lstlisting}[language=Haskell]
+  escape :: Char -> String
+  escape c
+    | c `elem` regexChars = '\\' : [c]
+    | otherwise = [c]
+    where
+      regexChars = "\\+()^$.{}]|"
+\end{lstlisting}
+
+\acode{charClass}帮助函数用于检测字符是否正确的终止，不修改输入直到遇到\acode{]}：
+
+\begin{lstlisting}[language=Haskell]
+  charClass :: String -> String
+  charClass (']' : cs) = ']' : globToRegex' cs
+  charClass (c : cs) = c : charClass cs
+  charClass [] = error "unterminated character class"
+\end{lstlisting}
+
+我们已经定义好了\acode{globToRegex}与其帮助函数们，现在加载进\textbf{ghci}中测试一下：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :set -package regex-posix
+  package flags have changed, resetting and loading new packages...
+  ghci> :l GlobRegex.hs
+  [1 of 1] Compiling GlobRegex        ( GlobRegex.hs, interpreted )
+  Ok, one module loaded.
+  ghci> globToRegex "f??.c"
+  "^f..\\.c$"
+\end{lstlisting}
+
+看起来像是一个合理的正则，那么用它来匹配字符串呢？
+
+\begin{lstlisting}[language=Haskell]
+  ghci> "foo.c" =~ globToRegex "f??.c" :: Bool
+  True
+  ghci> "test.c" =~ globToRegex "t[ea]s*" :: Bool
+  True
+  ghci> "teste.txt" =~ globToRegex "t[ea]s*" :: Bool
+  True
+\end{lstlisting}
+
+正常工作！我们还可以为\acode{fnmatch}创建一个临时定义：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let fnmatch pat name = name =~ globToRegex pat :: Bool
+  ghci> :type fnmatch
+  fnmatch
+    :: rgx-bs-0.94.0.2-01560e7d:Text.Regex.Base.RegexLike.RegexLike
+         Text.Regex.Posix.Wrap.Regex source1 =>
+       String -> source1 -> Bool
+  ghci> fnmatch "d*" "myname"
+  False
+\end{lstlisting}
+
+\acode{fnmatch}并不符合“Haskell 本性”，通常 Haskell 风格的函数都需要描述性的“驼峰”名称，例如“file name matches”
+为\acode{fileNameMatches}，那么我们的库可以这样命名：
+
+\begin{lstlisting}[language=Haskell]
+  matchesGlob :: FilePath -> String -> Bool
+  name `matchesGlob` pat = name =~ globToRegex pat
+\end{lstlisting}
 
 \subsection*{重要的一点：编写惰性函数}
 

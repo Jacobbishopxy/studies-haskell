@@ -60,6 +60,16 @@
   ...
 ```
 
+## Project Management
+
+See [implicit-hie](https://github.com/Avi-D-coder/implicit-hie)
+
+```sh
+cd your-stack-or-cabal-package
+stack install implicit-hie # or cabal install implicit-hie
+gen-hie > hie.yaml
+```
+
 ## Test
 
 - compile a single file: `ghc --make capslocker.hs`
