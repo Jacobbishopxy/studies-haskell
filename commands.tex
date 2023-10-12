@@ -24,10 +24,17 @@
   \colorbox{codegreen}{\lstinline[basicstyle=\ttfamily\color{white}]{#1}}
 }
 
-\colorlet{shadecolor}{yellow!30}
-\newenvironment{anote}{\begin{shaded}\textbf{Tip}\par}{\end{shaded}}
+\newenvironment{anote}{
+  \colorlet{shadecolor}{yellow!30}
+  \begin{shaded}
+    \textbf{Tip}\par}
+    {\end{shaded}
+}
 
-
-\colorlet{shadecolor}{red!20}
-\newenvironment{awarn}{\begin{shaded}\textbf{Warning}\par}{\end{shaded}}
+\newenvironment{awarn}{
+  \colorlet{shadecolor}{red!20}
+  \begin{shaded}
+    \textbf{Warning}\par}
+    {\end{shaded}
+}
 
