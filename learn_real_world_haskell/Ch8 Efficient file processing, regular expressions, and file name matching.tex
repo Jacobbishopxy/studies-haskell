@@ -548,12 +548,263 @@
   name `matchesGlob` pat = name =~ globToRegex pat
 \end{lstlisting}
 
-\subsection*{重要的一点：编写惰性函数}
+\subsection*{一个重要的旁白：编写惰性函数}
 
-\subsection*{使用我们的模式匹配}
+在一个命令式的语言中，\acode{globToRegex'}函数通常会表述为一个循环。例如 Python 的标准 fnmatch 模块中包含了一个名为
+\acode{translate}的函数，其功能与我们的\acode{globToRegex}函数一致。它的实现就是循环。
+
+如果你有别的函数式编程的经验例如 Scheme 或 ML，那么肯定有“模仿循环的方法就是通过尾递归”这个概念。
+
+再来看一下\acode{globToRegex'}函数，并不是一个尾递归函数。可以测试一下最后的子句（其它的子句结构都类似）。
+
+\begin{lstlisting}[language=Haskell]
+  globToRegex' (c : cs) = escape c ++ globToRegex' cs
+\end{lstlisting}
+
+它递归的应用了自身，且递归的结果作为一个参数在\acode{(++)}函数上。由于递归的应用\textit{并非}作为函数的最后处理部分，那么
+\acode{globToRegex'}并不是一个尾递归。
+
+那么为什么这个函数并非尾递归呢？答案就在 Haskell 的非严格计算策略。在提及这个话题之前，让我们快速的了解为什么在传统语言中，
+我们需要避免这样的尾递归定义。以下是\acode{(++)}操作符的一个简单定义。它属于递归，但不是尾递归。
+
+\begin{lstlisting}[language=Haskell]
+  (++) :: [a] -> [a] -> [a]
+
+  (x:xs) ++ ys = x : (xs ++ ys)
+  []     ++ ys = ys
+\end{lstlisting}
+
+在严格执行语言中，如果我们计算\acode{"foo" ++ "bar"}，整个列表会被构建出来，接着再返回。非严格计算则会延迟直到真正需要被
+用到的时候。
+
+如果需要表达式\acode{"foo" + "bar"}的一个元素时，函数定义的第一个模式将被匹配，接着返回表达式\acode{x : (xs ++ ys)}。
+因为\acode{(:)}构造函数是非严格的，那么\acode{xs ++ ys}的计算就能被递延：按需生产更多的元素。当我们生产更多的结果时，我们
+将不再使用\acode{x}，因此垃圾回收器将会进行回收。由于是按需生产元素，且不持有已经完成的部分，编译器就可以以常量的空间来计算
+我们的代码。
+
+\subsection*{使用我们的模式匹配器}
+
+通过一个函数用于匹配 glob 模式是很好的，但是我们希望将其用于实际应用。在 Unix 系的系统中\acode{glob}函数返回所有匹配到的
+文件名称以及路径。让我们在 Haskell 中也构建一个类似的函数：
+
+\begin{lstlisting}[language=Haskell]
+  module Glob (namesMatching) where
+\end{lstlisting}
+
+\acode{System.Directory}模块提供了用于处理路径以及内容的标准函数。
+
+\begin{lstlisting}[language=Haskell]
+  import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory, getDirectoryContents)
+\end{lstlisting}
+
+而\acode{System.FilePath}模块抽象了操作系统路径名称转换的细节，\acode{(</>)}函数将两个路径连接在一起：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :m +System.FilePath
+  ghci> "foo" </> "bar"
+  "foo/bar"
+\end{lstlisting}
+
+\acode{dropTrailingPathSeparator}函数正如其名，去除末尾的路径分隔：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> dropTrailingPathSeparator "foo/"
+  "foo"
+\end{lstlisting}
+
+\acode{splitFileName}则分离了路径与文件：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> splitFileName "foo/bar/Quux.hs"
+  ("foo/bar/","Quux.hs")
+\end{lstlisting}
+
+\acode{System.Directory}模块结合\acode{System.FilePath}的使用，我们可以编写一个同时作用于 Unix 系与 Windows 的
+\acode{namesMatching}函数：
+
+\begin{lstlisting}[language=Haskell]
+  import System.FilePath (dropTrailingPathSeparator, splitFileName, (</>))
+\end{lstlisting}
+
+在这个模块中，我们将模仿一个“for”循环；首次在 Haskell 中尝试错误处理；并使用写好的\acode{matchesGlob}函数。
+
+\begin{lstlisting}[language=Haskell]
+  import Control.Exception (handle)
+  import Control.Monad (forM)
+  import GlobRegex (matchesGlob)
+\end{lstlisting}
+
+由于路径与文件存在于拥有副作用的“真实世界”，我们的 globbing 函数的返回值则必须带上\acode{IO}。
+
+如果传入的字符串没有包含模式字符，那么就简单的检查给定的名称是否存在于文件系统重。（注意，我们在这里使用 Haskell 的函数守护
+语法来编写一个漂亮整洁的定义。使用“if”也是可以的，不过就没有这么美观了）
+
+\begin{lstlisting}[language=Haskell]
+  isPattern :: String -> Bool
+  isPattern = any (`elem` "[*?")
+
+  namesMatching pat
+    | not (isPattern pat) = do
+        exists <- doesNameExist pat
+        return ([pat | exists])
+\end{lstlisting}
+
+函数\acode{doesNameExist}会在稍后进行定义。
+
+那么如果字符串\textit{是}一个 glob 模式呢？继续我们的函数定义：
+
+\begin{lstlisting}[language=Haskell]
+  | otherwise = do
+      case splitFileName pat of
+        ("", baseName) -> do
+          curDir <- getCurrentDirectory
+          listMatches curDir baseName
+        (dirName, baseName) -> do
+          dirs <-
+            if isPattern dirName
+              then namesMatching (dropTrailingPathSeparator dirName)
+              else return [dirName]
+          let listDir =
+                if isPattern baseName
+                  then listMatches
+                  else listPlain
+          pathNames <- forM dirs $ \dir -> do
+            baseNames <- listDir dir baseName
+            return (map (dir </>) baseNames)
+          return (concat pathNames)
+\end{lstlisting}
+
+我们使用了\acode{splitFileName}将字符串分离成了一对“所有东西除了最终名称”以及“最终名称”。如果首个元素为空，则在当前路径寻找
+一个模式；否则检查路径名称是否包含模式，没有包含则创建一个包含路径名称的单例列表，包含则列举所有匹配的路径。
+
+\begin{anote}
+  需要注意的事情
+
+  \acode{System.FilePath}模块可以变得有点棘手。上述的例子中\acode{splitFileName}函数留下了末尾的斜杠
+
+  \begin{lstlisting}[language=Haskell]
+    ghci> :module +System.FilePath
+    ghci> splitFileName "foo/bar"
+    ("foo/","bar")
+  \end{lstlisting}
+
+  如果我们忘了（或者不了解）要移除斜杠，我们则会无限在\acode{namesMatching}中递归，因为下列行为
+
+  \begin{lstlisting}[language=Haskell]
+    ghci> splitFileName "foo/"
+    ("foo/","")
+  \end{lstlisting}
+
+  你可以猜想一下之后将会发生什么！
+\end{anote}
+
+最后，收集了所有匹配的路径，得到了一个列表的列表，再将它们打平成一个单独的列表。
+
+这里陌生的\acode{forM}函数其行为类似于一个“for”循环：它映射它的第二个参数（一个 action）在第一个参数（一个列表）上，并返回
+一个列表的结果。
+
+还剩下一些需要处理的问题。首先是\acode{doesNameExist}函数。\acode{System.Directory}模块并不能检查一个名称是否存在与文件
+系统中，它强制要求我们决定检查的是文件还是路径。这个 API 很丑陋，因此我们需要将两者合二为一。首先检查是否为文件，因为文件相较于
+路径更为普遍。
+
+\begin{lstlisting}[language=Haskell]
+  doesNameExist :: FilePath -> IO Bool
+  doesNameExist name = do
+    fileExists <- doesFileExist name
+    if fileExists
+      then return True
+      else doesDirectoryExist name
+\end{lstlisting}
+
+还有另外两个函数需要定义，它们的返回都是一个路径中的所有名称。\acode{listMatches}函数返回的是一个路径中匹配了给定 glob 模式
+的所有文件。
+
+\begin{lstlisting}[language=Haskell]
+  listMatches :: FilePath -> String -> IO [String]
+  listMatches dirName pat = do
+    dirName' <-
+      if null dirName
+        then getCurrentDirectory
+        else return dirName
+    handle errorHandler $ do
+      names <- getDirectoryContents dirName'
+      let names' =
+            if isHidden pat
+              then filter isHidden names
+              else filter (not . isHidden) names
+      return (filter (`matchesGlob` pat) names')
+    where
+      errorHandler :: SomeException -> IO [String]
+      errorHandler _ = return []
+
+  isHidden :: [Char] -> Bool
+  isHidden ('.' : _) = True
+  isHidden _ = False
+\end{lstlisting}
+
+与原文不同之处在于\acode{handle errorHandler}这里需要显式的为\acode{errorHandler}标注类型，否则原文的
+\acode{handle (const (return []))}将会在编译时抛出类型不明确的异常，
+详见\href{https://stackoverflow.com/a/6009807/8163324}{StackOverflow}。
+
+\acode{listPlain}函数的返回要么是一个空的列表要么是一个单例列表，这取决于传递的名称是否存在：
+
+\begin{lstlisting}[language=Haskell]
+  listPlain :: FilePath -> String -> IO [String]
+  listPlain dirName baseName = do
+    exists <-
+      if null baseName
+        then doesDirectoryExist dirName
+        else doesNameExist (dirName </> baseName)
+    return ([baseName | exists])
+\end{lstlisting}
 
 \subsection*{通过 API 设计来处理错误}
 
+如果传递给我们的\acode{globToRegex}的是一个错误的模式，并不会是一场灾难。这有可能使用户输入了错误的模式，这种情况下我们需要
+报告有意义的错误信息。
+
+\begin{lstlisting}[language=Haskell]
+  type GlobError = String
+
+  globToRegex :: String -> Either GlobError String
+\end{lstlisting}
+
 \subsection*{运行我们的代码}
+
+\acode{namesMatching}函数并不能很好地单独工作，我们需要将其与其它函数结合。
+
+首先定义一个\acode{renameWith}函数，并非只是简单的为一个文件重命名，而是将一个函数应用至文件名称，用函数返回的值来重命名文件。
+
+\begin{lstlisting}[language=Haskell]
+  import System.FilePath (replaceExtensions)
+  import System.Directory (doesFileExist, renameDirectory, renameFile)
+  import Glob (namesMatching)
+
+  renameWith :: (FilePath -> FilePath) -> FilePath -> IO FilePath
+  renameWith f path = do
+    let path' = f path
+    rename path path'
+    return path'
+\end{lstlisting}
+
+这里还是需要一个帮助函数来处理文件与路径：
+
+\begin{lstlisting}[language=Haskell]
+  rename :: FilePath -> FilePath -> IO ()
+  rename old new = do
+    isFile <- doesFileExist old
+    let f = if isFile then renameFile else renameDirectory
+    f old new
+\end{lstlisting}
+
+\acode{System.FilePath}模块提供了很多操作文件名的函数，它们可以很好地与\acode{renameWith}与\acode{namesMatching}
+函数结合，使得我们可以快速的使用它们来创造复杂行为的函数。例如修改 C++ 源文件的后缀。
+
+\begin{lstlisting}[language=Haskell]
+  cc2cpp :: IO [FilePath]
+  cc2cpp = mapM (renameWith (flip replaceExtension ".cpp")) =<< namesMatching "*.cc"
+\end{lstlisting}
+
+\acode{flip}函数接受另一个函数作为参数，交换该函数的入参。\acode{=<<}函数将其右侧 action 的结果喂给左侧的 action。
 
 \end{document}

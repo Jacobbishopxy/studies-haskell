@@ -132,7 +132,7 @@ gen-hie > hie.yaml
 
   - [Ch7 Input and output](./learn_real_world_haskell/Ch7%20Input%20and%20output.tex)
 
-  - Ch8 Efficient file processing, regular expressions, and file name matching
+  - [Ch8 Efficient file processing, regular expressions, and file name matching](./learn_real_world_haskell/Ch8%20Efficient%20file%20processing,%20regular%20expressions,%20and%20file%20name%20matching.tex)
 
   - Ch9 I/O case study: a library for searching the filesystem
 
