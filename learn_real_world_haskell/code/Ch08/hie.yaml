@@ -2,6 +2,3 @@ cradle:
   cabal:
     - path: "./"
       component: "lib:my-regex"
-
-    - path: "app/Main.hs"
-      component: "my-regex:exe:my-regex"

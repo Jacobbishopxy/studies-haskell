@@ -1,5 +1,5 @@
 cabal-version:      2.4
-name:               my-regex
+name:               my-recursive
 version:            0.1.0.0
 
 -- A short (one-line) description of the package.
@@ -27,10 +27,5 @@ library
     , base
     , directory
     , filepath
-    , regex-posix  ^>=0.96.0.1
 
-  exposed-modules:
-    Glob
-    GlobRegex
-    GlobRegexEither
-    Useful
+  exposed-modules:  RecursiveContents

@@ -2,6 +2,47 @@
 
 \begin{document}
 
-WIP
+略
+
+\subsection*{简单开始：递归展示一个路径}
+
+在设计我们的库之前，让我们先解决几个小问题。我们的第一个问题就是递归的列出一个路径的所有文件与子路径。
+
+\begin{lstlisting}[language=Haskell]
+  module RecursiveContents (getRecursiveContents) where
+
+  import Control.Monad (forM)
+  import System.Directory (doesDirectoryExist, getDirectoryContents)
+  import System.FilePath ((</>))
+
+  getRecursiveContents topdir = do
+    names <- getDirectoryContents topdir
+    let properNames = filter (`notElem` [".", ".."]) names
+    paths <- forM properNames $ \name -> do
+      let path = topdir </> name
+      isDirectory <- doesDirectoryExist path
+      if isDirectory
+        then getRecursiveContents path
+        else return [path]
+    return (concat paths)
+\end{lstlisting}
+
+% TODO
+
+\subsection*{一个简单的查询函数}
+
+\subsection*{判断：从平穷到富裕，同时保持 pure}
+
+\subsection*{安全的调整文件大小}
+
+\subsection*{用于判断的领域特定语言}
+
+\subsection*{控制遍历}
+
+\subsection*{密度，可读性与学习过程}
+
+\subsection*{另一个角度看待遍历}
+
+\subsection*{有用的编码指导}
 
 \end{document}
