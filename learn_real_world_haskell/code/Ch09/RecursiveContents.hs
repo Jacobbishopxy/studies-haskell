@@ -9,6 +9,7 @@ import Control.Monad (forM)
 import System.Directory (doesDirectoryExist, getDirectoryContents)
 import System.FilePath ((</>))
 
+getRecursiveContents :: FilePath -> IO [FilePath]
 getRecursiveContents topdir = do
   names <- getDirectoryContents topdir
   let properNames = filter (`notElem` [".", ".."]) names

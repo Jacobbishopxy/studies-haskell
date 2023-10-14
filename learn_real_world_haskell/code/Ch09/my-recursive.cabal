@@ -28,4 +28,6 @@ library
     , directory
     , filepath
 
-  exposed-modules:  RecursiveContents
+  exposed-modules:
+    RecursiveContents
+    SimpleFinder

@@ -15,6 +15,7 @@
   import System.Directory (doesDirectoryExist, getDirectoryContents)
   import System.FilePath ((</>))
 
+  getRecursiveContents :: FilePath -> IO [FilePath]
   getRecursiveContents topdir = do
     names <- getDirectoryContents topdir
     let properNames = filter (`notElem` [".", ".."]) names
@@ -27,15 +28,184 @@
     return (concat paths)
 \end{lstlisting}
 
-% TODO
+\acode{filter}表达式确保一个路径列表中不会包含特殊的路径名称，例如\acode{.}或者\acode{..}。如果没有过滤它们则会有无限的递归。
+
+这里又遇到了上一章的\acode{forM}；它等同于\acode{mapM}只不过参数调转了：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :m +Control.Monad
+  ghci> :t mapM
+  mapM :: (Traversable t, Monad m) => (a -> m b) -> t a -> m (t b)
+  ghci> :t forM
+  forM :: (Traversable t, Monad m) => t a -> (a -> m b) -> m (t b)
+\end{lstlisting}
+
+与原文（如下）不同：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :m +Control.Monad
+  ghci> :type mapM
+  mapM :: (Monad m) => (a -> m b) -> [a] -> m [b]
+  ghci> :type forM
+  forM :: (Monad m) => [a] -> (a -> m b) -> m [b]
+\end{lstlisting}
+
+函数体中会检查当前输入是否为一个路径：如果是，则递归调用\acode{getRecursiveContents}来列举该路径；否则，它返回一个单例列表，
+即当前输入的名称。（别忘了\acode{return}函数在 Haskell 有独特的意义：它通过单子类型构造函数来包装一个值。）
+
+另一个值得指出的点在于变量\acode{isDirectory}的使用。一个命令式的语言例如 Python，通常会表述为\acode{if os.path.isdir(path)}，
+然而\acode{doesDirectoryExist}函数是一个\textit{action}；它的返回类型是\acode{IO Bool}而不是\acode{Bool}。又因为一个
+\acode{if}表达式需要的是\acode{Bool}类型，我们需要使用\acode{<-}来获取被 \acode{IO} 所包裹着的 action 的\acode{Bool}返回，
+这样才能在\acode{if}中使用解包过后的\acode{Bool}。
+
+每个 loop 的便利都会返回一个名称列表，因此这里\acode{forM}的结果是\acode{IO [[FilePath]]}。我们使用\acode{concat}将其打平
+称为一个列表。
+
+\subsubsection*{重访匿名与命名函数}
+
+在之前的匿名（lambda）函数的章节中，我们列举了一些不要使用匿名函数的原因，然而在这里我们使用了一个匿名函数作为 loop 的本体。这就是
+Haskell 中最常见的匿名函数使用方法。
+
+我们已经从\acode{forM}与\acode{mapM}的类型中得知它们接受函数作为参数。大多数的 loop 本体会是一个在程序中出现一次的代码块。因为
+我们只会在一处使用这个 loop 本体，那么为什么要给它一个名称呢？
+
+当然了，有时我们需要在若干地方部署同样的代码。这种情况下与其复制黏贴一个匿名函数，不如给已存在的函数一个名称。
+
+\subsubsection*{为什么同时提供了\acode{mapM}与\acode{forM}？}
+
+同时存在两个除了参数顺序不同功能却一样的函数看起来有点奇怪，实际上它们适用于不同的场景。
+
+考虑上述例子，使用匿名函数作为函数体。如果我们使用\acode{mapM}而不是\acode{forM}，那么则需要将变量\acode{properNames}放置在
+函数体之后。为了让代码能被正确的解析，我们还需要将整个匿名函数体用圆括号包裹起来，或者是用一个命名函数来代替。
+
+相反，如果 loop 本体就是一个命名函数，且需要遍历的列表是由一个复杂的表达式计算而得的时候，那么就有更好的理由使用\acode{mapM}了。
 
 \subsection*{一个简单的查询函数}
 
-\subsection*{判断：从平穷到富裕，同时保持 pure}
+我们可以是用\acode{getRecursiveContents}函数作为一个简单的文件查询的基础：
+
+\begin{lstlisting}[language=Haskell]
+  import RecursiveContents (getRecursiveContents)
+
+  simpleFind :: (FilePath -> Bool) -> FilePath -> IO [FilePath]
+  simpleFind p path = do
+    names <- getRecursiveContents path
+    return $ filter p names
+\end{lstlisting}
+
+这个函数接受一个谓词，用于筛选\acode{getRecursiveContents}所返回的名称。每个传递到谓词的名称都是一个完整的路径，那么我们该如何执行
+一个类似“找到所有后缀为\acode{.c}的文件”这样的常规操作呢？
+
+\acode{System.FilePath}模块包含了大量的宝贵的函数可以帮助我们操作文件名。上述案例可以用\acode{takeExtension}。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :m +System.FilePath
+  ghci> :t takeExtension
+  takeExtension :: FilePath -> String
+  ghci> takeExtension "foo/bar.c"
+  ".c"
+  ghci> takeExtension "quux"
+  ""
+\end{lstlisting}
+
+这样我们就可以编写一个接受路径并提取后缀再与\acode{.c}进行比较的函数了：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :l SimpleFinder
+  [1 of 2] Compiling RecursiveContents ( RecursiveContents.hs, interpreted )
+  [2 of 2] Compiling Main             ( SimpleFinder.hs, interpreted )
+  Ok, two modules loaded.
+  ghci> :t simpleFind (\p -> takeExtension p == ".c")
+  simpleFind (\p -> takeExtension p == ".c")
+    :: FilePath -> IO [FilePath]
+\end{lstlisting}
+
+虽然\acode{simpleFind}可以工作，不过还有一些瑕疵。首先是谓词并没有很强的表达力。它只能查看一个路径名称，而不能知晓输入的是一个
+文件还是路径。这就意味着尝试使用\acode{simpleFind}将列出\acode{.c}结尾的目录已经具有相同扩展名的文件。
+
+其次就是\acode{simpleFind}没有提供该如何遍历文件系统的控制。为什么这点很重要，可以考虑一下在拥有子版本管理的树形文件系统下，
+进行源文件的搜索。子版本在每个它管理的路径下都会维护一个私有的\acode{.svn}路径；它们每一个包含了若干我们不需要考虑的子文件夹与文件。
+虽然我们可以简单的过滤掉任何包含\acode{.svn}的情况，不过更有效的方式则是在第一时间就避免这些文件夹的遍历。
+
+最后就是\acode{simpleFind}是严格执行的，因为它包含了一系列在\acode{IO}单子中所执行的 actions。如果我们有上百万的文件需要遍历，
+我们则需要等待很久并且还会得到一个巨大的包含了百万名称的结果。这对于资源管理与响应速度而言都非常的不好。我们更加倾向于一个惰性流式的
+结果。
+
+\subsection*{谓词：从贫穷到富裕，同时保持 pure}
+
+我们的谓词只能查看文件名称。这就包含了大量有趣的行为：例如当我们想要展示的文件大于给定的大小时。
+
+一个比较简单的做法就是修改\acode{IO}：谓词的类型不再是\acode{FilePath -> Bool}，而改为\acode{FilePath -> IO Bool}。
+这使得我们可以用任意 I/O 作为谓词函数的一部分。尽管这看起来很吸引人，但它也有潜在的问题：这样的谓词可能会有任意的副作用，因为返回
+类型为 I/O a 的函数可以拥有任意的副作用。
+
+让我们利用类型系统来编写更加可以预测，更是 bug 的代码：我们将通过避免 “IO” 污染来保持谓词的纯粹性。这样可以确保它们不会产生任何
+讨厌的副作用。同时我们还会喂给它们更多的信息，这样它们就能获得我们想要的表达能力，而不会成为潜在的危险。
+
+Haskell 的\acode{System.Directory}模块提供了一组有用的文件元数据。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :m +System.Director
+\end{lstlisting}
+
+\begin{itemize}
+  \item 我们可以使用\acode{doesFileExist}与\acode{doesDirectoryExist}来判断一个输入是否是文件还是路径。近些年暂时还没有
+        便捷的方法来查看其它的文件类型，例如命名通道，软硬链接等。
+
+        \begin{lstlisting}[language=Haskell]
+          ghci> :t doesFileExist
+          doesFileExist :: FilePath -> IO Bool
+          ghci> doesFileExist "."
+          False
+          ghci> :t doesDirectoryExist
+          doesDirectoryExist :: FilePath -> IO Bool
+          ghci> doesDirectoryExist "."
+          True
+        \end{lstlisting}
+  \item \acode{getPermissions}函数允许我们得知对于一个文件或者路径的操作是否合法
+
+        \begin{lstlisting}[language=Haskell]
+          ghci> :t getPermissions
+          getPermissions :: FilePath -> IO Permissions
+          ghci> :i Permissions
+          type Permissions :: *
+          data Permissions
+            = directory-1.3.6.2:System.Directory.Internal.Common.Permissions {readable :: Bool,
+                                                                              writable :: Bool,
+                                                                              executable :: Bool,
+                                                                              searchable :: Bool}
+                  -- Defined in ‘directory-1.3.6.2:System.Directory.Internal.Common’
+          instance [safe] Eq Permissions
+            -- Defined in ‘directory-1.3.6.2:System.Directory.Internal.Common’
+          instance [safe] Ord Permissions
+            -- Defined in ‘directory-1.3.6.2:System.Directory.Internal.Common’
+          instance [safe] Show Permissions
+            -- Defined in ‘directory-1.3.6.2:System.Directory.Internal.Common’
+          instance [safe] Read Permissions
+            -- Defined in ‘directory-1.3.6.2:System.Directory.Internal.Common’
+          ghci> getPermissions "."
+          Permissions {readable = True, writable = True, executable = False, searchable = True}
+          ghci> :t searchable
+          searchable :: Permissions -> Bool
+          ghci> searchable it
+        \end{lstlisting}
+  \item 最后则是\acode{getModificationTime}可以告诉我们输入是何时被修改的：
+        \begin{lstlisting}[language=Haskell]
+          ghci> :t getModificationTime
+          getModificationTime
+            :: FilePath
+               -> IO time-1.11.1.1:Data.Time.Clock.Internal.UTCTime.UTCTime
+          ghci> getModificationTime "."
+          2023-10-14 13:58:10.895659105 UTC
+        \end{lstlisting}
+\end{itemize}
+
+% TODO
+
 
 \subsection*{安全的调整文件大小}
 
-\subsection*{用于判断的领域特定语言}
+\subsection*{用于谓词的领域特定语言}
 
 \subsection*{控制遍历}
 
