@@ -27,7 +27,9 @@ library
     , base
     , directory
     , filepath
+    , time
 
   exposed-modules:
+    BetterPredicate
     RecursiveContents
     SimpleFinder

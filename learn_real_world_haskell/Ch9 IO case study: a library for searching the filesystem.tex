@@ -200,12 +200,156 @@ Haskell 的\acode{System.Directory}模块提供了一组有用的文件元数据
         \end{lstlisting}
 \end{itemize}
 
-% TODO
+那么对于新的谓词而言有多少数据是需要知道的呢？由于可以通过\acode{Permissions}来查看一个输入是否为文件还是路径，因此我们不再需要
+\acode{doesFileExist}与\acode{doesDirectoryExist}。这样我们有了四个需要查看的数据：
 
+\begin{lstlisting}[language=Haskell]
+  import Control.Exception (bracket, handle)
+  import Control.Monad (filterM)
+  import Data.Time.Clock (UTCTime)
+  import RecursiveContents (getRecursiveContents)
+  import System.Directory (Permissions (..), getModificationTime, getPermissions)
+  import System.FilePath (takeExtensions)
+  import System.IO (IOMode (..), hClose, hFileSize, openFile)
+
+  type Predicate =
+    FilePath ->
+    Permissions ->
+    Maybe Integer ->
+    UTCTime ->
+    Bool
+\end{lstlisting}
+
+与原文不同之处在于导入部分，由于\acode{import System.Time (ClockTime(..))}已经废弃了，根据\acode{getModificationTime}
+可知需要使用\acode{import Data.Time.Clock (UTCTime)}。
+
+我们的\acode{Predicate}类型就是一个有着四个参数函数的别名。
+
+注意谓词的返回类型是\acode{Bool}而不是\acode{IO Bool}：谓词是纯的，并不运行 I/O。有了这个类型，编写一个更具表达性的查询函数就
+好办了。
+
+\begin{lstlisting}[language=Haskell]
+  getFileSize :: FilePath -> IO (Maybe Integer)
+  getFileSize = undefined
+
+  betterFind :: Predicate -> FilePath -> IO [FilePath]
+  betterFind p path = getRecursiveContents path >>= filterM check
+    where
+      check name = do
+        perms <- getPermissions name
+        size <- getFileSize name
+        modified <- getModificationTime name
+        return $ p name perms size modified
+\end{lstlisting}
+
+我们暂时先跳过\acode{getFileSize}函数，稍后会进行讲解。
+
+我们不能使用\acode{filter}来调用谓词\acode{p}，因为\acode{p}的纯性意味着它不能执行收集所需元数据所需的 I/O。
+
+这时就需要一个我们并不熟悉的\acode{filterM}函数了，它的行为类似于普通的\acode{filter}函数，不过是在\acode{IO}单子中对谓词进行
+计算，即允许谓词执行 I/O。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :m +Control.Monad
+  ghci> :t filterM
+  filterM :: Applicative m => (a -> m Bool) -> [a] -> m [a]
+\end{lstlisting}
 
 \subsection*{安全的调整文件大小}
 
+虽然\acode{System.Directory}没有提供文件大小的查询，不过我们可以用\acode{System.IO}来做。它包含了一个名为\acode{hFileSize}
+的函数，可以返回一个文件的字节大小。
+
+\begin{lstlisting}[language=Haskell]
+  simpleFileSize :: FilePath -> IO Integer
+  simpleFileSize path = do
+    h <- openFile path ReadMode
+    size <- hFileSize h
+    hClose h
+    return size
+\end{lstlisting}
+
+虽然这个函数可以工作，但是它还不能为我们所用。在\acode{betterFind}中，我们可以无条件的对任何地址输入调用\acode{getFileSize}；
+如果输入的不是一个文件它会返回\acode{Nothing}，否则返回\acode{Just}。实际上该函数的输入不是一个文件或者不能打开文件（权限不够）时
+会抛出异常。
+
+以下是一个安全版本：
+
+\begin{lstlisting}[language=Haskell]
+  saferFileSize :: FilePath -> IO (Maybe Integer)
+  saferFileSize path = handle errorHandler $ do
+    h <- openFile path ReadMode
+    size <- hFileSize h
+    hClose h
+    return $ Just size
+    where
+      errorHandler :: SomeException -> IO (Maybe Integer)
+      errorHandler _ = return Nothing
+\end{lstlisting}
+
+这里与原文不同在于匿名函数\acode{handle (\_ -> return Nothing)}改成了\acode{errorHandler}，并标注了类型
+\acode{errorHandler :: SomeException -> IO (Maybe Integer)}。（与第八章的处理方式一致）
+
+函数体内部几乎是一致的，除了\acode{handle}子句。
+
+这里的异常处理是只要有异常发生就返回\acode{Nothing}，其余的改动就是返回值被包裹了\acode{Just}。
+
+\acode{saferFileSize}函数现在拥有了正确的类型签名，也不会再抛出任何异常了，不过它仍然不完整。这里只处理了\acode{openFile}的异常，
+但是\acode{hFileSize}仍然会抛出异常，比如说命名管道。这样的异常会被\acode{handle}捕获，但是我们的\acode{hClose}永远不会被执行。
+
+Haskell 的实现会在文件句柄不再使用时自动关闭，但是这要在垃圾回收时才会发生，而接下来垃圾回收的时间却不能保证。
+
+文件句柄是稀有资源，这份稀有性是由操作系统决定的，比如 Linux 系统中一个进程默认同时打开文件的最大数量是 1024 个。
+
+这不难想象一个场景，在调用了使用了\acode{saferFileSize}的\acode{betterFind}函数因为穷尽了最大文件开启数，而垃圾回收还没开始时，
+程序崩溃了。
+
+这是一种特别危险的 bug：它会在若干条件组合在一起时变得难以追踪。在\acode{betterFind}访问了足够多数量的非文件时句柄没有被关闭而达到了
+进程最大文件开启数的上限，然后在垃圾回收还未发生之前又打开了另外的文件。
+
+更糟糕的是，任何后续错误都是由程序中无法访问数据而引起，并且还没有垃圾回收。出现这样的 bug 依赖于程序结构，文件系统内容，以及当前程序的
+运行时还未触发垃圾回收。
+
+这样的问题在开发的过程中很容易被忽视，然后后续发生时会让诊断变得异常困难。
+
+\subsubsection*{获取-使用-释放}
+
+我们需要\acode{openFile}成功时\acode{hClose}能总是被调用。\acode{Control.Exception}模块为此提供了\acode{bracket}函数。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :m +Control.Exception
+  ghci> :type bracket
+  bracket :: IO a -> (a -> IO b) -> (a -> IO c) -> IO c
+\end{lstlisting}
+
+\acode{bracket}函数接受三个 actions 参数。第一个 action 用于获取一个资源，第二个则是释放资源，第三个则是介于前面两者之间，让我们
+称其为“使用” action。如果“获取” action 成功了，“释放” action \textit{总是}会被调用。这确保了资源总是能被释放。“使用”和“释放”
+actions 分别传给了“获取” action。
+
+当“使用” action 在执行时发生了异常，\acode{bracket}会调用“释放” action 然后再重新抛出异常。如果“使用” action 成功了，
+\acode{bracket}会调用“释放” action 然后再返回”使用“ action 所返回的值。
+
+我们现在可以编写一个完全安全的函数了：它不会抛出异常；也不会产生句柄垃圾而导致程序崩溃。
+
+\begin{lstlisting}[language=Haskell]
+  getFileSize :: FilePath -> IO (Maybe Integer)
+  getFileSize path = handle errorHandler $
+    bracket (openFile path ReadMode) hClose $ \h -> do
+      size <- hFileSize h
+      return (Just size)
+    where
+      errorHandler :: SomeException -> IO (Maybe Integer)
+      errorHandler _ = return Nothing
+\end{lstlisting}
+
+让我们看一下这里的\acode{bracket}，首先是打开文件，返回打开文件的句柄，接着是关闭句柄，最后是对句柄调用\acode{hFileSize}并将结果
+包装进\acode{Just}。
+
+我们需要同时使用\acode{bracket}与\acode{handle}才能达成目的。前者能保证垃圾文件句柄不会堆积，后者确保异常被处理。
+
 \subsection*{用于谓词的领域特定语言}
+
+% TODO
 
 \subsection*{控制遍历}
 
