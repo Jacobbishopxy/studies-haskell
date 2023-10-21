@@ -349,7 +349,240 @@ actions 分别传给了“获取” action。
 
 \subsection*{用于谓词的领域特定语言}
 
-% TODO
+让我们尝试着写一个谓词，我们的谓词将会检查一个 C++ 源文件是否超过了 128KB。
+
+\begin{lstlisting}[language=Haskell]
+  myTest path _ (Just size) _ = takeExtension path == ".cpp" && size > 131072
+  myTest _ _ _ _ = False
+\end{lstlisting}
+
+这看起来并不怎么样。谓词有四个参数，总是忽略其中两个，定义另外两个。我们当然可以做的更好，让我们编写一些让谓词变得更简洁的代码。
+
+有时这类库被认为是\textit{内嵌领域特定语言}：我们使用编程语言的工具（因此是\textit{内嵌的}）来编写代码用以优雅的解决特类问题
+（因此是\textit{领域特定的}）。
+
+第一步首先是编写一个返回某个参数的函数。下面是从传入至\acode{Predicate}的参数中提取 path：
+
+\begin{lstlisting}[language=Haskell]
+  pathP path _ _ _ = path
+\end{lstlisting}
+
+如果不提供一个类型签名，Haskell 则会为该函数推导出一个非常通用的类型。这在未来可能会带来错误而难以解析，因此我们给\acode{pathP}
+一个类型。
+
+\begin{lstlisting}[language=Haskell]
+  type InfoP a =
+    FilePath -> -- path to directory entry
+    Permissions -> -- permissions
+    Maybe Integer -> -- file size (Nothing if not file)
+    UTCTime -> -- last modified
+    a
+
+  pathP :: InfoP FilePath
+  pathP path _ _ _ = path
+\end{lstlisting}
+
+我们创建了一个类型同义词使得可以将其用于其它类似结构函数。该类型同义词接受一个类型参数，这样我们就可以指定不同的结果类型。
+
+\begin{lstlisting}[language=Haskell]
+  sizeP :: InfoP Integer
+  sizeP _ _ (Just size) _ = size
+  sizeP _ _ Nothing _ = -1
+\end{lstlisting}
+
+实际上，本章较早之前所定义的\acode{Predicate}类型与\acode{InfoP Bool}是一致的。（因此我们可以去除\acode{Predicate}类型。）
+
+那么\acode{pathP}与\acode{sizeP}怎么用呢？通过一点点粘合，可以将它们放入谓词中使用（\acode{P}后缀即意味着“predicate”）。
+
+\begin{lstlisting}[language=Haskell]
+  equalP :: (Eq a) => InfoP a -> a -> InfoP Bool
+  -- equalP f k = \w x y z -> f w x y z == k
+  equalP f k w x y z = f w x y z == k
+\end{lstlisting}
+
+\acode{equalP}的类型签名值得注意。它接受一个\acode{InfoP a}，同时兼容\acode{pathP}与\acode{sizeP}。它接受一个\acode{a}，
+返回一个\acode{InfoP Bool}，即\acode{Predicate}的同义词。换言之，\acode{equalP}构建一个谓语。
+
+\acode{equalP}函数通过返回一个匿名函数来工作。该匿名函数接受一个谓词作为参数，将其传递给\acode{f}，接着将其返回与\acode{k}作比较。
+
+由于 Haskell 的所有函数都是柯里化的，这么编写\acode{equalP}实际上并不必要。我们可以省略匿名函数接着依赖柯里化来完成剩下的部分，
+现在让我们来编写一个相同效果的函数。
+
+\begin{lstlisting}[language=Haskell]
+  equalP' :: (Eq a) => InfoP a -> a -> InfoP Bool
+  equalP' f k w x y z = f w x y z == k
+\end{lstlisting}
+
+在继续探索之前，让我们将我们的模块加载至\textbf{ghci}。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :l BetterPredicate.hs
+  [1 of 2] Compiling RecursiveContents ( RecursiveContents.hs, interpreted )
+  [2 of 2] Compiling Main             ( BetterPredicate.hs, interpreted )
+  Ok, two modules loaded.
+\end{lstlisting}
+
+让我们看看由这些函数所构建的谓词是否生效。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t betterFind (sizeP `equalP` 1024)
+  betterFind (sizeP `equalP` 1024) :: FilePath -> IO [FilePath]
+\end{lstlisting}
+
+注意我们并没有真正的调用\acode{betterFind}，不过却能确认表达式的类型。我们现在拥有了一个更具表现力的方式来展示所有相同大小的文件。
+
+\subsubsection*{通过 lifting 避免重复}
+
+除开\acode{equalP}，我们还可以编写其它的二元函数。我们倾向于不为每个定义都编写一个完整的定义，因为这看起来啰嗦而没有必要。
+
+为此让我们使用 Haskell 的抽象能力。我们将\acode{equalP}的定义而不是直接调用\acode{(==)}，将其作为参数传递给希望调用的二元函数中。
+
+\begin{lstlisting}[language=Haskell]
+  liftP :: (a -> b -> c) -> InfoP a -> b -> InfoP c
+  liftP q f k w x y z = f w x y z `q` k
+
+  greaterP, lesserP :: (Ord a) => InfoP a -> a -> InfoP Bool
+  greaterP = liftP (>)
+  lesserP = liftP (<)
+\end{lstlisting}
+
+这里接受如\acode{(>)}这样的函数，转换它为另一个作用于不同上下文的函数，如\acode{greaterP}，这意味着将其\textit{提升 lifting}
+至该上下文。这解释了函数名中带有\acode{lift}。Lifting 让我们复用代码并且减少重复的模式。在本书的后续章节中，我们将大量的使用它。
+
+我们在提升一个函数时，通常会分别将其原始版本以及新版本称为\textit{unlifted}与\textit{lifted}。
+
+通过这种方式，我们的\acode{q}（需要提升的函数）作为\acode{liftP}的第一个参数是经过深思熟虑的。这使得可以编写如\acode{greaterP}
+以及\acode{lesserP}这样简洁的定义。相较于其它的语言，偏应用使得寻找“最佳”的参数顺序成为了 Haskell 中 API 设计中更为重要的环节。
+在没有偏应用的语言中，参数的顺序在于使用习惯与方便性。而在 Haskell 中将参数设计在错误的位置，则会丢失偏应用所带来的简洁性。
+
+我们可以通过组合子来复现一下这样的简洁性。例如，\acode{forM}在 2007 年之前并没有被加入至\acode{Control.Monad}模块中，更早之前人们
+则会使用\acode{flip mapM}来替代。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :m +Control.Monad
+  ghci> :t mapM
+  mapM :: (Traversable t, Monad m) => (a -> m b) -> t a -> m (t b)
+  ghci> :t forM
+  forM :: (Traversable t, Monad m) => t a -> (a -> m b) -> m (t b)
+  ghci> :t flip mapM
+  flip mapM
+    :: (Traversable t, Monad m) => t a -> (a -> m b) -> m (t b)
+\end{lstlisting}
+
+与原文不同之处在于上述函数变得更加泛化了，从之前的只对列表生效变为了对所有满足\acode{Traversable} typeclass 的类型生效。
+
+\subsubsection*{将谓词们粘合在一起}
+
+如果我们希望组合谓词们，那么就可以遵循之前所做的那样：
+
+\begin{lstlisting}[language=Haskell]
+  simpleAndP :: InfoP Bool -> InfoP Bool -> InfoP Bool
+  simpleAndP f g w x y z = f w x y z && g w x y z
+\end{lstlisting}
+
+现在我们了解了 lifting，那么减少之前必须为布尔值操作符所编写的代码量就变得很自然了。
+
+\begin{lstlisting}[language=Haskell]
+  liftP2 :: (a -> b -> c) -> InfoP a -> InfoP b -> InfoP c
+  liftP2 q f g w x y z = f w x y z `q` g w x y z
+
+  andP2 = liftP (&&)
+  orP2 = liftP (||)
+\end{lstlisting}
+
+注意\acode{liftP2}跟之前的\acode{liftP}很像。实际上前者更通用，因为我们可以根据\acode{liftP2}来编写\acode{liftP}：
+
+\begin{lstlisting}[language=Haskell]
+  constP :: a -> InfoP a
+  constP k _ _ _ _ = k
+
+  liftP' q f k w x y z = f w x y z `q` constP k w x y z
+\end{lstlisting}
+
+\begin{anote}
+  组合子 Combinators
+
+  Haskell 中，我们将接受函数作为参数并返回新函数的函数成为组合子。
+\end{anote}
+
+现在我们有了些帮助函数，可以回到较早之前定义的\acode{myTest}函数了。
+
+\begin{lstlisting}[language=Haskell]
+  myTest :: (Ord a, Num a) => FilePath -> p1 -> Maybe a -> p2 -> Bool
+  myTest path _ (Just size) _ = takeExtension path == ".cpp" && size > 131072
+  myTest _ _ _ _ = False
+\end{lstlisting}
+
+那么该函数使用新的组合子会长什么样呢？
+
+\begin{lstlisting}[language=Haskell]
+  liftPath :: (FilePath -> a) -> InfoP a
+  liftPath f w _ _ _ = f w
+
+  myTest2 = (liftPath takeExtension `equalP` ".cpp") `andP` (sizeP `greaterP` 131072)
+\end{lstlisting}
+
+我们添加了一个最终的组合子，\acode{liftPath}，因为操作文件名是一个常用的操作。
+
+\subsubsection*{定义与使用新的操作符}
+
+我们还可以通过定义新的中缀操作符来让我们的领域特定语言更进一步。
+
+\begin{lstlisting}[language=Haskell]
+  -- explicit annotation
+  (==?) :: InfoP String -> String -> InfoP Bool
+  (==?) = equalP
+
+  (&&?) :: InfoP Bool -> InfoP Bool -> InfoP Bool
+  (&&?) = andP
+
+  -- explicit annotation
+  (>?) :: InfoP Integer -> Integer -> InfoP Bool
+  (>?) = greaterP
+
+  myTest3 = (liftPath takeExtension ==? ".cpp") &&? (sizeP >? 131072)
+\end{lstlisting}
+
+注意与原文不同之处在于\acode{(==?)}以及\acode{(>?)}加上了显式类型签名，因为在没有\acode{myTest3}时，编译器无法正确的进行类型推导
+而导致编译错误。
+
+我们选择如\acode{(==?)}这样的名称作为提升函数，这样可以在视觉上与原始函数对应。
+
+上面定义中的圆括号是必要的，因为我们没有告诉 Haskell 新操作符的优先级或结合性。语言规定没有固定声明的操作符应被视为\acode{infixl 9}，
+即在最高优先级从左到右求值。
+
+我们可以通过为新操作符编写固定声明，第一步是找出未提升的操作符使得可以模拟它们。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :i ==
+  type Eq :: * -> Constraint
+  class Eq a where
+    (==) :: a -> a -> Bool
+    ...
+          -- Defined in ‘GHC.Classes’
+  infix 4 ==
+  ghci> :i &&
+  (&&) :: Bool -> Bool -> Bool    -- Defined in ‘GHC.Classes’
+  infixr 3 &&
+  ghci> :i >
+  type Ord :: * -> Constraint
+  class Eq a => Ord a where
+    ...
+    (>) :: a -> a -> Bool
+    ...
+          -- Defined in ‘GHC.Classes’
+  infix 4 >
+\end{lstlisting}
+
+有了它们以后，我们可以编写一个不带圆括号的表达式，解析后与\acode{myTest3}一致：
+
+\begin{lstlisting}[language=Haskell]
+  infix 4 ==?
+  infixr 3 &&?
+  infix 4 >?
+
+  myTest4 = liftPath takeExtension ==? ".cpp" &&? sizeP >? 131072
+\end{lstlisting}
 
 \subsection*{控制遍历}
 
