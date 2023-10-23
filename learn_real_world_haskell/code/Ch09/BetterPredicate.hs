@@ -5,7 +5,7 @@
 
 import Control.Exception (SomeException, bracket, handle)
 import Control.Monad (filterM)
-import Data.Time.Clock (UTCTime)
+import Data.Time (UTCTime)
 import GHC.IO.Handle.FD (withFile)
 import RecursiveContents (getRecursiveContents)
 import System.Directory (Permissions (..), getModificationTime, getPermissions)

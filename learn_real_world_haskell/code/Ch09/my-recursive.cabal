@@ -31,5 +31,6 @@ library
 
   exposed-modules:
     BetterPredicate
+    ControlledVisit
     RecursiveContents
     SimpleFinder
