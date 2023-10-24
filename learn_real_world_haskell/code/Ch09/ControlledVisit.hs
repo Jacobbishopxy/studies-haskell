@@ -3,13 +3,15 @@
 -- date: 2023/10/22 19:31:48 Sunday
 -- brief:
 
+module ControlledVisit (Info, getUsefulContents, getInfo, isDirectory, takeFileName, infoPath) where
+
 import Control.Exception (SomeException (SomeException), bracket, handle)
 import Control.Monad (liftM)
 import Data.Time (UTCTime)
 import Data.Traversable (forM)
 import GHC.IO.Handle (hClose, hFileSize)
 import System.Directory (Permissions (searchable), getDirectoryContents, getModificationTime, getPermissions)
-import System.FilePath ((</>))
+import System.FilePath (takeFileName, (</>))
 import System.IO (IOMode (ReadMode), openFile, withFile)
 
 data Info = Info
@@ -59,3 +61,23 @@ getUsefulContents path = do
 
 isDirectory :: Info -> Bool
 isDirectory = maybe False searchable . infoPerms
+
+-- ////////////////////////////////////////////////////////////////////////////////////////////////
+-- less experienced Haskell programmer
+
+traverseVerbose order path = do
+  names <- getDirectoryContents path
+  let usefulNames = filter (`notElem` [".", ".."]) names
+  contents <- mapM getEntryName ("" : usefulNames)
+  recursiveContents <- mapM recurse (order contents)
+  return (concat recursiveContents)
+  where
+    getEntryName name = getInfo (path </> name)
+    -- isDirectory info = case infoPerms info of
+    --   Nothing -> False
+    --   Just perms -> searchable perms
+    isDirectory info = maybe False searchable (infoPerms info)
+    recurse info = do
+      if isDirectory info && infoPath info /= path
+        then traverseVerbose order (infoPath info)
+        else return [info]

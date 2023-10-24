@@ -433,7 +433,7 @@ actions 分别传给了“获取” action。
 
 \subsubsection*{通过 lifting 避免重复}
 
-除开\acode{equalP}，我们还可以编写其它的二元函数。我们倾向于不为每个定义都编写一个完整的定义，因为这看起来啰嗦而没有必要。
+除开\acode{equalP}，我们还可以编写其它的二元函数。我们倾向于不为每个定义都编写一个完整的定义，因为这看起来冗余而没有必要。
 
 为此让我们使用 Haskell 的抽象能力。我们将\acode{equalP}的定义而不是直接调用\acode{(==)}，将其作为参数传递给希望调用的二元函数中。
 
@@ -669,12 +669,136 @@ actions 分别传给了“获取” action。
 
 这里唯一需要注意的是一个有用的组合子\acode{maybeIO}，其将一个可能会抛出异常的\acode{IO} action，以\acode{Maybe}包装结果。
 
-\subsection*{密度，可读性与学习过程}
+\subsection*{密集，可读性与学习过程}
 
+Haskell 中像\acode{traverse'}这样密集的代码是不常见的。代码的表现力是很重要的，它需要相关的少量代码可以被流畅的阅读以及编写。
 
+对比一下下面相同作用的密集代码，这更像是一个经验较少的 Haskell 程序员所写的：
+
+\begin{lstlisting}[language=Haskell]
+  traverseVerbose order path = do
+  names <- getDirectoryContents path
+  let usefulNames = filter (`notElem` [".", ".."]) names
+  contents <- mapM getEntryName ("" : usefulNames)
+  recursiveContents <- mapM recurse (order contents)
+  return (concat recursiveContents)
+  where
+    getEntryName name = getInfo (path </> name)
+    isDirectory info = maybe False searchable (infoPerms info)
+    recurse info = do
+      if isDirectory info && infoPath info /= path
+        then traverseVerbose order (infoPath info)
+        else return [info]
+\end{lstlisting}
+
+与原文不同之处在于\acode{isDirectory}的\acode{case ... of}被\acode{maybe}替换了。
+
+编写可维护的 Haskell 代码的关键是在密集与可读性中寻找平衡。
 
 \subsection*{另一个角度看待遍历}
 
+尽管\acode{traverse'}函数相较于\acode{betterFind}函数，给与了我们更多的控制，但它还有一个重要的不足：我们可以在路径上进行递归，却不能
+过滤其它的名称，直到我们构建了整个列表的名称树。如果遍历的路径包含了 100,000 个文件，而我们只关心其中三个，我们将分配 100,000 个元素的
+列表，然后才有机会修剪改列表保留三个所需的元素。
+
+一种解决方案就是提供一个筛选函数作为\acode{traverse'}的参数，这样可以将其应用在我们生成的名称列表上。这使得分配的列表只包含所需的元素。
+
+然而这种方案同样有一个弱点：假设我们知道只需三个元素，而这三个元素在 100,000 个元素的前排，这种情况下我们无需再访问剩余的 99,997 个元素。
+这绝不是一个人为的例子：例如，邮箱的文件夹里的邮件，一个路径代表了邮箱所包含的千分之十的文件是非常常见的。
+
+我们可以从另一个角度来解决上述两种方案的弱点：如果我们将文件系统的遍历视为一个路径层次的\textit{折叠 fold}呢？
+
+我们熟知的 fold 有\acode{foldr}以及\acode{foldl'}，非常简洁的阐述了遍历一个列表并累积一个结果。延展折叠路径列表的概念并不难，不过我们
+所希望的是添加一个\textit{控制}到折叠上。我们将这个控制表述为一个代数数据类型。
+
+\begin{lstlisting}[language=Haskell]
+  import ControlledVisit (Info)
+
+  data Iterate seed
+    = Done {unwrap :: seed}
+    | Skip {unwrap :: seed}
+    | Continue {unwrap :: seed}
+    deriving (Show)
+
+  type Iterator seed = seed -> Info -> Iterate seed
+\end{lstlisting}
+
+\acode{Iterator}类型给与我们所想要折叠的函数了一个便捷的别名。它接受一个\acode{seed}以及一个用于表示路径的\acode{Info}值，返回一个新的
+\acode{seed}以及一个折叠函数的指示，该指示代表着\acode{Iterate}类型的构造函数。
+
+\begin{itemize}
+  \item 如果指示为\acode{Done}，那么遍历应该立即停止。由\acode{Done}所包装的值应该作为结果被返回。
+  \item 如果指示为\acode{Skip}，同时当前\acode{Info}代表着一个路径，遍历将不会在该路径上递归。
+  \item 其余情况下的遍历为\acode{Continue}，使用包装的值作为 fold 函数的下一个调用。
+\end{itemize}
+
+我们的折叠逻辑上是一个左折叠，因为折叠第一个输入，同时每一步的 seed 是上一步所返回的结果。
+
+\begin{lstlisting}[language=Haskell]
+  foldTree :: Iterator a -> a -> FilePath -> IO a
+  foldTree iter initSeed path = do
+    endSeed <- fold initSeed path
+    return $ unwrap endSeed
+    where
+      fold seed subpath = getUsefulContents subpath >>= walk seed
+      walk seed (name : names) = do
+        let path' = path </> name
+        info <- getInfo path'
+        case iter seed info of
+          done@(Done _) -> return done
+          Skip seed' -> walk seed' names
+          Continue seed'
+            | isDirectory info -> do
+                next <- fold seed' path'
+                case next of
+                  done@(Done _) -> return done
+                  seed'' -> walk (unwrap seed'') names
+            | otherwise -> walk seed' names
+      walk seed _ = return (Continue seed)
+\end{lstlisting}
+
+上述代码中有几个有趣的点。首先作用域的使用避免了额外的参数传递。顶层的\acode{foldTree}函数仅是\acode{fold}的一个包装，从\acode{fold}的
+构造函数中提取最终结果。
+
+由于\acode{fold}是一个本地函数，我们无需传递\acode{foldTree}的\acode{iter}变量给它；它本身就可以访问外层的作用域。同样的，\acode{walk}
+也可以看到外层作用域的\acode{path}。
+
+另一个值得关注的点就是\acode{walk}是一个尾递归循环，而非早前定义的函数中被\acode{forM}所调用的匿名函数。这使得可以在需要的时候停止循环，
+也就是当迭代器返回\acode{Done}时退出。
+
+尽管\acode{fold}调用\acode{walk}，\acode{walk}调用\acode{fold}递归的遍历子路径。每个函数返回一个被包装在\acode{Iterate}的 seed：当
+\acode{fold}被\acode{walk}调用再返回，\acode{walk}检测其结果并决定是否继续还是退出（\acode{Done}）。这种方式下，调用者提供的迭代器返回
+\acode{Done}时会立刻终止两个函数之间的递归调用。
+
+那么一个迭代器在实际使用上是什么样的呢？下面是一个复杂的例子，用于查看至多三个 bitmap 图像，且不会递归到 Subversion 元数据目录中。
+
+\begin{lstlisting}[language=Haskell]
+  atMostThreePictures :: Iterator [FilePath]
+  atMostThreePictures paths info
+    | length paths == 3 =
+        Done paths
+    | isDirectory info && takeFileName path == ".svn" =
+        Skip paths
+    | otherwise =
+        Continue paths
+    where
+      extension = map toLower $ takeExtension path
+      path = infoPath info
+\end{lstlisting}
+
+调用\acode{foldTree atMostThreePictures []}，返回值类型为\acode{IO [FilePath]}。
+
+当然了，迭代器也不需要很复杂。下面是一个统计路径数的例子：
+
+\begin{lstlisting}[language=Haskell]
+  countDirectories count info =
+  Continue (if isDirectory info then count + 1 else count)
+\end{lstlisting}
+
+这两门传递给\acode{foldTree}的初始 seed 需要是数字零。
+
 \subsection*{有用的编码指导}
+
+% TODO
 
 \end{document}
