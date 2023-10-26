@@ -134,7 +134,7 @@ gen-hie > hie.yaml
 
   - [Ch8 Efficient file processing, regular expressions, and file name matching](./learn_real_world_haskell/Ch8%20Efficient%20file%20processing,%20regular%20expressions,%20and%20file%20name%20matching.tex)
 
-  - Ch9 I/O case study: a library for searching the filesystem
+  - [Ch9 I/O case study: a library for searching the filesystem](./learn_real_world_haskell/Ch9%20IO%20case%20study:%20a%20library%20for%20searching%20the%20filesystem.tex)
 
   - Ch10 Code case study: parsing a binary data format
 
