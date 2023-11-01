@@ -2,6 +2,58 @@
 
 \begin{document}
 
-WIP
+本章我们将要探讨一个通用任务：解析一个二进制文件。使用该任务有两个目的，第一是借助解析来探讨程序的规划，重构，以及“模板化代码移除”。我们将
+展示如何简化重复的代码，并为我们在第 14 章 Monads 中做准备。
+
+我们将使用的文件格式源自 netpbm 套件，这是一个古老而可敬的用于处理位图图像的程序和文件格式集合。这些文件格式具有广泛的时候以及相当容易
+解析的双重有点。更重要的是为了方便起见，netpbm 文件没有被压缩。
+
+\subsection*{灰度文件}
+
+netpbm 的灰度文件格式为 PGM（“portable grey map”）。它有两种格式构；“plain”（或“P2”）格式是由 ASCII 编码的，而更常用的“raw”
+（“P5”）则是二进制格式。
+
+两种格式的文件都有 header，即一个用于描述格式的“魔力”字符串。对于一个 plain 文件而言，字符串为\acode{P2}；raw 文件则是\acode{P5}。
+紧随字符串后的则是一个空格然后再是三个数字：图片的宽度，长度，以及最大灰度。这些数字皆为 ASCII 小数，由空格分隔。
+
+接下来的就是图片数据。raw 文件中是二进制的字符串，plain 文件中则是由单空格字符分隔的 ASCII 小数构成。
+
+raw 文件可以包含一系列的图片，一张接着一张，每张由 header 开头；plain 文件仅包含一张图片。
+
+\subsection*{解析一个原始 PGM 文件}
+
+\subsection*{移除样板代码}
+
+\subsection*{隐式状态}
+
+\subsubsection*{唯一性解析器}
+
+\subsubsection*{Record 语义，更新，以及模式匹配}
+
+\subsubsection*{一个更有趣的解析器}
+
+\subsubsection*{获取与修改解析状态}
+
+\subsubsection*{报告解析异常}
+
+\subsubsection*{链起所有解析器}
+
+\subsection*{函子简介}
+
+\subsubsection*{类型定义上的约束并不好}
+
+\subsubsection*{fmap 的中缀使用}
+
+\subsubsection*{灵活的实例}
+
+\subsubsection*{更多有关函子}
+
+\subsection*{为解析编写函子实例}
+
+\subsection*{为解析使用函子}
+
+\subsection*{重写 PGM 解析器}
+
+\subsection*{未来的方向}
 
 \end{document}
