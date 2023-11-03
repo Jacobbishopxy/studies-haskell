@@ -2,10 +2,10 @@
 
 \begin{document}
 
-本章我们将要探讨一个通用任务：解析一个二进制文件。使用该任务有两个目的，第一是借助解析来探讨程序的规划，重构，以及“模板化代码移除”。我们将
-展示如何简化重复的代码，并为我们在第 14 章 Monads 中做准备。
+本章我们将要探讨一个通用任务：解析一个二进制文件。使用该任务有两个目的，第一是借助解析来探讨程序的规划，重构，以及“模板化代码移除”。
+我们将展示如何简化重复的代码，并为我们在第 14 章 Monads 中做准备。
 
-我们将使用的文件格式源自 netpbm 套件，这是一个古老而可敬的用于处理位图图像的程序和文件格式集合。这些文件格式具有广泛的时候以及相当容易
+我们将使用的文件格式源自 netpbm 套件，这是一个古老而可敬的用于处理位图图像的程序和文件格式集合。这些文件格式具有广泛的时候以及容易
 解析的双重有点。更重要的是为了方便起见，netpbm 文件没有被压缩。
 
 \subsection*{灰度文件}
@@ -130,13 +130,144 @@ Haskell 中是一个常规操作。通过分离数据读取，我们获得了更
           else Just both
 \end{lstlisting}
 
-% TODO
-
 \subsection*{移除样板代码}
+
+虽然\acode{parseP5}函数能工作，其形态并不令人满意。我们不停地重复\acode{Maybe}值的构建与解构，且仅在匹配\acode{Just}时继续。
+所有的这些相似的\acode{case}表达式就像是“模板代码”那样。
+
+我们可以看到有两个模式。首先是很多应用的函数都有相同的类型，接受\acode{ByteString}作为其最后一个参数，并返回\acode{Maybe}。
+其次\acode{parseP5}函数中的每一步“阶梯”都会解构一个\acode{Maybe}值，要么失败或是传递未解包的结果给一个函数。
+
+我们可以轻易地用一个函数捕获第二个模式。
+
+\begin{lstlisting}[language=Haskell]
+  (>>?) :: Maybe a -> (a -> Maybe b) -> Maybe b
+  Nothing >>? _ = Nothing
+  Just v >>? f = f v
+\end{lstlisting}
+
+\acode{>>?}函数的作用非常简单：它接受一个值作为其右参，以及一个函数作为其左参。如果值非\acode{Nothing}，那么便将函数应用在
+\acode{Just}值上。我们定义了作为一个操作符的函数，以此可以链接所有函数在一起。最后我们并未提供给\acode{(>>?)}一个优先级声明，
+那么默认为\acode{infixl 9}（左结合，最强的操作符优先级）。换言之，\acode{a >>? b >>? c}将会从左至右进行计算，类似于
+\acode{(a >>? b) >>? c}。
+
+有了这个链接函数，我们可以再尝试一下编写我们的解析函数。
+
+\begin{lstlisting}[language=Haskell]
+  parseP5_take2 :: L.ByteString -> Maybe (Greymap, L.ByteString)
+  parseP5_take2 s =
+    matchHeader (L8.pack "P5") s
+      >>? \s ->
+        skipSpace ((), s)
+          >>? (getNat . snd)
+          >>? skipSpace
+          >>? \(width, s) ->
+            getNat s
+              >>? skipSpace
+              >>? \(height, s) ->
+                getNat s
+                  >>? \(maxGrey, s) ->
+                    getBytes 1 s
+                      >>? (getBytes (width * height) . snd)
+                      >>? \(bitmap, s) -> Just (Greymap width height maxGrey bitmap, s)
+
+  skipSpace :: (a, L.ByteString) -> Maybe (a, L.ByteString)
+  skipSpace (a, s) = Just (a, L8.dropWhile isSpace s)
+\end{lstlisting}
+
+理解这个函数的关键在于链条的思考。每个\acode{(>>?)}的左侧总是一个\acode{Maybe}值；右侧则是一个返回\acode{Maybe}值的函数。
+那么表达式的两侧类型都是\acode{Maybe}，即满足下一个\acode{(>>?)}表达式。
+
+另一个增加可读性的工作就是添加了\acode{skipSpace}函数。
 
 \subsection*{隐式状态}
 
+我们的代码仍然在显式的传递一对一对的值，第一个元素作为解析过程中的结果，第二个元素则是当前剩余的\acode{ByteString}。当我们想要
+扩展代码时，例如追踪消费了多少字节数量以便报告解析异常位置的时候，我们需要修改八个不同的地方，仅仅是为了传递一个三元组。
+
+即使在少量代码的情况下，这样的需求都会使得代码难以修改。这个问题存在于使用模式匹配从每个元组中提取值时：我们默认了在代码中直接使用
+元组。
+
+让我们讲解一下新代码为何是不灵活的。首先修改解析器使用的状态类型。
+
+\begin{lstlisting}[language=Haskell]
+  data ParseState = ParseState
+  { string :: L.ByteString,
+    offset :: Int64
+  }
+  deriving (Show)
+\end{lstlisting}
+
+在我们新的代数数据类型中，我们同时拥有了追踪剩余字符串以及当前偏移量的能力。最重要的变化还是使用了 record 语义：现在可以\textit{避免}
+对状态的模式匹配了，而是使用访问函数\acode{string}以及\acode{offset}。
+
+我们给与需要解析的状态一个名称。当我们为某物命名时，它可以变得更有意义。例如，我们可以将解析视为一种函数：其消费一个解析状态，并同时
+生产一个新的解析状态，以及一些额外的信息。我们可以直接将其视为一个 Haskell 类型。
+
+\begin{lstlisting}[language=Haskell]
+  simpleParse :: ParseState -> (a, ParseState)
+  simpleParse = undefined
+\end{lstlisting}
+
+为了更好的帮助用户，我们可以在解析失败时报告异常信息。这仅仅需要我们解析器一点小小的改动。
+
+\begin{lstlisting}[language=Haskell]
+  betterParse :: ParseState -> Either String (a, ParseState)
+  betterParse = undefined
+\end{lstlisting}
+
+之前显式的使用状态元组时，要扩展解析器的时候我们很快就发现问题了。为了避免重复，我们将使用\acode{newtype}声明来隐去解析类型的细节。
+
+\begin{lstlisting}[language=Haskell]
+  newtype Parse a = Parse
+  { runParse :: ParseState -> Either String (a, ParseState)
+  }
+\end{lstlisting}
+
+记住\acode{newtype}定义就是一个编译时的包装函数，因此它没有任何的运行时负荷。当我们使用该函数时，我们将应用\acode{runParser}
+访问函数。
+
+如果我们不从模块中导出\acode{Parse}值，我们可以确保他人不会意外的创建一个解析器，也避免了通过模式匹配来查看内部实现。
+
 \subsubsection*{唯一性解析器}
+
+让我们尝试定义一个简单的解析器，\textit{identity}解析器。它的功能便是将任何传递进其的参数转换为解析器的结果。这种情况下，它更像是
+\acode{id}函数。
+
+\begin{lstlisting}[language=Haskell]
+  identity :: a -> Parse a
+  identity a = Parse (\s -> Right (a, s))
+\end{lstlisting}
+
+该函数不会改变解析状态，并使用其参数作为解析的结果。我们将函数体包装成\acode{Parse}类型来满足类型检查器。那么我们该如何使用该包装后
+的函数来进行解析呢？
+
+首先我们通过\acode{runParse}函数去除\acode{Parse}的包装，以此获取其中的函数。接着构造一个\acode{ParseState}，并以此运行我们的
+解析函数。最后则是将解析的结果从最终的\acode{ParseState}中分离。
+
+\begin{lstlisting}[language=Haskell]
+  parse :: Parse a -> L.ByteString -> Either String a
+  parse parser initState =
+    case runParse parser (ParseState initState 0) of
+      Left err -> Left err
+      Right (result, _) -> Right result
+\end{lstlisting}
+
+由于\acode{identity}解析器与\acode{parse}函数都不会测试状态，我们甚至不需要创建一个字符串输入来进行测试。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :l Parse.hs
+  [1 of 1] Compiling Main             ( Parse.hs, interpreted )
+  Ok, one module loaded.
+  ghci> :t parse (identity 1) undefined
+  parse (identity 1) undefined :: Num a => Either String a
+  ghci> parse (identity 1) undefined
+  Right 1
+  ghci> parse (identity "foo") undefined
+  Right "foo"
+\end{lstlisting}
+
+解析器甚至不会检查其不感兴趣的输入，之后我们将见识到其有用之处。
 
 \subsubsection*{Record 语义，更新，以及模式匹配}
 
