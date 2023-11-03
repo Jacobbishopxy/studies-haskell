@@ -22,6 +22,116 @@ raw 文件可以包含一系列的图片，一张接着一张，每张由 header
 
 \subsection*{解析一个原始 PGM 文件}
 
+我们的第一个解析函数仅需考虑 raw PGM 文件，同时该解析函数是一个\textit{纯}函数。该函数并不对数据获取负责，仅仅用作于解析。这在
+Haskell 中是一个常规操作。通过分离数据读取，我们获得了更加灵活的操作空间。
+
+我们将使用\acode{ByteString}类型来存储 greymap 数据。由于 PGM 文件的头部是 ASCII 文本，而本体是二进制的，我们需要同时引用文本
+以及二进制的\acode{ByteString}模块。
+
+\begin{lstlisting}[language=Haskell]
+  import qualified Data.ByteString.Lazy as L
+  import qualified Data.ByteString.Lazy.Char8 as L8
+  import Data.Char (isSpace)
+\end{lstlisting}
+
+我们将使用一个直接的数据类型来表示 PGM 图片。
+
+\begin{lstlisting}[language=Haskell]
+  data Greymap = Greymap
+  { greyWidth :: Int,
+    greyHeight :: Int,
+    greyMax :: Int,
+    greyData :: L.ByteString
+  }
+  deriving (Eq)
+\end{lstlisting}
+
+通常而言，Haskell 的\acode{Show}实例应该生成一个字符串作为展示，同时我们可以通过\acode{read}将其从字符串中转回。然而对于 bitmap
+图像文件而言，这会潜在的生产出巨大的文本字符串，例如对一个图片执行\acode{show}。因此我们不会让编译器自动派生一个\acode{Show}实例：
+我们编写自己的实现，并将其简化。
+
+\begin{lstlisting}[language=Haskell]
+  instance Show Greymap where
+    show (Greymap w h m _) = "Greymap " ++ show w ++ "x" ++ show h ++ " " ++ show m
+\end{lstlisting}
+
+因为我们的\acode{Show}实例是特意避开了打印 bitmap 数据，因此我们无法编写一个\acode{Read}实例，毕竟我们不能通过\acode{show}的
+结果来重新构建一个合法的\acode{Greymap}。
+
+接下来是我们解析函数的类型：
+
+\begin{lstlisting}[language=Haskell]
+  parseP5 :: L.ByteString -> Maybe (Greymap, L.ByteString)
+\end{lstlisting}
+
+该函数接受一个\acode{ByteString}，如果解析成功则返回一个单独解析好的\acode{Greymap}，以及剩下还需要解析的字符串。
+
+我们的解析函数需要需要花费一点时间。首先是确保输入的文件是 raw PGM；接着解析文件头剩下的数值；然后再是解析 bitmap 数据。下面是一个
+浅显的表达方式：
+
+\begin{lstlisting}[language=Haskell]
+  matchHeader :: L.ByteString -> L.ByteString -> Maybe L.ByteString
+  matchHeader = undefined
+
+  getNat :: L.ByteString -> Maybe (Int, L.ByteString)
+  getNat = undefined
+
+  getBytes :: Int -> L.ByteString -> Maybe (L.ByteString, L.ByteString)
+  getBytes = undefined
+
+  -- parse function
+  parseP5 :: L.ByteString -> Maybe (Greymap, L.ByteString)
+  parseP5 s =
+    case matchHeader (L8.pack "PS") s of
+      Nothing -> Nothing
+      Just s1 ->
+        case getNat s1 of
+          Nothing -> Nothing
+          Just (width, s2) ->
+            case getNat (L8.dropWhile isSpace s2) of
+              Nothing -> Nothing
+              Just (height, s3) ->
+                case getNat (L8.dropWhile isSpace s3) of
+                  Nothing -> Nothing
+                  Just (maxGrey, s4)
+                    | maxGrey > 255 -> Nothing
+                    | otherwise ->
+                        case getBytes 1 s4 of
+                          Nothing -> Nothing
+                          Just (_, s5) ->
+                            case getBytes (width * height) s5 of
+                              Nothing -> Nothing
+                              Just (bitmap, s6) ->
+                                Just (Greymap width height maxGrey bitmap, s6)
+\end{lstlisting}
+
+这非常字面化的代码将所有的解析放在了一个长的阶梯型的\acode{case}表达式上。每个函数在消费完其所需的字符串后，都会返回剩下的
+\acode{ByteString}。接着解构每个结果，如果解析失败则返回\acode{Nothing}。下面是解析过程中所用到的函数：
+
+\begin{lstlisting}[language=Haskell]
+  matchHeader :: L.ByteString -> L.ByteString -> Maybe L.ByteString
+  matchHeader prefix str
+    | prefix `L8.isPrefixOf` str = Just (L8.dropWhile isSpace (L.drop (L.length prefix) str))
+    | otherwise = Nothing
+
+  getNat :: L.ByteString -> Maybe (Int, L.ByteString)
+  getNat s = case L8.readInt s of
+    Nothing -> Nothing
+    Just (num, rest)
+      | num <= 0 -> Nothing
+      | otherwise -> Just (fromIntegral num, rest)
+
+  getBytes :: Int -> L.ByteString -> Maybe (L.ByteString, L.ByteString)
+  getBytes n str =
+    let count = fromIntegral n
+        both@(prefix, _) = L.splitAt count str
+     in if L.length prefix < count
+          then Nothing
+          else Just both
+\end{lstlisting}
+
+% TODO
+
 \subsection*{移除样板代码}
 
 \subsection*{隐式状态}
