@@ -271,17 +271,246 @@ Haskell 中是一个常规操作。通过分离数据读取，我们获得了更
 
 \subsubsection*{Record 语义，更新，以及模式匹配}
 
+Record 语义不仅仅只有访问函数有用：我们用它来拷贝以及修改现有值的一部分。使用中，概念如下：
+
+\begin{lstlisting}[language=Haskell]
+  modifyOffset :: ParseState -> Int64 -> ParseState
+  modifyOffset initState newOffset = initState {offset = newOffset}
+\end{lstlisting}
+
+这会创造一个新的与\acode{initState}一样的\acode{ParseState}值，不过其\acode{offset}字段被设置成了指定的\acode{newOffset}。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :l Parse.hs
+  [1 of 1] Compiling Main             ( Parse.hs, interpreted )
+  Ok, one module loaded.
+  ghci> let before = ParseState (L8.pack "foo") 0
+  ghci> let after = modifyOffset before 3
+  ghci> before
+  ParseState {string = "foo", offset = 0}
+  ghci> after
+  ParseState {string = "foo", offset = 3}
+\end{lstlisting}
+
+我们可以在花括号内部设置任意数量的字段，通过逗号进行分隔。
+
 \subsubsection*{一个更有趣的解析器}
+
+现在让我们聚焦到编写一个更有意义的解析器上。我们暂时没有太大的野心：我们需要的是解析一个单字节。
+
+\begin{lstlisting}[language=Haskell]
+  parseByte :: Parse Word8
+  parseByte =
+    getState ==> \initState ->
+      case L.uncons (string initState) of
+        Nothing ->
+          bail "no more input"
+        Just (byte, remainder) ->
+          putState newState ==> \_ ->
+            identity byte
+          where
+            newState = initState {string = remainder, offset = newOffset}
+            newOffset = offset initState + 1
+\end{lstlisting}
+
+定义中出现了若干新函数。
+
+\acode{L8.uncons}函数从一个\acode{ByteString}中接受首个元素。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> L8.uncons (L8.pack "foo")
+  Just ('f',"oo")
+  ghci> L8.uncons L8.empty
+  Nothing
+\end{lstlisting}
+
+\acode{getState}函数获取当前的解析状态，而\acode{putState}则是用于替换状态；\acode{bail}函数则是终结解析并报告异常；\acode{(==>)}
+函数将解析器链接起来。我们将稍后对每个函数进行解析。
+
+\begin{anote}
+  Hanging lambdas
+
+  \acode{parseByte}的定义拥有一个视觉上的风格是我们之前没有讨论过的。它包含的匿名函数为参数以及\acode{->}作为一行的结尾，而函数体起始于
+  下一行。
+
+  这种方式的匿名函数并没有一个官方的名称，所以让我们称其“hanging lambda”。它主要的作用是为函数体留下更多的空间，同样可以将函数及其后续部分的
+  关系在视觉上进行区分。例如通常而言，首个函数的结果会被当做参数传递给下一个函数。
+\end{anote}
 
 \subsubsection*{获取与修改解析状态}
 
+\acode{parseByte}函数并不将解析状态作为一个参数，而是调用\acode{getState}来获取一个状态的拷贝，\acode{putState}则是将当前状态替换。
+
+\begin{lstlisting}[language=Haskell]
+  getState :: Parse ParseState
+  getState = Parse (\s -> Right (s, s))
+
+  putState :: ParseState -> Parse ()
+  putState s = Parse (\_ -> Right ((), s))
+\end{lstlisting}
+
+当读取这些函数，记住元组的左元素是\acode{Parse}的结果，而右元素则是当前解析状态。这使得接下来的函数变得更加方便使用。
+
+\acode{getState}函数提取当前解析中的状态，使得调用者可以访问字符串。\acode{putState}函数替换当前解析中的状态。该状态通过\acode{==>}链在
+下一个函数中可见。
+
+这些函数让我们显式的移动状态在仅需要其所需的函数中。很多函数并不需要知道当前的状态，因此它们永远也不会调用\acode{getState}或者\acode{putState}。
+这相较于之前手动使用元组的解析器，这让我们可以编写出更简洁的代码，
+
+我们将解析状态的细节打包进\acode{ParseState}类型中，通过访问函数而不是模式匹配来进行工作。现在的解析状态是被隐式的传递，这为我们带来了极大的便利。
+如果我们希望添加更多的信息在解析状态中，我们仅需要修改\acode{ParseState}的定义，以及任何需要这些新的信息的函数。相较于早期编写的解析器，所有的
+状态都被模式匹配所暴露，现在的代码则更加模块化：所有被影响的代码为需要新信息的代码。
+
 \subsubsection*{报告解析异常}
+
+我们小心的定义\acode{Parse}类型来兼容所有可能的异常。\acode{==>}组合子检查一个解析异常，并在出现异常时停止。然而我们仍未介绍\acode{bail}函数，
+其用于报告解析异常。
+
+\begin{lstlisting}[language=Haskell]
+  bail :: String -> Parse a
+  bail err = Parse $ \s ->
+    Left $
+      "byte offset " ++ show (offset s) ++ ": " ++ err
+\end{lstlisting}
+
+在我们调用\acode{bail}之后，\acode{(==>)}将会成功的在\acode{Left}构造子上进行模式匹配包装错误信息，接着唤起链条中下一个解析函数。这将导致
+错误信息通过链条反向传递至上一级调用者。
 
 \subsubsection*{链起所有解析器}
 
+\acode{(==>)}函数类似之前的\acode{(>>?)}函数：它用于“粘合”使得所有函数链接在一起。
+
+\begin{lstlisting}[language=Haskell]
+  (==>) :: Parse a -> (a -> Parse b) -> Parse b
+  firstParser ==> secondParser = Parse chainedParser
+    where
+      chainedParser initState =
+        case runParse firstParser initState of
+          Left errMessage ->
+            Left errMessage
+          Right (firstResult, newState) ->
+            runParse (secondParser firstResult) newState
+\end{lstlisting}
+
+\acode{(==>)}的函数体很有意思。回忆一下\acode{Parse}类型是一个被包装装的函数。因为\acode{(==>)}将两个\acode{Parse}值链接生产出第三个值，
+它必须返回一个包装后的函数。
+
+该函数不需要真正的“做”什么：它仅仅是创建一个\textit{闭包 closure}来记住\acode{firstParser}与\acode{secondParser}的值。
+
+\begin{anote}
+  闭包其实就是一个带有\textit{环境}的函数，其边界变量为其可见区域。闭包在 Haskell 中很常见。例如\acode{(+5)}就是一个闭包。该闭包的实现必须将
+  值\acode{5}作为操作符\acode{(+)}的第二个参数，因此无论函数传递的值是什么，其返回将会加五。
+\end{anote}
+
+闭包不会被解包并执行，直到应用了\acode{parse}函数。此时它将被应用至一个\acode{ParseState}上，首先是应用\acode{firstParser}并检验其结果。
+如果解析失败，闭包同样也会失败；否则它将传递解析的结果，以及新的\acode{ParseState}至\acode{secondParser}。
+
+这真的是一个美妙的东西：我们高效的将\acode{ParseState}隐式的传递至\acode{Parse}链。（我们在稍后的章节中继续学习。）
+
 \subsection*{函子简介}
 
+我们现在已经很熟悉\acode{map}函数了，它将一个函数应用在一个列表中的每个元素上，返回很可能是另一种类型的列表。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> map (+1) [1,2,3]
+  [2,3,4]
+  ghci> map show [1,2,3]
+  ["1","2","3"]
+  ghci> :t map show
+  map show :: Show a => [a] -> [String]
+\end{lstlisting}
+
+\acode{map}-类似的行为在其它实例中也很有用。例如，假设有一个二元树。
+
+\begin{lstlisting}[language=Haskell]
+  data Tree a
+  = Node (Tree a) (Tree a)
+  | Leaf a
+  deriving (Show)
+\end{lstlisting}
+
+如果我们想要将一个字符串树转换为一个包含了这些字符串长度的树，我们可以这样做：
+
+\begin{lstlisting}[language=Haskell]
+  treeLengths (Leaf s) = Leaf (length s)
+  treeLengths (Node l r) = Node (treeLengths l) (treeLengths r)
+\end{lstlisting}
+
+现在可以将目光转向更为通用的函数：
+
+\begin{lstlisting}[language=Haskell]
+  treeMap :: (a -> b) -> Tree a -> Tree b
+  treeMap f (Leaf a) = Leaf (f a)
+  treeMap f (Node l r) = Node (treeMap f l) (treeMap f r)
+\end{lstlisting}
+
+正如我们希望的那样，\acode{treeLengths}与\acode{treeMap length}可以得到同样的结果。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :l TreeMap.hs
+  [1 of 1] Compiling Main             ( TreeMap.hs, interpreted )
+  Ok, one module loaded.
+  ghci> let tree = Node (Leaf "foo") (Node (Leaf "x") (Leaf "quux"))
+  ghci> treeLengths tree
+  Node (Leaf 3) (Node (Leaf 1) (Leaf 4))
+  ghci> treeMap length tree
+  Node (Leaf 3) (Node (Leaf 1) (Leaf 4))
+  ghci> treeMap (odd . length) tree
+  Node (Leaf True) (Node (Leaf True) (Leaf False))
+\end{lstlisting}
+
+Haskell 提供了一个著名的 typeclass 来泛化\acode{treeMap}。该 typeclass 就是\acode{Functor}，其定义为一个函数，\acode{fmap}。
+
+我们可以认为\acode{fmap}类似于之前小节中所提到的\textit{提升 lifting}函数。它接受类型为\acode{a -> b}的函数，将其提升至应用在容器上的
+\acode{f a -> f b}函数，这里的\acode{f}即容器类型。
+
+如果我们将\acode{f}替换为\acode{Tree}类型，那么\acode{fmap}的类型应与\acode{treeMap}一致，那么实际上我们可以用\acode{treeMap}作为
+\acode{Tree}的\acode{fmap}实现。
+
+\begin{lstlisting}[language=Haskell]
+  instance Functor Tree where
+  fmap = treeMap
+\end{lstlisting}
+
+\acode{Functor}的定义强制了一些明显的限制在\acode{fmap}上。例如我们仅能实现\acode{Functor}实例在只有一个类型参数的类型上。
+
+例如我们不可以将\acode{fmap}实现在\acode{Either a b}或\acode{(a, b)}上，因为它们有两个类型参数。同样的，我们不能实现在\acode{Bool}
+或\acode{Int}上，因为它们没有类型参数。
+
+另外，我们不能在类型约束上添加任何约束。这是什么意思呢？为了更好的进行解释，首先看一下普通的\acode{data}定义以及其\acode{Functor}实例。
+
+\begin{lstlisting}[language=Haskell]
+  data Foo a = Foo a
+
+  instance Functor Foo where
+    fmap f (Foo a) = Foo (f a)
+\end{lstlisting}
+
+当我们定义一个新的类型，我们可以添加一个类型约束在\acode{data}关键字之后。
+
+\begin{lstlisting}[language=Haskell]
+  data Eq a => Bar a = Bar a
+
+  instance Functor Bar where
+    fmap f (Bar a) = Bar (f a)
+\end{lstlisting}
+
+报错如下：
+
+\begin{lstlisting}
+  • No instance for (Eq a) arising from a use of ‘Bar’
+  Possible fix:
+    add (Eq a) to the context of
+      the type signature for:
+        fmap :: forall a b. (a -> b) -> Bar a -> Bar b
+• In the pattern: Bar a
+  In an equation for ‘fmap’: fmap f (Bar a) = Bar (f a)
+  In the instance declaration for ‘Functor Bar’typecheck(-Wdeferred-type-errors)
+\end{lstlisting}
+
 \subsubsection*{类型定义上的约束并不好}
+
+% TODO
 
 \subsubsection*{fmap 的中缀使用}
 
