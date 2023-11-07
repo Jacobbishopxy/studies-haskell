@@ -499,24 +499,155 @@ Haskell 提供了一个著名的 typeclass 来泛化\acode{treeMap}。该 typecl
 
 \begin{lstlisting}
   • No instance for (Eq a) arising from a use of ‘Bar’
-  Possible fix:
-    add (Eq a) to the context of
-      the type signature for:
-        fmap :: forall a b. (a -> b) -> Bar a -> Bar b
-• In the pattern: Bar a
-  In an equation for ‘fmap’: fmap f (Bar a) = Bar (f a)
-  In the instance declaration for ‘Functor Bar’typecheck(-Wdeferred-type-errors)
+    Possible fix:
+      add (Eq a) to the context of
+        the type signature for:
+          fmap :: forall a b. (a -> b) -> Bar a -> Bar b
+  • In the pattern: Bar a
+    In an equation for ‘fmap’: fmap f (Bar a) = Bar (f a)
+    In the instance declaration for ‘Functor Bar’typecheck(-Wdeferred-type-errors)
 \end{lstlisting}
 
 \subsubsection*{类型定义上的约束并不好}
 
-% TODO
+在一个类型定义上添加一个约束这种行为基本上永远不会是一个好主意。它造成的影响便是强迫用户在\textit{每个}函数上也都添加类型约束。假设我们需要一个
+栈数据结构，使得我们可以查询其元素是否遵从某种排序。下面是该数据类型的定义：
+
+\begin{lstlisting}[language=Haskell]
+  data (Ord a) => OrdStack a
+    = Bottom
+    | Item a (OrdStack a)
+    deriving (Show)
+\end{lstlisting}
+
+如果我们希望编写一个函数用于检查栈结构是否增加，我们显然需要一个\acode{Ord}约束来执行一对元素的比较。
+
+\begin{lstlisting}[language=Haskell]
+  isIncreasing :: (Ord a) => OrdStack a -> Bool
+  isIncreasing (Item a rest@(Item b _))
+    | a < b = isIncreasing rest
+    | otherwise = False
+  isIncreasing _ = True
+\end{lstlisting}
+
+然而因为我们在类型定义上加上了类型约束，该约束实际上影响了完全不需要的地方：我们需要添加\acode{Ord}约束至\acode{push}，其本身并不关心堆上的
+顺序。
+
+\begin{lstlisting}[language=Haskell]
+  push :: (Ord a) => a -> OrdStack a -> OrdStack a
+  push a s = Item a s
+\end{lstlisting}
+
+这个时候尝试移除上述函数的\acode{Ord}约束，\acode{push}则会在类型检查时失败。
+
+这也是为什么较早之前我们尝试着为\acode{Bar}编写一个\acode{Functor}实例时失败了：它需要\acode{Eq}约束在\acode{fmap}上。
+
+现在我们有了 Haskell 中在类型定义上添加类型约束是不好的认知，那么更合理的做法呢？答案就是简单的移除在类型定义上的类型约束，且放置在真正需要约束的
+函数上。
 
 \subsubsection*{fmap 的中缀使用}
 
+很多时候我们会看到\acode{fmap}作为操作符一样调用：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> (1+) `fmap` [1,2,3] ++ [4,5,6]
+  [2,3,4,4,5,6]
+\end{lstlisting}
+
+如果希望作为操作符那样使用\acode{fmap}，那么\acode{Control.Applicative}模块中有一个操作符\acode{(<\$>)}，它是\acode{fmap}的别名。
+名称中\acode{\$}展现了一种相似性，即将一个函数应用至其参数（通过\acode{(\$)}操作符）以及将一个函数提升至一个函子。
+
 \subsubsection*{灵活的实例}
 
-\subsubsection*{更多有关函子}
+我们可能希望能为\acode{Either Int b}实现一个\acode{Functor}实例，因为它仅有一个类型参数。
+
+\begin{lstlisting}[language=Haskell]
+  instance Functor (Either Int) where
+    fmap _ (Left n) = Left n
+    fmap f (Right r) = Right (f r)
+\end{lstlisting}
+
+然而 Haskell 98 的类型系统不能保证，这样的一个实例约束的检查能终止。非终止的约束检查可能会让编译器陷入无限循环，因此禁用了这样形式的实例。
+
+\begin{lstlisting}[language=Haskell]
+  • Illegal instance declaration for ‘Functor (Either Int)’
+    (All instance types must be of the form (T a1 ... an)
+    where a1 ... an are *distinct type variables*,
+    and each type variable appears at most once in the instance head.
+    Use FlexibleInstances if you want to disable this.)
+  • In the instance declaration for ‘Functor (Either Int)’typecheck
+\end{lstlisting}
+
+原书使用一下代码解决编译出错的问题：
+
+\begin{lstlisting}[language=Haskell]
+  {-# LANGUAGE FlexibleInstances #-}
+
+  instance Functor (Either Int) where
+    fmap _ (Left n) = Left n
+    fmap f (Right r) = Right (f r)
+\end{lstlisting}
+
+然而实际上新的 Haskell 仍然不能通过编译，报错如下：
+
+\begin{lstlisting}[language=Haskell]
+  • Overlapping instances for Functor (Either Int)
+      arising from a use of ‘GHC.Base.$dm<$’
+    Matching instances:
+      instance Functor (Either a) -- Defined in ‘Data.Either’
+      instance Functor (Either Int)
+        -- Defined at <...>/EitherIntFlexible.hs:7:10
+  • In the expression: GHC.Base.$dm<$ @(Either Int)
+    In an equation for ‘<$’: (<$) = GHC.Base.$dm<$ @(Either Int)
+    In the instance declaration for ‘Functor (Either Int)’typecheck(-Wdeferred-type-errors)
+\end{lstlisting}
+
+实际上，Haskell 的标准库早已更新，详见上一本书的笔记《Learn Me a Haskell》中第八章的“函子 typeclass”部分。Haskell 的标准实现如下：
+
+\begin{lstlisting}[language=Haskell]
+  instance Functor (Either a) where
+    fmap f (Right x) = Right (f x)
+    fmap f (Left x) = Left x
+\end{lstlisting}
+
+因为有了 Haskell 的标准实现，我们可以直接进行以下操作：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> fmap (== "cheeseburger") (Left 1 :: Either Int String)
+  Left 1
+  ghci> fmap (== "cheeseburger") (Right "fries" :: Either Int String)
+  Right False
+\end{lstlisting}
+
+\subsubsection*{更多有关函子的思考}
+
+我们已经做了一些有关函子该如何工作的隐式假设。那么将它们显式的展示出来并思考它们的规则就更有帮助了，因为这让我们可以将函子视为一致的，良好行为的
+对象。我们仅需记住两个简单的规则。
+
+第一条规则就是函子必须是保持\textit{恒等 identity}的，也就是说将\acode{fmap id}应用至一值时，返回的总是相同的值。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> fmap id (Node (Leaf "a") (Leaf "b"))
+  Node (Leaf "a") (Leaf "b")
+\end{lstlisting}
+
+第二条规则则是函子必须是\textit{可组合的 composable}，也就是说将两个\acode{fmap}组合起来使用与分别两次\acode{fmap}使用的结果是一致的。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> (fmap even . fmap length) (Just "twelve")
+  Just True
+  ghci> fmap (even . length) (Just "twelve")
+  Just True
+\end{lstlisting}
+
+另一种看待这两天规则的方式是，函子必须保持\textit{形状 shape}。集合的结构不应该受到函子的影响；只有它所包含的值应该改变。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> fmap odd (Just 1)
+  Just True
+  ghci> fmap odd Nothing
+  Nothing
+\end{lstlisting}
 
 \subsection*{为解析编写函子实例}
 

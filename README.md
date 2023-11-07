@@ -8,9 +8,7 @@
 
 3. [MacOS] copy the entire file into `~/.zshrc`
 
-4. `ghcup tui` open a GUI to install the rest part
-
-5. `ghcup set stack` to enable `stack` command
+4. `ghcup tui` open a GUI to install the rest part, (`i` for install; `u` for uninstall; `s` for set and enable)
 
 ## Cabal
 
@@ -44,14 +42,14 @@
 
 ## VsCode Setting
 
-`settings.json` (use `ghcup tui` to get versions):
+`settings.json` (use `ghcup tui` to get `ghc` & `hls` versions):
 
 ```json
   ...
   "haskell.manageHLS": "GHCup",
   "haskell.toolchain": {
-    "ghc": "9.2.8",
-    "hls": "2.0.0.1",
+    "ghc": "9.4.7",
+    "hls": "2.4.0.0",
     "cabal": "recommended"
   },
   "haskell.serverEnvironment": {
