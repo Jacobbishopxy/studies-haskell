@@ -649,12 +649,195 @@ Haskell 提供了一个著名的 typeclass 来泛化\acode{treeMap}。该 typecl
   Nothing
 \end{lstlisting}
 
+如果你在编写一个\acode{Functor}实例，那么牢记这些规则并且进行了测试是很有帮助的，因为编译器并不能上述列举的规则。另一方面，如果仅仅\textit{使用}
+函子，那么规则是“自然而然的”无需记住它们。
+
 \subsection*{为解析编写函子实例}
+
+对于已经调研过得这些类型，我们对\acode{fmap}所预期的行为就显而易见了。相较于\acode{Parse}因为复杂度的缘故会较难理解。一个合理的猜想就是我们所
+\acode{fmap}的函数应该被应用在一个解析器的当前结果上，同时不对解析状态做任何修改。
+
+\begin{lstlisting}[language=Haskell]
+  instance Functor Parse where
+  fmap f parser =
+    parser ==> \result ->
+      identity (f result)
+\end{lstlisting}
+
+这个定义很容易阅读，让我们用几个快速的测试来检查我们是否遵循了函子的规则。
+
+首先检查的是 identity 是否被遵循。首先是一个应该失败的解析：从一个空的字符串中解析一个字节（别忘了\acode{(<\$>)}就是\acode{fmap}）。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :l Parse.hs
+  [1 of 2] Compiling Main             ( Parse.hs, interpreted )
+  Ok, one module loaded.
+  ghci> parse parseByte L.empty
+  Left "byte offset 0: no more input"
+  ghci> parse (id <$> parseByte) L.empty
+  Left "byte offset 0: no more input"
+\end{lstlisting}
+
+现在测试一下成功的案例：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let input = L8.pack "foo"
+  ghci> L.head input
+  102
+  ghci> parse parseByte input
+  Right 102
+  ghci> parse (id <$> parseByte) input
+  Right 102
+\end{lstlisting}
+
+通过上述结果同样可知我们的函子实例遵循了第二条规则，即保持形状。失败保持失败，成功保持成功。
+
+最后就是组合起来也是保存原有形状的。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :m +Data.Char
+  ghci> parse ((chr . fromIntegral) <$> parseByte) input
+  Right 'f'
+  ghci> parse (chr <$> fromIntegral <$> parseByte) input
+  Right 'f'
+\end{lstlisting}
 
 \subsection*{为解析使用函子}
 
+所有关于函子的讲解都是为了一个目的：它们可以让我们编写简洁有力的代码。回忆一下之前介绍过的\acode{parseByte}函数。我们总是想要处理 ASCII 字符而不是
+\acode{Word8}值。
+
+我们可以模仿\acode{parseByte}那样编写一个\acode{parseChar}函数，不过现在可以通过\acode{Parse}的函子特性来避免这些重复的代码。函子接受一个解析的
+结果并为该结果应用一个函数，因此我们需要一个函数可以将\acode{Word8}转换成一个\acode{Char}。
+
+\begin{lstlisting}[language=Haskell]
+  w2c :: Word8 -> Char
+  w2c = chr . fromIntegral
+
+  parseChar :: Parse Char
+  parseChar = w2c <$> parseByte
+\end{lstlisting}
+
+可以使用函子来编写一个简洁的“peek”函数。它将在输入的字符串结束时返回\acode{Nothing}；否则返回下一个字符，同时不消耗它（即检查时不会影响当前的解析状态）。
+
+\begin{lstlisting}[language=Haskell]
+  peekByte :: Parse (Maybe Word8)
+  peekByte = fmap fst . L.uncons . string <$> getState
+\end{lstlisting}
+
+同样的方法可以为\acode{parseChar}定义一个更加简洁的\acode{peekChar}版本。
+
+\begin{lstlisting}[language=Haskell]
+  peekChar :: Parse (Maybe Char)
+  peekChar = fmap w2c <$> peekByte
+\end{lstlisting}
+
+注意\acode{peekByte}与\acode{peekChar}都调用了\acode{fmap}，即\acode{(<\$>)}。这是因为\acode{Parse (Maybe a)}类型是一个函子中的函子。
+因此我们需要将一个函数提升两次来“走进”里面的函子。
+
+最后让我们编写另一个泛用的组合子，也就是类似于\acode{takeWhile}版本的\acode{Parse}：消费输入直到谓词返回\acode{True}。
+
+\begin{lstlisting}[language=Haskell]
+  parseWhile :: (Word8 -> Bool) -> Parse [Word8]
+  parseWhile p =
+    (fmap p <$> peekByte) ==> \mp ->
+      if mp == Just True
+        then
+          parseByte ==> \b ->
+            (b :) <$> parseWhile p
+        else identity []
+\end{lstlisting}
+
+下面是一个不使用函子的啰嗦版本，不过更加直接：
+
+\begin{lstlisting}[language=Haskell]
+  parseWhileVerbose p =
+  peekByte ==> \mc ->
+    case mc of
+      Nothing -> identity []
+      Just c
+        | p c ->
+            parseByte ==> \b ->
+              parseWhileVerbose p ==> \bs ->
+                identity (b : bs)
+        | otherwise ->
+            identity []
+\end{lstlisting}
+
+这个啰嗦的版本在不熟悉函子时虽然看似易读，但是在 Haskell 中使用函子更为常见，它的表达更加简洁，因此应该同时成为读与写的本能。
+
 \subsection*{重写 PGM 解析器}
 
+没有新的解析代码时，原始的 PGM 解析函数会是什么样子呢？
+
+\begin{lstlisting}[language=Haskell]
+  parseRawPGM =
+    parseWhileWith w2c notWhite ==> \header ->
+      skipSpaces
+        ==>& assert (header == "P5") "invalid raw header"
+        ==>& parseNat
+        ==> \width ->
+          skipSpaces
+            ==>& parseNat
+            ==> \height ->
+              skipSpaces
+                ==>& parseNat
+                ==> \maxGrey ->
+                  parseByte
+                    ==>& parseBytes (width * height)
+                    ==> \bitmap ->
+                      identity (Greymap width height maxGrey bitmap)
+    where
+      notWhite = (`notElem` " \r\n\t")
+\end{lstlisting}
+
+该定义又使用了以下的帮助函数：
+
+\begin{lstlisting}[language=Haskell]
+  parseWhileWith :: (Word8 -> a) -> (a -> Bool) -> Parse [a]
+  parseWhileWith f p = fmap f <$> parseWhile (p . f)
+
+  parseNat :: Parse Int
+  parseNat =
+    parseWhileWith w2c isDigit ==> \digits ->
+      if null digits
+        then bail "no more input"
+        else
+          let n = read digits
+           in if n < 0
+                then bail "integer overflow"
+                else identity n
+
+  (==>&) :: Parse a -> Parse b -> Parse b
+  p ==>& f = p ==> const f
+
+  skipSpaces :: Parse ()
+  skipSpaces = parseWhileWith w2c isSpace ==>& identity ()
+
+  assert :: Bool -> String -> Parse ()
+  assert True _ = identity ()
+  assert False err = bail err
+\end{lstlisting}
+
+\acode{(==>&)}组合子像\acode{(==>)}那样将解析器链接起来，不过右侧的解析器会无视左侧所返回的结果。\acode{assert}函数允许我们检查一个属性，当该
+属性为\acode{False}时会终止解析并返回一个有用的错误信息。
+
+最后就是检查与修改解析状态。
+
+\begin{lstlisting}[language=Haskell]
+  parseBytes :: Int -> Parse L.ByteString
+  parseBytes n =
+    getState ==> \st ->
+      let n' = fromIntegral n
+          (h, t) = L.splitAt n' (string st)
+          st' = st {offset = offset st + L.length h, string = t}
+       in putState st'
+            ==>& assert (L.length h == n') "end of input"
+            ==>& identity h
+\end{lstlisting}
+
 \subsection*{未来的方向}
+
+略
 
 \end{document}

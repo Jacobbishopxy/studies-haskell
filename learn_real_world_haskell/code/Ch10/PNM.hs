@@ -3,6 +3,8 @@
 -- date: 2023/11/02 14:41:10 Thursday
 -- brief:
 
+module PNM (Greymap (..)) where
+
 import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString.Lazy.Char8 as L8
 import Data.Char (isSpace)
