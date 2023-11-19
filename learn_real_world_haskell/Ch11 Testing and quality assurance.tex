@@ -2,24 +2,162 @@
 
 \begin{document}
 
+构建真实系统意味着需要考虑质量控制，鲁棒性以及正确性。使用正确的质量保证机制，良好的代码类似于一个各项功能完备的精确的仪器。
+
+Haskell 中有着若干工具帮助我们构建这样精准的系统。最显著的当然是语言自带的昂贵的类型系统，它可以令复杂的子类型遵从静态性 --
+使得编写的代码无法违背其约束。除此之外，纯性以及多态鼓励代码的风格变成可模块化的，可重构的以及可测试的。
+
+在维护代码的正确表达性上测试担任了很重要的角色。Haskell 中主要的测试机制是传统的单元测试（通过 HUnit 库），以及其更强大的
+派生品：基于类型的“属性”测试，即 QuickCheck 一个开源的 Haskell 测试框架。基于属性的测试鼓励更高等级的测试，通过抽象
+不变函数形式上，由测试库生成真实的测试数据来测试是否满足通用性。相较于手写测试用例的不足，通过此种方式代码可以被上千次的锤炼，
+通常能覆盖所有的边缘用例。
+
+本章我们学习如何使用 QuickCheck 来构建代码的不变性，并测试上一章节编写的代码。另外还会学习如何使用 GHC 代码覆盖工具：HPC。
+
 \subsection*{QuickCheck：基于类型的测试}
 
-通过以下命令在\acode{.cabal}存在的项目下安装包\acode{cabal install --lib QuickCheck}。
+为了展示基于属性的测试是如何工作的，我们用一个简单的场景开始：用户编写了一个特殊的排序函数，想要测试其行为。
+
+首先是导入 QuickCheck 库，正如其他所需的包那样（通过以下命令在\acode{.cabal}存在的项目下安装包
+\acode{cabal install --lib QuickCheck}）：
 
 \begin{lstlisting}[language=Haskell]
   import Test.QuickCheck
   import Data.List
 \end{lstlisting}
 
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
+以及希望被测试的函数 -- 一个自定义的排序：
 
 \begin{lstlisting}[language=Haskell]
-
+  qsort :: (Ord a) => [a] -> [a]
+  qsort [] = []
+  qsort (x : xs) = qsort lhs ++ [x] ++ qsort rhs
+    where
+      lhs = filter (< x) xs
+      rhs = filter (>= x) xs
 \end{lstlisting}
+
+这是一个典型的 Haskell 排序实现：学习函数式编程的优雅，不过没那么高效（这并不是一个替换排序）。现在我们希望检查该函数是否遵循
+基本的排序规则。一个不错的不变性测试就是\textit{幂等性} -- 运行一个函数两次的返回是否一致。这个不变性的测试不难：
+
+\begin{lstlisting}[language=Haskell]
+  prop_idempotent xs = qsort (qsort xs) == qsort xs
+\end{lstlisting}
+
+我们将使用 QuickCheck 来转换带有\acode{prop_}的前缀测试属性，用于区别普通的代码。这个幂等性的属性被简单的编写为 Haskell
+函数来表明任何输入的数据被排序后是否具有相等性。我们通过手动测试若干案例的方式来检查它是否合理：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :l QC-basics.hs
+  [1 of 2] Compiling Main             ( QC-basics.hs, interpreted )
+  Ok, one module loaded.
+  ghci> prop_idempotent []
+  True
+  ghci> prop_idempotent [1,1,1,1]
+  True
+  ghci> prop_idempotent [1..100]
+  True
+  ghci> prop_idempotent [1,5,2,1,2,0,9]
+  True
+\end{lstlisting}
+
+看起来不错，不过手动输入数据还是太麻烦了，同时也违背了函数式编程的高效性：让机器做这事儿！QuickCheck 库带有 Haskell 所有数据
+类型的数据生成器可以用于自动化手动输入这个过程。通过类型系统所生成的（临时）随机数据，QuickCheck 使用\acode{Arbitrary}
+typeclass 来表示的统一接口。QuickCheck 通常会隐藏数据生成的过程，不过我们仍然可以通过手动的方式运行生成器来获取 QuickCheck
+所生成的数据分布。例如，生成一个随机布尔值列表。
+
+% TODO: The function ‘generate’ is applied to three value arguments, but its type ‘Gen a0 -> IO a0’ has only one
+
+\begin{lstlisting}[language=Haskell]
+  ghci> generate 10 (System.Random.mkStdGen 2) arbitrary :: [Bool]
+  [False,False,False,False,False,True]
+\end{lstlisting}
+
+QuickCheck 生成的测试数据就像是这样，并通过\acode{quickCheck}函数传递给所选择的属性。属性其本身的类型决定了数据生成器的使用。
+\acode{quickCheck}接着检查属性是否满足所有生产的数据。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t quickCheck
+  quickCheck :: Testable prop => prop -> IO ()
+  ghci> quickCheck (pro)
+  product                   properFraction            propertyForAllShrinkShow
+  prop_idempotent           property
+  ghci> quickCheck (prop_idempotent :: [Integer] -> Bool)
+  +++ OK, passed 100 tests.
+\end{lstlisting}
+
+对于生成的 100 个不同的列表，属性都可以适配。在开发测试时，看到每个测试用例中真实生成的数据是很有意义的。为了达到这个效果，可以使用
+\acode{verboseCheck}函数来查看更详细的输出。
 
 \subsubsection*{测试属性}
+
+好的库包含了一系列正交的基础，它们彼此之间都有合理的关联。使用 QuickCheck 来指定函数间的关系，通过开发属性间合理交互的函数来帮助我们
+找到好的库接口。QuickCheck 这时所扮演的是 API 的 “lint” 工具 -- 其提供了确保我们库 API 合理性的机器支持。
+
+列表排序函数当然拥有若干有意思的属性，它们与其它的列表操作紧密关联。例如：排序列表中第一个元素总是最小的元素。我们可以在 Haskell 中
+指定这一特性，通过\acode{List}库的\acode{minimum}函数：
+
+\begin{lstlisting}[language=Haskell]
+  prop_minimum xs = head (qsort xs) == minimum xs
+\end{lstlisting}
+
+不过会抛出异常：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> quickCheck (prop_minimum :: [Integer] -> Bool)
+  *** Failed! (after 1 test):
+  Exception:
+    Prelude.head: empty list
+    CallStack (from HasCallStack):
+      error, called at libraries/base/GHC/List.hs:1646:3 in base:GHC.List
+      errorEmptyList, called at libraries/base/GHC/List.hs:85:11 in base:GHC.List
+      badHead, called at libraries/base/GHC/List.hs:81:28 in base:GHC.List
+      head, called at QC-basics.hs:21:19 in main:Main
+  []
+\end{lstlisting}
+
+也就是这个属性只满足非空列表。感谢 QuickCheck 有着一整套属性使得我们可以更加精确的指定我们的不变，剔除不希望考虑到的值。对于非空列表，
+我们真实想表达的是：\textit{如果}列表是非空的，\textit{那么}排序列表中的第一个元素是最小的。根据\acode{(==>)}隐式函数，在运行属性
+前剔除非法的数据：
+
+\begin{lstlisting}[language=Haskell]
+  prop_minimum' xs = not (null xs) ==> head (qsort xs) == minimum xs
+\end{lstlisting}
+
+通过分离空列表，现在可以确认属性实际上成立：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> quickCheck (prop_minimum' :: [Integer] -> Property)
+  +++ OK, passed 100 tests; 18 discarded.
+\end{lstlisting}
+
+注意我们将属性的类型从简单的\acode{Bool}结果变为了更泛化的\acode{Property}类型（属性自身现在是一个函数，在测试前筛选非空列表，
+而不是简单的一个布尔常数）。
+
+我们现在可以通过其它应该满足的不变来完成排序函数的所有基础属性了：输出是有序的（每个元素都应该小于等于其前者）；输出是输入的组合（通过
+列表差异函数\acode{(\\\\)}；最后被排序的元素是最大的元素；如果找到了两个不同列表的最小元素，那么将两个列表合并后再排序，该元素还是
+第一个元素。这些属性可以表示为：
+
+\begin{lstlisting}[language=Haskell]
+  prop_ordered xs = ordered (qsort xs)
+  where
+    ordered [] = True
+    ordered [x] = True
+    ordered (x : y : xs) = x <= y && ordered (y : xs)
+
+prop_permutation xs = permutation xs (qsort xs)
+  where
+    permutation xs ys = null (xs \\ ys) && null (ys \\ xs)
+
+prop_maximum xs = not (null xs) ==> last (qsort xs) == maximum xs
+
+prop_append xs ys =
+  not (null xs)
+    ==> not (null ys)
+    ==> head (qsort (xs ++ ys))
+    == min (minimum xs) (minimum ys)
+\end{lstlisting}
+
 
 \subsubsection*{测试模型}
 
