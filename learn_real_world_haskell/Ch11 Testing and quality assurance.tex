@@ -4,13 +4,12 @@
 
 构建真实系统意味着需要考虑质量控制，鲁棒性以及正确性。使用正确的质量保证机制，良好的代码类似于一个各项功能完备的精确的仪器。
 
-Haskell 中有着若干工具帮助我们构建这样精准的系统。最显著的当然是语言自带的昂贵的类型系统，它可以令复杂的子类型遵从静态性 --
-使得编写的代码无法违背其约束。除此之外，纯性以及多态鼓励代码的风格变成可模块化的，可重构的以及可测试的。
+Haskell 中有着若干工具帮助我们构建这样精准的系统。最显著的当然是语言自带的类型系统，它允许静态的强制执行复杂的不变量 --
+使得编写的代码无法违背其约束。除此之外，纯粹性以及多态鼓励模块化，可重构和可测试的代码风格。
 
 在维护代码的正确表达性上测试担任了很重要的角色。Haskell 中主要的测试机制是传统的单元测试（通过 HUnit 库），以及其更强大的
-派生品：基于类型的“属性”测试，即 QuickCheck 一个开源的 Haskell 测试框架。基于属性的测试鼓励更高等级的测试，通过抽象
-不变函数形式上，由测试库生成真实的测试数据来测试是否满足通用性。相较于手写测试用例的不足，通过此种方式代码可以被上千次的锤炼，
-通常能覆盖所有的边缘用例。
+派生品：基于类型的“属性”测试，即 QuickCheck 一个开源的 Haskell 测试框架。基于属性的测试鼓励更高层次的测试方法，是以抽象
+不变函数的形式测试，需要满足测试库所生成真实的测试数据。相较于手写测试用例的不足，通过这样测试的代码通常能覆盖所有的边缘用例。
 
 本章我们学习如何使用 QuickCheck 来构建代码的不变性，并测试上一章节编写的代码。另外还会学习如何使用 GHC 代码覆盖工具：HPC。
 
@@ -158,12 +157,175 @@ prop_append xs ys =
     == min (minimum xs) (minimum ys)
 \end{lstlisting}
 
-
 \subsubsection*{测试模型}
+
+另一个技巧就是测试模型的实现。可以将列表排序的实现绑定标准库中的排序函数，同时如果它们表现的一致，就可以得知自定义的排序的正确性了。
+
+\begin{lstlisting}[language=Haskell]
+  prop_sort_model xs = sort xs == qsort xs
+\end{lstlisting}
+
+这一类基于模型的测试异常强大。通常开发人员会有一个参考现实或原型，虽然不够高效，但却是正确的。这可以保存下来，并用于确保优化后的产品
+代码符合这套参考。通过构建一套大型的基于模型的测试，并定期运行它们（例如在每次提交时），我们可以轻松的确保代码的准确性。大型 Haskell
+项目通常绑定了与项目本身大小相当的属性套件，在每次更改时都要测试数千个不变量，保证代码符合规范，并确保能按要求运行。
 
 \subsection*{测试用例：指定一个漂亮打印器}
 
+在 Haskell 所构建的大型系统中中，为单独的函数测试它们的自然属性属于基础的构建模块。接下来我们将要学习更复杂的场景：为之前章节所编写的
+漂亮打印库构建测试套装。
+
 \subsubsection*{生成测试数据}
+
+回忆一下漂亮打印是基于\acode{Doc}所构建的程序，它是一个代表着良好格式化后的文档的代数数据结构。
+
+\begin{lstlisting}[language=Haskell]
+  data Doc
+    = Empty
+    | Char Char
+    | Text String
+    | Line
+    | Concat Doc Doc
+    | Union Doc Doc
+    deriving (Show, Eq)
+\end{lstlisting}
+
+库本身是实现的一系列函数用于构建与转换该文档类型的值，最后将完成的文档渲染成字符串。
+
+QuickCheck 鼓励采用一种测试方法，开发人员指定的不变量可以满足任何数据类型。为了测试漂亮打印库，我们还需要输入数据源。利用 QuickCheck
+中\acode{Arbitrary}类所提供的组合字套件来构建随机数据。该类提供了一个函数，\acode{arbitrary}，用于生成每种类型的数据，通过它我们可以
+为自定义的数据类型定义数据生成器。
+
+\begin{lstlisting}[language=Haskell]
+  class Arbitrary a where
+    arbitrary :: Gen a
+\end{lstlisting}
+
+\textbf{注}：该 typeclass 由 QuickCheck 库提供。
+
+需要注意的是生成器运行在一个\acode{Gen}环境中，由类型表示。这是一个简单的状态传递单子，用于隐藏贯穿代码的随机数生成器状态。我们会在
+稍后的章节中讲解单子，现在我们只需要知道\acode{Gen}定义为单子，可以使用\acode{do}语义来编写可访问隐式随机数源的生成器。为了编写自定义
+类型的生成器，我们使用库中定义的一组函数来引入新的随机值，并将它们粘合在一起用以构建我们需要的数据结构类型。关键函数的类型为：
+
+\begin{lstlisting}[language=Haskell]
+  elements :: [a] -> Gen a
+  choose :: Random a => (a, a) -> Gen a
+  oneof :: [Gen a ] -> Gen a
+\end{lstlisting}
+
+\textbf{注}：以上三个函数皆由 QuickCheck 库提供。
+
+函数\acode{elements}，接受一个列表，返回一个生成器，该生成器将随机返回该列表中的值。\acode{choose}与\acode{oneof}将在稍后用到。
+通过它们我们可以为一个简单的类型编写生成器。例如：
+
+\begin{lstlisting}[language=Haskell]
+  data Ternary
+    = Yes
+    | No
+    | Unknown
+    deriving (Eq, Show)
+\end{lstlisting}
+
+为其实现\acode{Arbitrary} typeclass：
+
+\begin{lstlisting}[language=Haskell]
+  instance Arbitrary Ternary where
+    arbitrary = elements [Yes, No, Unknown]
+\end{lstlisting}
+
+另外一种数据生成的方案就是先生成一种 Haskell 的基础类型，再转换成期望的实际类型。通过\acode{choose}来选择 0 至 2 的随机整数，然后再
+映射成 ternary 值：
+
+\begin{lstlisting}[language=Haskell]
+  instance Arbitrary Ternary where
+    arbitrary = do
+      n <- choose (0, 2) :: Gen Int
+      return $ case n of
+        0 -> Yes
+        1 -> No
+        _ -> Unknown
+\end{lstlisting}
+
+对于简单的\textit{sum}类型，这种方法可以很好的工作，因为整数可以很好的映射到数据类型的构造函数上。对于\textit{product}类型
+（例如结构或元组），我们需要为每个成员分别生成乘积（递归嵌套类型），再将成员进行合并。例如生成一对随机值：
+
+\begin{lstlisting}[language=Haskell]
+  instance (Arbitrary a, Arbitrary b) => Arbitrary (a, b) where
+    arbitrary = do
+      x <- arbitrary
+      y <- arbitrary
+      return (x, y)
+\end{lstlisting}
+
+\textbf{注}：上述代码同样由 QuickCheck 库提供。
+
+现在来为所有\acode{Doc}类型的变体来编写一个生成器。我们需要将问题进行分解，首先是为每个类型生成随机构造函数，接着根据结果生成每个字段的
+组件。这里最复杂的部分就是 union 以及 concatenation 变体了。
+
+首先，我们需要编写一个实例来生成随机字符 -- QuickCheck 并没有默认的字符实例，因为有大量不同的文本编码，我们希望一个字符测试。我们无需考虑
+文档中的文本内容，因此简单的字母以及标点符号的生成器就足够了（更丰富的生成器可以基于该生成器进行拓展）：
+
+\begin{lstlisting}[language=Haskell]
+  newtype DocChar = DocChar Char
+
+  fromDocChar :: DocChar -> Char
+  fromDocChar (DocChar x) = x
+
+  instance Arbitrary DocChar where
+    arbitrary = elements (DocChar <$> ['A' .. 'Z'] ++ ['a' .. 'z'] ++ " ~!@#$%^&*()")
+\end{lstlisting}
+
+\textbf{注}：与原文不同在于使用了\acode{newtype}，因为 QuickCheck 已经为\acode{Char}实现了\acode{Arbitrary}。这里\acode{(<\$>)}的
+计算优先级是 4，而\acode{(++)}的优先级是 5，因此不需要额外的括号。
+
+有了这些现在就可以编写文档的实例了，即通过枚举构造函数，并填充其字段。我们选择随机整数来表示所需要生成的文档变体，再根据结果进行分配。
+生成 concat 与 union 文档节点时，只需要递归\acode{arbitrary}，将类型推导交给\acode{Arbitrary}的实例本身：
+
+\begin{lstlisting}[language=Haskell]
+  instance Arbitrary Doc where
+    arbitrary = do
+      n <- choose (1, 6) :: Gen Int
+      case n of
+        1 -> return Empty
+        2 -> do
+          (x :: DocChar) <- arbitrary
+          return (Char $ fromDocChar x)
+        3 -> Text <$> arbitrary
+        4 -> return Line
+        5 -> do
+          x <- arbitrary
+          Concat x <$> arbitrary
+        6 -> do
+          x <- arbitrary
+          Union x <$> arbitrary
+\end{lstlisting}
+
+\textbf{注}：与原文不同之处在于处理\acode{Char}的步骤，先是显式声明了\acode{x}为\acode{DocChar}，然后再使用\acode{fromDocChar}取出
+\acode{Char}值。
+
+上述代码非常的直接，我们可以通过\acode{oneof}函数对其进行重写，该函数我们较早之前见过，其作用是在列表中挑选一个后生成生成器（我们也可以
+使用单子化的组合子，用\acode{liftM}来避免命名生成器的各种中间结果）：
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
 
 \subsubsection*{测试文档构建}
 

@@ -27,4 +27,4 @@ library
     , base
     , QuickCheck
 
-  exposed-modules:
+  exposed-modules:  Prettify2
