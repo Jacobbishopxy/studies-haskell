@@ -65,12 +65,12 @@ Haskell 中有着若干工具帮助我们构建这样精准的系统。最显著
 typeclass 来表示的统一接口。QuickCheck 通常会隐藏数据生成的过程，不过我们仍然可以通过手动的方式运行生成器来获取 QuickCheck
 所生成的数据分布。例如，生成一个随机布尔值列表。
 
-% TODO: The function ‘generate’ is applied to three value arguments, but its type ‘Gen a0 -> IO a0’ has only one
-
 \begin{lstlisting}[language=Haskell]
-  ghci> generate 10 (System.Random.mkStdGen 2) arbitrary :: [Bool]
-  [False,False,False,False,False,True]
+  ghci> generate arbitrary :: IO [Bool]
+  [False,False,True,False,True,False,False]
 \end{lstlisting}
+
+\textbf{注}：新的 QuickCheck 的\acode{generate}的函数签名是\acode{generate :: Gen a -> IO a}。
 
 QuickCheck 生成的测试数据就像是这样，并通过\acode{quickCheck}函数传递给所选择的属性。属性其本身的类型决定了数据生成器的使用。
 \acode{quickCheck}接着检查属性是否满足所有生产的数据。
@@ -306,33 +306,290 @@ QuickCheck 鼓励采用一种测试方法，开发人员指定的不变量可以
 使用单子化的组合子，用\acode{liftM}来避免命名生成器的各种中间结果）：
 
 \begin{lstlisting}[language=Haskell]
-
+  instance Arbitrary Doc where
+  arbitrary =
+    oneof
+      [ return Empty,
+        fmap (Char . fromDocChar . DocChar) arbitrary,
+        fmap Text arbitrary,
+        return Line,
+        liftM2 Concat arbitrary arbitrary,
+        liftM2 Union arbitrary arbitrary
+      ]
 \end{lstlisting}
 
+\textbf{注}：与原文不同之处在于列表第二个元素\acode{Char}的处理方式上，通过 newtype \acode{DocChar}的\acode{arbitrary}函数再提取出
+\acode{Char}来实现调用非默认的\acode{Char} arbitrary。
 
+上述两种对\acode{Doc}实现\acode{Arbitrary}实例的方式，后者更为简洁，仅仅是在生成器列表中进行选择，不过二种表达方式讲述的都是同一件事。我们
+可以通过生成一个随机文档列表来进行测试
 
 \begin{lstlisting}[language=Haskell]
-
+  ghci> generate arbitrary :: IO [Doc]
+  [Concat (Union (Text "1^_\FS\83431\nir^\DC1IH\t\GS\10583r\"_~t\1007943(\1091024\180519\ETX\53558y\998555") Line) (Union (Text "s4hxR(\1108184") Empty),Empty,Empty,Char '&',Char 'D',Empty,Line,Empty,Line,Char '>',Te
+  xt "\99986\25864;'}\CAN",Concat Line Empty,Text "\NAK",Char '&',Union Empty (Concat (Char '\998638') (Union
+   (Text "/\t\28481\1025790\95127\1078739x;D") (Concat (Char 'Q') Line))),Empty,Concat Line (Text "Gwj^v\1032477\EOT\58278k},`<\1016570\59993:Y>\1074673q;A \7956\127844"),Empty,Concat Empty (Text "\199725\SIl(<\176480\133060,A\FSu\EM>\DC1\SYN\1102841\RS\STX\DELim\n\"|\1106202De\n#"),Char 'J',Union Empty Line,Concat (Union
+   (Concat Line (Char 'E')) (Char '\NUL')) (Concat (Text "78\152486\194828?vy\157411\\1*\DC1\NAK\NULrd\SYN:\t
+  ") Line),Text ""]
 \end{lstlisting}
 
+\textbf{注}：与原文不同，\acode{generate}的函数签名变了。
 
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
+结果是各种文档变体混合的列表。之后在每次测试运行时会生成上百个结果。现在可以为文档函数编写一些更泛化的属性了。
 
 \subsubsection*{测试文档构建}
 
+基于文档的两个基础函数是 null 文档常数（一个 nullary 函数），\acode{empty}，以及 append 函数。它们的类型是：
+
+\begin{lstlisting}[language=Haskell]
+  empty :: Doc
+  (<>) :: Doc -> Doc -> Doc
+\end{lstlisting}
+
+总之，它们有一个很好的属性：将空列表 append 或 prepend 到第二个列表上，第二个列表保持不变。我们可以将这个不变量声明为一个属性：
+
+\begin{lstlisting}[language=Haskell]
+  prop_empty_id x =
+  empty <> x == x
+    && x <> empty == x
+\end{lstlisting}
+
+\textbf{注}：原有 Doc 代码在第五章的\acode{Prettify.hs}文件中（改动后位于 code/Ch11/Prettify2.hs 文件下）。与第五章不一样的地方：
+为\acode{Doc}实现了\acode{Semigroup}，因此可以对\acode{Doc}使用操作符\acode{(<>)}。
+
+为了确保它是正确的，测试一下：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> quickCheck prop_empty_id
+  00, passed 100 tests.
+\end{lstlisting}
+
+将\acode{quickCheck}改为\acode{verboseCheck}可以看到生成出来的测试文档。
+
+其它的 API 测试：
+
+\begin{lstlisting}[language=Haskell]
+  prop_char c = char c == Char c
+
+  prop_text s = text s == if null s then Empty else Text s
+
+  prop_line = line == Line
+
+  prop_double d = double d == text (show d)
+\end{lstlisting}
+
 \subsubsection*{以列表作模型}
+
+高阶函数是重用程序的基本粘合剂，漂亮打印库也不例外 -- 自定义的 fold 函数用于内部实现文档拼接以及文档块之间的交错分隔符。文档的\acode{fold}
+接受一个文档列表，通过提供的组合函数将它们粘合起来：
+
+\begin{lstlisting}[language=Haskell]
+  fold :: (Doc -> Doc -> Doc) -> [Doc] -> Doc
+  fold f = foldr f empty
+\end{lstlisting}
+
+那么为 fold 编写测试就很简单了。
+
+\begin{lstlisting}[language=Haskell]
+  prop_hcat xs = hcat xs == glue xs
+    where
+      glue [] = empty
+      glue (d : ds) = d <> glue ds
+\end{lstlisting}
+
+同理对于\acode{punctuate}，我们可以通过列表散布（interspersion）的方式来插入标点符号：
+
+\begin{lstlisting}[language=Haskell]
+  import Data.List (intersperse)
+
+  prop_punctuate s xs = punctuate s xs == intersperse s xs
+\end{lstlisting}
+
+然而对其进行测试时，我们会得到错误：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> quickCheck prop_punctuate
+  *** Failed! Falsified (after 6 tests and 1 shrink):
+  Char ' '
+  [Union (Text "\ESC") (Text "RO"),Union Empty (Char '\1097718')]
+\end{lstlisting}
+
+漂亮打印库优化掉了多余的空文档，这是模型实现无法做到的，因此我们需要增强模型以匹配实际情况。首先，可以在整个文档列表中散布标点符号文本，然后用
+一个小的循环来清理分散在其中的\acode{Empty}文档，像是这样：
+
+\begin{lstlisting}[language=Haskell]
+  prop_punctuate' s xs = punctuate s xs == combine (intersperse s xs)
+    where
+      combine [] = []
+      combine [x] = [x]
+      combine (x : Empty : ys) = x : combine ys
+      combine (Empty : y : ys) = y : combine ys
+      combine (x : y : ys) = x `Concat` y : combine ys
+\end{lstlisting}
+
+通过 CHCi 来确认结果。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :l QC.hs
+  [1 of 4] Compiling Prettify2        ( Prettify2.hs, interpreted )
+  [2 of 4] Compiling Arbitrary        ( Arbitrary.hs, interpreted )
+  [3 of 4] Compiling Main             ( QC.hs, interpreted )
+  Ok, three modules loaded.
+  ghci> quickCheck prop_punctuate'
+  +++ OK, passed 100 tests.
+\end{lstlisting}
 
 \subsubsection*{将它们合在一起}
 
+我们可以将所有的测试放到一个单独文件中，然后使用 QuickCheck 的派生函数来运行。基本的批处理驱动程序通常已经足够好了。
+
+\begin{lstlisting}[language=Haskell]
+  {-# LANGUAGE TemplateHaskell #-}
+  import Test.QuickCheck.All
+
+  -- All the prop tests before `return []`
+
+  return []
+  runTests = $quickCheckAll
+\end{lstlisting}
+
+\textbf{注}：根据\href{https://stackoverflow.com/a/42669557/22544285}{StackOverflow}的答案，QuickCheck 在 2.0 之后就没了
+\acode{Test.QuickCheck.Batch}，因此需要在\acode{QC.hs}文件的头尾加上上述代码。而新的\acode{Run.hs}代码如下：
+
+\begin{lstlisting}[language=Haskell]
+  import QC
+
+  main = do
+    runTests
+    return ()
+\end{lstlisting}
+
+通过 GHCi 测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :l Run.hs
+  [1 of 5] Compiling Prettify2        ( Prettify2.hs, interpreted )
+  [2 of 5] Compiling Arbitrary        ( Arbitrary.hs, interpreted )
+  [3 of 5] Compiling QC               ( QC.hs, interpreted )
+  [4 of 5] Compiling Main             ( Run.hs, interpreted )
+  Ok, four modules loaded.
+  ghci> main
+  === prop_empty_id from ./QC.hs:14 ===
+  +++ OK, passed 100 tests.
+
+  === prop_char from ./QC.hs:18 ===
+  +++ OK, passed 100 tests.
+
+  === prop_text from ./QC.hs:20 ===
+  +++ OK, passed 100 tests.
+
+  === prop_line from ./QC.hs:22 ===
+  +++ OK, passed 1 test.
+
+  === prop_double from ./QC.hs:24 ===
+  +++ OK, passed 100 tests.
+
+  === prop_hcat from ./QC.hs:28 ===
+  +++ OK, passed 100 tests.
+
+  === prop_punctuate from ./QC.hs:33 ===
+  *** Failed! Falsified (after 4 tests):
+  Char 'H'
+  [Concat (Char '1') (Concat (Char '\119225') (Concat (Char 'r') Empty)),Text ""]
+
+  === prop_punctuate' from ./QC.hs:35 ===
+  +++ OK, passed 100 tests.
+\end{lstlisting}
+
+我们在这里将代码构建为一个独立的测试脚本，实例和属性在它们自己的文件中，做到了与库的源代码分离。这是一个典型的库项目，测试与库本身分开，
+并通过模块系统导入库。然后可以编译和执行测试脚本：
+
+\begin{lstlisting}[language=Haskell]
+  ghc --make Run.hs
+  Loaded package environment from <xxx>
+  [1 of 5] Compiling Prettify2        ( Prettify2.hs, Prettify2.o, Prettify2.dyn_o )
+  [2 of 5] Compiling Arbitrary        ( Arbitrary.hs, Arbitrary.o, Arbitrary.dyn_o )
+  [3 of 5] Compiling QC               ( QC.hs, QC.o, QC.dyn_o )
+  [4 of 5] Compiling Main             ( Run.hs, Run.o )
+  [5 of 5] Linking Run
+\end{lstlisting}
+
+接着运行：
+
+\begin{lstlisting}[language=Haskell]
+  ./Run
+  === prop_empty_id from ./QC.hs:14 ===
+  +++ OK, passed 100 tests.
+
+  === prop_char from ./QC.hs:18 ===
+  +++ OK, passed 100 tests.
+
+  === prop_text from ./QC.hs:20 ===
+  +++ OK, passed 100 tests.
+
+  === prop_line from ./QC.hs:22 ===
+  +++ OK, passed 1 test.
+
+  === prop_double from ./QC.hs:24 ===
+  +++ OK, passed 100 tests.
+
+  === prop_hcat from ./QC.hs:28 ===
+  +++ OK, passed 100 tests.
+
+  === prop_punctuate from ./QC.hs:33 ===
+  *** Failed! Falsified (after 4 tests):
+  Union (Char '\1089590') (Char 't')
+  [Line,Text "\129350\167965\EOT"]
+
+  === prop_punctuate' from ./QC.hs:35 ===
+  +++ OK, passed 100 tests.
+\end{lstlisting}
+
 \subsection*{通过 HPC 测量测试覆盖率}
+
+HPC (Haskell Program Coverage) 是编译器的扩展，用于观察给定程序运行期间实际执行的代码部分。这在测试的上下文中很有用，因为它可以
+让我们精确的观察哪些函数、分支以及表达式被求值。HPC 附带了一个简单的工具来生成有用的程序覆盖图，这可以放大测试套件中的弱点。
+
+我们需要在编译时添加\acode{-fhpc}标记：
+
+\begin{lstlisting}[language=Haskell]
+  ghc -fhpc Run.hs --make
+  Loaded package environment from /Users/jacobxie/.ghc/aarch64-darwin-9.4.7/environments/default
+  [1 of 5] Compiling Prettify2        ( Prettify2.hs, Prettify2.o, Prettify2.dyn_o ) [HPC flags changed]
+  [2 of 5] Compiling Arbitrary        ( Arbitrary.hs, Arbitrary.o, Arbitrary.dyn_o ) [HPC flags changed]
+  [3 of 5] Compiling QC               ( QC.hs, QC.o, QC.dyn_o ) [Source file changed]
+  [4 of 5] Compiling Main             ( Run.hs, Run.o ) [HPC flags changed]
+  [5 of 5] Linking Run [Objects changed]
+\end{lstlisting}
+
+在测试运行期间，程序的跟踪记录被写入至当前目录下的 .tix 与 .mix 文件中。然后命令行工具 hpc 使用这些文件来显示有关的各种统计信息。
+首先，可以使用 hpc 报告标志获得运行期间测试代码的摘要。我们将排除测试程序本身（使用\acode{--exclude}标志），以便只关注库的代码：
+
+\begin{lstlisting}[language=Haskell]
+  hpc report Run --exclude=Main --exclude=QC
+  26% expressions used (54/202)
+   0% boolean coverage (0/3)
+        0% guards (0/3), 3 unevaluated
+      100% 'if' conditions (0/0)
+      100% qualifiers (0/0)
+  21% alternatives used (8/37)
+   0% local declarations used (0/4)
+  44% top-level declarations used (16/36)
+\end{lstlisting}
+
+最后一行可以看到 42\% 的定义在测试运行期间被评估。第一次尝试还算不错。随着我们从库中测试越来越多的函数，这个数字将会上升。文本版本的
+测试摘要对于快速总结很有用，弹药真正了解发生了什么，那么就可以使用\acode{markup}标记：
+
+\begin{lstlisting}[language=Haskell]
+  hpc markup Run --exclude=Main --exclude=QC
+  Writing: Arbitrary.hs.html
+  Writing: Prettify2.hs.html
+  Writing: hpc_index.html
+  Writing: hpc_index_fun.html
+  Writing: hpc_index_alt.html
+  Writing: hpc_index_exp.html
+\end{lstlisting}
+
+略
 
 \end{document}

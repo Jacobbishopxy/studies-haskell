@@ -27,4 +27,7 @@ library
     , base
     , QuickCheck
 
-  exposed-modules:  Prettify2
+  exposed-modules:
+    Arbitrary
+    Prettify2
+    QC

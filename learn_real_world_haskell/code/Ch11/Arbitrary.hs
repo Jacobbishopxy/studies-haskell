@@ -1,7 +1,9 @@
--- file: Arbitraray.hs
+-- file: Arbitrary.hs
 -- author: Jacob Xie
 -- date: 2023/11/20 22:46:45 Monday
 -- brief:
+
+module Arbitrary where
 
 import Control.Monad (liftM, liftM2)
 import Prettify2
@@ -66,14 +68,13 @@ instance Arbitrary DocChar where
 --         x <- arbitrary
 --         Union x <$> arbitrary
 
--- TODO:
--- instance Arbitrary Doc where
---   arbitrary =
---     oneof
---       [ return Empty,
---         liftM DocChar arbitrary,
---         liftM Text arbitrary,
---         return Line,
---         liftM2 Concat arbitrary arbitrary,
---         liftM2 Union arbitrary arbitrary
---       ]
+instance Arbitrary Doc where
+  arbitrary =
+    oneof
+      [ return Empty,
+        fmap (Char . fromDocChar . DocChar) arbitrary,
+        fmap Text arbitrary,
+        return Line,
+        liftM2 Concat arbitrary arbitrary,
+        liftM2 Union arbitrary arbitrary
+      ]
