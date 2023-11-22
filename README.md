@@ -134,9 +134,9 @@ gen-hie > hie.yaml
 
   - [Ch9 I/O case study: a library for searching the filesystem](./learn_real_world_haskell/Ch9%20IO%20case%20study:%20a%20library%20for%20searching%20the%20filesystem.tex)
 
-  - Ch10 Code case study: parsing a binary data format
+  - [Ch10 Code case study: parsing a binary data format](./learn_real_world_haskell/Ch10%20Code%20case%20study:%20parsing%20a%20binary%20data%20format.tex)
 
-  - Ch11 Testing and quality assurance
+  - [Ch11 Testing and quality assurance](./learn_real_world_haskell/Ch11%20Testing%20and%20quality%20assurance.tex)
 
   - Ch12 Barcode recognition
 
