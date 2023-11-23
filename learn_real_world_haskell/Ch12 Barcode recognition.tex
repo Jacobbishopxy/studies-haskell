@@ -2,6 +2,121 @@
 
 \begin{document}
 
-WIP
+本章我们将会使用第十章所编写的图像解析库来构建一个识别条形码的应用。
+
+\subsection*{关于条形码}
+
+绝大多数包装好的和批量生产的消费品上面都会有条形码。尽管在各个专门的领域都有若干的条形码系统，但消费品通常使用 UPC-A 或 EAN-13。前者是在美国
+开发的，而后者则起源于欧洲。
+
+EAN-13 开发晚于 UPC-A，它是 UPC-A 的超集。（实际上，UPC-A 已经在 2005 年宣布废弃了，尽管在美国它仍然被大量的使用。）任何可以识别 EAN-13
+的软件或硬件也会自动处理 UPC-A 条形码。
+
+正如其名，EAN-13 描述了一个 13 位数的序列，它被划分成四个组：
+
+\begin{itemize}
+  \item 开头的两位数描述了\textit{数字系统}。它可以表明制造商的国家，或是其它的一些分类，例如 ISBN（书籍身份）。
+  \item 接下来的五位数则是生产商的 ID，通过国家的授权进行指定。
+  \item 再接下来的五位数则是产品 ID，通过制造商指定。（小型的制造商可能有更长的制造商 ID 以及更短的产品 ID，但是它们加在一起仍然是十位数。）
+  \item 最后一位则是\textit{校验数}，允许一个扫描器验证它扫描的位数字符串。
+\end{itemize}
+
+\subsubsection*{EAN-13 编码}
+
+在我们关心 EAN-13 条形码的解码之前，我们需要理解它们是如何被编码的。EAN-13 所使用的系统有一点复杂。让我们首先从校验数开始，也就是字符串的
+最后一个位数。
+
+\begin{lstlisting}[language=Haskell]
+  checkDigit :: (Integral a) => [a] -> a
+  checkDigit ds = 10 - (sum products `mod` 10)
+    where
+      products = mapEveryOther (* 3) (reverse ds)
+
+  mapEveryOther :: (a -> a) -> [a] -> [a]
+  mapEveryOther f = zipWith ($) (cycle [f, id])
+\end{lstlisting}
+
+这是一种通过代码比口头描述更容易理解的算法。从字符串的右侧开始计算，每个连续的数字要么乘以 3，要么不动（\acode{cycle}函数会无限的重复它的输入
+列表）。校验数则是它们的和（以 10 取模）与数字 10 之间的差。
+
+条形码是一系列固定宽度的条码，黑色代表二元 “1” 位，白色代表 “0” 位。因此，相同数字的运行看前来像一个更粗的条码。
+
+条形码中的位序列如下所示：
+
+\begin{itemize}
+  \item 前导保护序列，编码为 101.
+  \item 一组六位数字，每个有七位宽。
+  \item 另一个保护序列，编码为 01010.
+  \item 一组六位以上的数字。
+  \item 尾部的保护序列，编码为 101。
+\end{itemize}
+
+左边和右边组中的数字有单独的编码。左边用奇偶校验位编码，奇偶校验位编码条形码的第 13 位。
+
+\subsection*{数组介绍}
+
+\subsubsection*{数组与惰性}
+
+\subsubsection*{折叠数组}
+
+\subsubsection*{修改数组元素}
+
+\subsection*{对 EAN-13 条形码进行编码}
+
+\subsection*{解码器的约束}
+
+\subsection*{分治法}
+
+\subsection*{将彩色图像转换成易于处理的东西}
+
+\subsubsection*{解析一个彩色图像}
+
+\subsubsection*{灰度转化}
+
+\subsubsection*{灰度至二进制以及类型安全}
+
+\subsection*{我们对图像做了什么}
+
+\subsection*{寻找匹配的位数}
+
+\subsubsection*{运行长度编码}
+
+\subsubsection*{缩放运行长度并找到近似匹配}
+
+\subsubsection*{列表表达式}
+
+\subsubsection*{记住匹配的奇偶}
+
+\subsubsection*{另一种惰性，键盘上的}
+
+\subsubsection*{列表切分}
+
+\subsubsection*{生成候选位数列表}
+
+\subsection*{没有数组或哈希表的生活}
+
+\subsubsection*{解决方案的森林}
+
+\subsubsection*{maps 的简介}
+
+\subsubsection*{类型约束}
+
+\subsubsection*{部分应用程序的笨拙}
+
+\subsubsection*{从 API 开始}
+
+\subsection*{将位数变为答案}
+
+\subsubsection*{并行的校验数}
+
+\subsubsection*{通过第一位数完成求解 map}
+
+\subsubsection*{寻找正确的序列}
+
+\subsection*{处理行数据}
+
+\subsection*{合并所有}
+
+\subsection*{一些开发风格的评论}
 
 \end{document}

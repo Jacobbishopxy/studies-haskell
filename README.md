@@ -48,9 +48,10 @@
   ...
   "haskell.manageHLS": "GHCup",
   "haskell.toolchain": {
-    "ghc": "9.4.7",
-    "hls": "2.4.0.0",
-    "cabal": "recommended"
+    "ghc": "recommended", // otherwise, use specific version, or "latest"
+    "hls": "recommended",
+    "cabal": "recommended",
+    "stack": "recommended"
   },
   "haskell.serverEnvironment": {
     "PATH": "${HOME}/.ghcup/bin:$PATH"
