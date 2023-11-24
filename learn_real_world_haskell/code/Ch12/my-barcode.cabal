@@ -25,3 +25,5 @@ library
   default-language: Haskell2010
   build-depends:    base
   exposed-modules:
+    Parse
+    PNM

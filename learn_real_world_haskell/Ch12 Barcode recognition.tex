@@ -55,11 +55,188 @@ EAN-13 开发晚于 UPC-A，它是 UPC-A 的超集。（实际上，UPC-A 已经
 
 \subsection*{数组介绍}
 
+在继续之前，以下是本章所需的模块导入：
+
+\begin{lstlisting}[language=Haskell]
+  import Control.Applicative ((<$>))
+  import Control.Monad (forM_)
+  import Data.Array (Array (..), bounds, elems, indices, ixmap, listArray, (!))
+  import Data.ByteString.Lazy.Char8 qualified as L
+  import Data.Char (digitToInt)
+  import Data.Ix (Ix (..))
+  import Data.List (foldl', group, sort, sortBy, tails)
+  import Data.Map qualified as M
+  import Data.Maybe (catMaybes, listToMaybe)
+  import Data.Ratio (Ratio)
+  import Data.Word (Word8)
+  import Parse                                -- from Chapter 10
+  import System.Environment (getArgs)
+\end{lstlisting}
+
+\textbf{注}：\acode{Parse}库从第十章而来。
+
+条形码的编码过程很大程度上是表格驱动的，即使用位模式的小表来决定如何对每个数字进行编码。Haskell 基本的数据类型中列表和元组都不适合用于表格，
+其包含的元素需要能被随机访问。列表需要线性的遍历才能访问第 k 个元素。元组没有这个问题，但是 Haskell 的类型系统使得很难编写一个函数来接受
+元组和元素偏移量，并返回元组中偏移量处的元素。
+
+常用的数据类型可供常数耗时的随机访问就是数组了。Haskell 提供了若干数字类型。这里我们将编码表格表达为字符串数组。
+
+最简单的数组类型位于\acode{Data.Array}模块中，也正是我们现在所用的。与其它 Haskell 通常的类型一样，这些数组也都是不可变的。不可变数组
+只有在创建时才能用值填充一次，其它时候是不能修改其内容的。（标准库同样提供了其它的数组类型，有些是可变的，只不过现在我们暂时还用不上。）
+
+\begin{lstlisting}[language=Haskell]
+  leftOddList =
+    [ "0001101",
+      "0011001",
+      "0010011",
+      "0111101",
+      "0100011",
+      "0110001",
+      "0101111",
+      "0111011",
+      "0110111",
+      "0001011"
+    ]
+
+  rightList = map complement <$> leftOddList
+    where
+      complement '0' = '1'
+      complement '1' = '0'
+
+  leftEvenList = map reverse rightList
+
+  parityList =
+    [ "111111",
+      "110100",
+      "110010",
+      "110001",
+      "101100",
+      "100110",
+      "100011",
+      "101010",
+      "101001",
+      "100101"
+    ]
+
+  listToArray :: [a] -> Array Int a
+  listToArray xs = listArray (0, l - 1) xs
+    where
+      l = length xs
+
+  leftOddCodes, leftEvenCodes, rightCodes, parityCodes :: Array Int String
+  leftOddCodes = listToArray leftOddList
+  leftEvenCodes = listToArray leftEvenList
+  rightCodes = listToArray rightList
+  parityCodes = listToArray parityList
+\end{lstlisting}
+
+\acode{Data.Array}模块的\acode{listArray}函数将列表转为数组。第一个参数是数组所需的边界；第二个参数则是列表。
+
+\acode{Array}的一个不寻常特征是，它的类型在它包含的数据和索引类型上都是参数化的。一维\acode{String}数组的类型是\acode{Array Int String}，
+而二维则是\acode{Array (Int,Int) String}。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :m +Data.Array
+  ghci> :t listArray
+  listArray :: Ix i => (i, i) -> [e] -> Array i e
+\end{lstlisting}
+
+构造一个数组：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> listArray (0,2) "foo"
+  array (0,2) [(0,'f'),(1,'o'),(2,'o')]
+\end{lstlisting}
+
+注意我们指定了数组的上下界。这些界是包含边界的，即从 0 至 2 的数组包含了 0，1 以及 2。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> listArray (0,3) [True,False,False,True,False]
+  array (0,3) [(0,True),(1,False),(2,False),(3,True)]
+  ghci> listArray (0,10) "too short"
+  array (0,10) [(0,'t'),(1,'o'),(2,'o'),(3,' '),(4,'s'),(5,'h'),(6,'o'),(7,'r'),(8,'t'),(9,*** Exception: (Array.!): undefined array element
+\end{lstlisting}
+
+当数组被构建后，可以使用\acode{(!)}操作符根据索引来访问元素。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let a = listArray (0,14) ['a'..]
+  ghci> a ! 2
+  'c'
+  ghci> a ! 100
+  *** Exception: Ix{Integer}.index: Index (100) out of range ((0,14))
+\end{lstlisting}
+
+由于数组的构造函数允许指定数组的边界，我们无需使用类似于 C 语言那样基于零的边界。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let a = listArray (-9,5) ['a'..]
+  ghci> a ! (-2)
+  'h'
+\end{lstlisting}
+
+索引类型可以是任意\acode{Ix}类型的成员。例如\acode{Char}作为索引：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let a = listArray ('a','h') [97..]
+  ghci> a ! 'e'
+  101
+\end{lstlisting}
+
+创建一个高阶维度数组，我们可以使用\acode{Ix}实例的元组作为索引类型。以下是一个三维数组：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let a = listArray ((0,0,0),(9,9,9)) [0..]
+  ghci> a ! (4,3,7)
+  437
+\end{lstlisting}
+
 \subsubsection*{数组与惰性}
+
+用于构造数组的列表，其元素数必须大于等于数组所需的元素。如果没有提供足够的元素则会在运行时抛出异常。该异常将何时出现取决于数组的具体实现。
+
+这里我们使用的是一个非严格的数组类型。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let a = listArray (0,5) "bar"
+  ghci> a ! 2
+  'r'
+  ghci> a ! 4
+  *** Exception: (Array.!): undefined array element
+\end{lstlisting}
+
+Haskell 同样提供了严格数组，其行为就不同了。我们将在后续小节中讨论两者的优劣。
 
 \subsubsection*{折叠数组}
 
+\acode{bounds}函数返回一个描述了创建数组时的边界元组。\acode{indices}函数返回列表的每个索引。我们可以用其定义一些有用的折叠，因为
+\acode{Data.Array}模块并没有定义任何折叠函数。
+
+\begin{lstlisting}[language=Haskell]
+  -- Strict left fold, similar to foldl' on lists
+  foldA :: (Ix k) => (a -> b -> a) -> a -> Array k b -> a
+  foldA f s a = go s (indices a)
+    where
+      go s (j : js) = let s' = f s (a ! j) in s' `seq` go s' js
+      go s _ = s
+
+  -- Strict left fold using the first element of the array as its starting value, similar to fold1 on lists
+  foldA1 :: (Ix k) => (a -> a -> a) -> Array k a -> a
+  foldA1 f a = foldA f (a ! fst (bounds a)) a
+\end{lstlisting}
+
+你可能会疑惑为什么数组模块并没有提供如此有用的折叠函数。这是因为一维数组与列表之间有一些显著的差异。例如自然而言，折叠有两个方向：从左向右，
+从右向左。除此之外，每次只能折叠一个元素。
+
+而对于二维的数组来说这根本行不通。首先，这时的折叠可以有多种方案。我们可能还是想每次只折叠单个元素，但是现在有了列折叠或行折叠的可能性。
+最重要的是，对于一次一个元素的折叠，不再只有两个序列需要遍历。
+
+换言之，对于二维数组，就存在若干可能的折叠方式组合，因此没有太多令人信服的理由为标准库选择少量排列。这个问题在高维情况下会更加复杂，因此最好
+让开发人员编写适合自身应用需求的折叠。
+
 \subsubsection*{修改数组元素}
+
+% TODO
 
 \subsection*{对 EAN-13 条形码进行编码}
 
