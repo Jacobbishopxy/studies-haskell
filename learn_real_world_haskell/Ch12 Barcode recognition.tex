@@ -236,21 +236,195 @@ Haskell 同样提供了严格数组，其行为就不同了。我们将在后续
 
 \subsubsection*{修改数组元素}
 
-% TODO
+对于不变数组而言，虽然存在“修改”函数，实际上并不常用。例如，\acode{accum}函数接受一个数组，以及一个\acode{(index, value)}对的列表，
+返回一个新的被替换后的数组。
+
+由于数组是不变的，修改一个元素就需要拷贝整个数组，这实际上是相当昂贵的。
+
+另一个数组类型，\acode{Data.Array.Diff}模块中的\acode{DiffArray}，尝试在少量修改时减少消耗，但是在编写这本书的时候，它在实际运用中
+还是太慢了。
+
+\begin{anote}
+  不要放弃希望
+
+  在 Haskell 中实际上高效的修改一个数组是可能的，即通过\acode{ST}单子。我们将在第 26 章对其进行学习。
+\end{anote}
 
 \subsection*{对 EAN-13 条形码进行编码}
 
+尽管我们的目标是\textit{解码}条形码，不过拥有一个编码器作为引用是很有帮助的。例如通过\acode{decode . encode}来检查输出是否正确，确保
+我们代码的正确性。
+
+\begin{lstlisting}[language=Haskell]
+  encodeEAN13 :: String -> String
+  encodeEAN13 = concat . encodeDigits . map digitToInt
+
+  -- this function computes the check digit; don't pass one in.
+  encodeDigits :: [Int] -> [String]
+  encodeDigits s@(first : rest) =
+    outerGuard : lefties ++ centerGuard : righties ++ [outerGuard]
+    where
+      (left, right) = splitAt 5 rest
+      lefties = zipWith leftEncode (parityCodes ! first) left
+      righties = map rightEncode (right ++ [checkDigit s])
+
+  leftEncode :: Char -> Int -> String
+  leftEncode '1' = (leftOddCodes !)
+  leftEncode '0' = (leftEvenCodes !)
+
+  rightEncode :: Int -> String
+  rightEncode = (rightCodes !)
+
+  outerGuard = "101"
+
+  centerGuard = "01010"
+\end{lstlisting}
+
+字符串的编码长度是十二位数字，通过\acode{encodeDigits}来添加第十三个校验位数字。
+
+条形码由两组六位数字进行编码，由守护序列位于两组其中以及两侧。那么其它数字呢？
+
+左侧组的每个数字通过奇数或偶数编码，奇偶的选择取决于字符串中的第一位数字。如果第一位为零，那么左侧组则是由偶数进行编码；为一，则是由奇数进行
+编码。这种方式的编码很优雅，它使得 EAN-13 条形码变得向后兼容旧的 UPC-A 标准。
+
 \subsection*{解码器的约束}
+
+在讨论解码钱，需要为条形码可以工作的类别设定一些约束。
+
+手机相机或者网络相机输出的是 JPEG 图像，但是编写一个 JPEG 解码器需要占用若干章节。因此我们通过处理 netpbm 文件格式简化解析问题。我们将使用
+第十章节所开发的解析组合子。
 
 \subsection*{分治法}
 
+我们的任务是将一个有效的条形码从相机图片中提取出来。我们可以将这个大问题切分成几个有序的子问题，它们每个都是独立可追溯的。
+
+\begin{itemize}
+  \item 将颜色数据转换成可处理的数据。
+  \item 从图像中采样一个扫描线，并提取一组猜测数据，用以确定这一行中的编码数字可能会是什么。
+  \item 从猜测数据中创建一个有效的解码列表。
+\end{itemize}
+
+更多的子问题将会在后续进行分割。
+
 \subsection*{将彩色图像转换成易于处理的东西}
+
+条形码实际上是黑白条的序列，我们希望编写一个简单的解析器，一个简单的表示是单色图像，其中每个像素不是黑色就是白色。
 
 \subsubsection*{解析一个彩色图像}
 
+Netbpm 彩色图像格式仅仅比第十章所提到的灰度图像格式更复杂一点。文件头的识别字符串是“P6”，剩下的头文件与灰度格式一致。图像的文件体内，每个像素都代表
+三个字节，它们是红，绿，蓝。
+
+我们将图像数据表示为二维的像素数组。这里使用数组是为了更好的学习它。对于应用而言，当然可以使用列表的列表。这里使用数组的唯一优点就是：可以高效的提取
+一行数据。
+
+\begin{lstlisting}[language=Haskell]
+  type Pixel = Word8
+
+  type RGB = (Pixel, Pixel, Pixel)
+
+  type Pixmap = Array (Int, Int) RGB
+\end{lstlisting}
+
+我们提供了一些类型同义词使得类型签名更可读。
+
+由于 Haskell 在布局数组方面给了我们相当大的自由，我们必须选择一种来表示。我们无需显式的存储图像的维度，因为可以使用\acode{bounds}函数来提取它们。
+
+实际上解析器非常简短，感谢我们在第十章所开发的组合子。
+
+\begin{lstlisting}[language=Haskell]
+  parseRawPPM :: Parse Pixmap
+  parseRawPPM =
+    parseWhileWith w2c (/= '\n') ==> \header ->
+      skipSpaces
+        ==>& assert (header == "P6") "invalid raw header"
+        ==>& parseNat
+        ==> \width ->
+          skipSpaces
+            ==>& parseNat
+            ==> \height ->
+              skipSpaces
+                ==>& parseNat
+                ==> \maxValue ->
+                  assert (maxValue == 255) "max value out of spec"
+                    ==>& parseByte
+                    ==>& parseTimes (width * height) parseRGB
+                    ==> \pxs ->
+                      identity (listArray ((0, 0), (width - 1, height - 1)) pxs)
+
+  parseRGB :: Parse RGB
+  parseRGB =
+    parseByte ==> \r ->
+      parseByte ==> \g ->
+        parseByte ==> \b ->
+          identity (r, g, b)
+
+  parseTimes :: Int -> Parse a -> Parse [a]
+  parseTimes 0 _ = identity []
+  parseTimes n p = p ==> \x -> (x :) <$> parseTimes (n - 1) p
+\end{lstlisting}
+
+上述代码中仅需要注意的是\acode{parseTimes}，它调用其它解析器来解析一个给定的时间，再构建一个结果的列表。
+
 \subsubsection*{灰度转化}
 
+现在我们有了彩色图像的解析，我们需要将彩色数据转换成单色的。一个中间步骤就是转换数据为灰度。将 RGB 图像转换成灰度图像有一个广泛运用的公式，即基于每个颜色通道的
+感知亮度。
+
+\begin{lstlisting}[language=Haskell]
+  luminance :: (Pixel, Pixel, Pixel) -> Pixel
+  luminance (r, g, b) = round (r' * 0.30 + g' * 0.59 + b' * 0.11)
+    where
+      r' = fromIntegral r
+      g' = fromIntegral g
+      b' = fromIntegral b
+\end{lstlisting}
+
+Haskell 的数组是\acode{Functor} typeclass 的成员，所以我们可以使用\acode{fmap}来讲整个图像，或是单个扫描行，从彩色转为灰度。
+
+\begin{lstlisting}[language=Haskell]
+  type Greymap = Array (Int, Int) Pixel
+
+  pixmapToGreymap :: Pixmap -> Greymap
+  pixmapToGreymap = fmap luminance
+\end{lstlisting}
+
+\acode{pixmapToGreymap}函数仅用于解释。因为我们将仅检查一个条形码图像的某几行，没有必要做额外的工作来转换我们永远用不上的序列。
+
 \subsubsection*{灰度至二进制以及类型安全}
+
+下一个子问题是将灰度图像转换为一个二值图像，即每个像素要么是开要么是闭。
+
+在一个图像处理应用中，需要处理大量的数字，因此很容易为了几个不同的目的重用相同的数字类型。例如使用\acode{Pixel}类型来表述 on/off 状态，使用转换将数字一来代表“on”
+数字零“off”。
+
+然而像这样为了多个目的而重用类型很快会带来潜在的混乱。为了判断一个“Pixel”是否为一个数值或是一个 on/off 值，我们不再可以简单的通过观察类型签名而知。在某些上下文中，
+我们可以很容易使用包含“错误类型的数字”的值，并且编译器不会对其捕获，因为类型是正确的。
+
+我们可以尝试引入类型别称来解决这个问题。同样的声明\acode{Pixel}作为\acode{Word8}的同义词，再使用\acode{Bit}类型作为\acode{Pixel}的同义词。虽然这可以提高可读性，
+但是类型同义词仍然无法令编译器为我们做为何有效的检查。
+
+编译器会将\acode{Pixel}与\acode{Bit}视为同样的类型，所以它不能捕获，例如在期望\acode{Bit}值为零或一这样的函数中使用\acode{Pixel}或是 253 值，这样的异常。
+
+如果我们自定义单色类型，编译器则会阻止我们不小心混合了其它的类型。
+
+\begin{lstlisting}[language=Haskell]
+  data Bit = Zero | One deriving (Eq, Show)
+
+  threshold :: (Ix k, Integral a) => Double -> Array k a -> Array k Bit
+  threshold n a = binary <$> a
+    where
+      binary i
+        | i < pivot = Zero
+        | otherwise = One
+      pivot = round $ least + (greatest - least) * n
+      least = fromIntegral $ choose (<) a
+      greatest = fromIntegral $ choose (>) a
+      choose f = foldA1 $ \x y -> if f x y then x else y
+\end{lstlisting}
+
+我们的\acode{threshold}函数计算了作为输入的数组的最大最小值。它接受这些值和一个介于 0 到 1 之间的阈值，并计算一个“枢轴”值。接着数组中的每个值，如果其值小于枢轴值，返回
+\acode{Zero}，否则\acode{One}。
 
 \subsection*{我们对图像做了什么}
 
