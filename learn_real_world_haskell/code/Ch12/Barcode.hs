@@ -258,6 +258,9 @@ bestLeft ps =
   sortBy compareWithoutParity $
     map Odd (bestScores leftOddSRL ps) ++ map Even (bestScores leftEvenSRL ps)
 
+bestRight :: [Run] -> [Parity (Score, Digit)]
+bestRight = map None . bestScores rightSRL
+
 -- another kind of laziness, of the keyboarding variety
 
 data AltParity a
@@ -265,3 +268,26 @@ data AltParity a
   | AltOdd {fromAltParity :: a}
   | AltNone {fromAltParity :: a}
   deriving (Show)
+
+-- chunking a list
+
+chuckWith :: ([a] -> ([a], [a])) -> [a] -> [[a]]
+chuckWith _ [] = []
+chuckWith f xs = let (h, t) = f xs in h : chuckWith f t
+
+chunksOf :: Int -> [a] -> [[a]]
+chunksOf n = chuckWith $ splitAt n
+
+-- generating a list of candidate digits
+
+candidateDigits :: RunLength Bit -> [[Parity Digit]]
+candidateDigits ((_, One) : _) = []
+candidateDigits rle | length rle < 59 = []
+candidateDigits rle
+  | any null match = []
+  | otherwise = map (map (fmap snd)) match
+  where
+    match = map bestLeft left ++ map bestRight right
+    left = chunksOf 4 . take 24 . drop 3 $ runLengths
+    right = chunksOf 4 . take 24 . drop 32 $ runLengths
+    runLengths = map fst rle

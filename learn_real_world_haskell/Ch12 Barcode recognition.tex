@@ -628,6 +628,9 @@ Haskell 的数组是\acode{Functor} typeclass 的成员，所以我们可以使�
   bestLeft ps =
     sortBy compareWithoutParity $
       map Odd (bestScores leftOddSRL ps) ++ map Even (bestScores leftEvenSRL ps)
+
+  bestRight :: [Run] -> [Parity (Score, Digit)]
+  bestRight = map None . bestScores rightSRL
 \end{lstlisting}
 
 有了奇偶表格的最佳左侧匹配后，可以仅基于每个匹配的质量对它们进行排序
@@ -644,8 +647,8 @@ Haskell 的数组是\acode{Functor} typeclass 的成员，所以我们可以使�
     deriving (Show)
 \end{lstlisting}
 
-那么为什么不这么做呢？答案有点令人羞愧，这与\textbf{ghci}中的交互式调试有关。当我们告诉 GHC 自动派生类型的\acode{Show}实例时，它会根据是否使用记录语法
-声明该类型而生成不同的代码。
+那么为什么不这么做呢？答案有点令人羞愧，这与\textbf{ghci}中的交互式调试有关。当我们告诉 GHC 自动派生类型的\acode{Show}实例时，它会根据是否使用记录
+语法声明该类型而生成不同的代码。
 
 \begin{lstlisting}[language=Haskell]
   ghci> show $ Even 1
@@ -658,21 +661,127 @@ Haskell 的数组是\acode{Functor} typeclass 的成员，所以我们可以使�
   27
 \end{lstlisting}
 
-\acode{Show}实例对于使用 record 语义而言显然更加啰嗦。
+\acode{Show}实例对于使用 record 语义而言显然更加冗长。
 
 \subsubsection*{列表切分}
 
+处理列表的通常做法就是对它们进行切分。例如，条形码中的每个位数是由四个位数所编码的。我们可以将平整的列表表示为四个元素所构成的列表的列表。
+
+\begin{lstlisting}[language=Haskell]
+  chuckWith :: ([a] -> ([a], [a])) -> [a] -> [[a]]
+  chuckWith _ [] = []
+  chuckWith f xs = let (h, t) = f xs in h : chuckWith f t
+
+  chunksOf :: Int -> [a] -> [[a]]
+  chunksOf n = chuckWith $ splitAt n
+\end{lstlisting}
+
 \subsubsection*{生成候选位数列表}
 
-\subsection*{没有数组或哈希表的生活}
+有了这些帮助函数后，编写一个用于生成每个数位组的候选匹配列表函数就很简单了。首先需要提前检查匹配偶数是否合理。所有的运行都需要以黑（\acode{Zero}）
+条码开始，并包含足够的条码。
 
-\subsubsection*{解决方案的森林}
+\begin{lstlisting}[language=Haskell]
+  candidateDigits :: RunLength Bit -> [[Parity Digit]]
+  candidateDigits ((_, One) : _) = []
+  candidateDigits rle | length rle < 59 = []
+\end{lstlisting}
+
+对于\acode{bestLeft}或\acode{bestRight}返回的空列表，并不能被匹配。否则返回一个由校验编码的候选数字列表组成的列表。外部列表由十二个元素构成，
+条形码的每个数位有一个元素。每个子列表中的数字按匹配质量排序。
+
+\begin{lstlisting}[language=Haskell]
+  candidateDigits rle
+    | any null match = []
+    | otherwise = map (map (fmap snd)) match
+    where
+      match = map bestLeft left ++ map bestRight right
+      left = chunksOf 4 . take 24 . drop 3 $ runLengths
+      right = chunksOf 4 . take 24 . drop 32 $ runLengths
+      runLengths = map fst rle
+\end{lstlisting}
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let input = zip (runLengths $ encodeEAN13 "978013211467") (cycle [Zero, One])
+  ghci> :t input
+  input :: [(Run, Bit)]
+  ghci> take 7 input
+  [(1,Zero),(1,One),(1,Zero),(1,One),(3,Zero),(1,One),(2,Zero)]
+  ghci> mapM_ print $ candidateDigits input
+  [Odd 7,Even 1,Even 2,Odd 3,Even 4,Odd 8]
+  [Even 8,Odd 0,Odd 1,Odd 2,Even 6,Even 7]
+  [Even 0,Even 1,Odd 2,Odd 4,Odd 6,Even 9]
+  [Odd 1,Odd 0,Even 1,Odd 2,Even 2,Even 4]
+  [Even 3,Odd 4,Odd 5,Even 7,Even 0,Odd 1]
+  [Odd 1,Even 1,Odd 2,Even 2,Odd 0,Even 0]
+  [None 1,None 0,None 2]
+  [None 1,None 0,None 2]
+  [None 4,None 2,None 5]
+  [None 6,None 8,None 2]
+  [None 7,None 3,None 8]
+  [None 7,None 3,None 8]
+\end{lstlisting}
+
+\textbf{注}：原文缺失：\acode{let input = ...}。
+
+\subsection*{没有数组或哈希表的世界}
+
+在命令式语言中，数组就跟 Haskell 的列表和元组那样，作为核心。在命令式语言中数组通常是可变的。
+
+而 Haskell 中的数组是\textit{不}可变的。这就意味着“修改”数组中的一个元素，整个数组会被拷贝，同时将那个元素设为新值。很明显，这样性能很差。
+
+可变数组是由另一个常用的命令式数据结构所构建的，即哈希表。经典的实现中，数组像是在“旋转”表，每个元素包含了一个列表。为哈希表添加一个元素时，将
+哈希元素来找到列表的偏移量，并在该处修改列表并添加元素。
+
+如果数组不是可变的，更新一个哈希表则需要创建一个新的。拷贝数组，将一个新的列表放在偏移处。我们无需拷贝其它偏移处的列表，但是我们已经拷贝了整个
+哈希表导致了更差的性能。
+
+不可变数组从我们的工具箱中消除了两个规范的命令式数据结构。相较于很多其它语言，在纯 Haskell 中数组显得没有这么有用。不过很多数组代码只会在构建时
+更新，然后以只读的方式使用它。
+
+\subsubsection*{树作为解决方案}
+
+尽管情况看上去好像并没有那么不好。数组和哈希表通常作为由键作为索引的集合，而在 Haskell 中我们则使用\textit{树}。
+
+在 Haskell 实现一个简单的树类型非常的容易。除此之外，更有用的树类型也非常容易实现。自平衡结构，如红黑树，其平衡算法是出奇的难以被正确的使用。
+
+Haskell 的代数数据类型组合，模式匹配，以及守护，将最复杂的平衡操作简化成了几行代码。
+
+对于函数式程序员而言树的魅力则是其\textit{廉价的修改}。我们不会打破不变的规则：树是不变的。当需要修改一个树时，则创建一个新树，这一过程可以将
+新旧版本的树中绝大多数的结构进行共享。例如一个树包含了 10,000 个节点，那么在添加或删除一个元素时，可以预期新旧版本共享了 9,985 个元素。换言之，
+每次更新需要改变元素的数量是取决于树的高度，或者树大小的对数。
+
+Haskell 标准库提供了两种由平衡树所实现的集合类型：\acode{Data.Map}用于键值对，\acode{Data.Set}用于值集合。
+
+\begin{anote}
+  关于性能
+
+  相较于哈希表，一个实现良好的存函数树数据结构将具有竞争力。因此不应该假设代码在处理树时会损失性能。
+\end{anote}
 
 \subsubsection*{maps 的简介}
 
+\acode{Data.Map}模块提供了一个参数化类型\acode{Map k a}。尽管其内部是一个大小平衡的二元树，其实现并不对我们可见。
+
+\acode{Map}的键是严格的 strict，但是值确实非严格的 non-strict。换言之，map 的结构总是维持更新状态，但是值只会在使用时才会被计算。
+
+记住这点很重要，因为\acode{Map}在于值的惰性是导致空间泄漏的常见来源。
+
+由于\acode{Data.Map}模块包含了一系列与 Prelude 重名的名称，通常需要通过 qualified 的方式进行引入。
+
 \subsubsection*{类型约束}
 
+\acode{Map}类型再起键类型上并没有任何显式的约束，但是模块中大多数有用的函数都需要键是\acode{Ord}的实例。这是值得注意的，因为这是 Haskell 代码中
+常见的设计模式：类型约束只会在真实需要时才进行声明。
+
+\acode{Map}类型和模块中的任何函数都不会约束用作值的类型。
+
 \subsubsection*{部分应用程序的笨拙}
+
+由于某些原因，\acode{Data.Map}中的函数类型签名对部分应用 partial application 而言并不友好。map 的参数总是最后出现，毕竟先出现对于部分应用会更为
+友好。因此，使用部分应用的映射函数的代码几乎总是包含适配器函数来调整参数顺序。
 
 \subsubsection*{从 API 开始}
 
