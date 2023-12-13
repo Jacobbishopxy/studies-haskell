@@ -291,3 +291,35 @@ candidateDigits rle
     left = chunksOf 4 . take 24 . drop 3 $ runLengths
     right = chunksOf 4 . take 24 . drop 32 $ runLengths
     runLengths = map fst rle
+
+-- Turning digit soup into an answer
+-- solving for check digits in parallel
+
+type Map a = M.Map Digit [a]
+
+type DigitMap = Map Digit
+
+type ParityMap = Map (Parity Digit)
+
+updateMap ::
+  Parity Digit -> -- new digit
+  Digit -> -- existing key
+  [Parity Digit] -> -- existing digit sequence
+  ParityMap -> -- map to update
+  ParityMap
+updateMap digit key seq = insertMap key (fromParity digit) (digit : seq)
+
+insertMap :: Digit -> Digit -> [a] -> Map a -> Map a
+insertMap key digit val m = val `seq` M.insert key' val m
+  where
+    key' = (key + digit) `mod` 10
+
+useDigit :: ParityMap -> ParityMap -> Parity Digit -> ParityMap
+useDigit old new digit = new `M.union` M.foldrWithKey (updateMap digit) M.empty old
+
+incorporateDigits :: ParityMap -> [Parity Digit] -> ParityMap
+-- incorporateDigits old digits = foldl' (useDigit old) M.empty digits
+incorporateDigits old = foldl' (useDigit old) M.empty
+
+finalDigits :: [[Parity Digit]] -> ParityMap
+finalDigits = foldl' incorporateDigits (M.singleton 0 []) . mapEveryOther (map $ fmap (* 3))

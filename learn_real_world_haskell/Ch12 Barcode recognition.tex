@@ -785,9 +785,188 @@ Haskell 标准库提供了两种由平衡树所实现的集合类型：\acode{Da
 
 \subsubsection*{从 API 开始}
 
+\acode{Data.Map}模块有一个巨大的“表层面”：即导出了大量的函数。
+
+使用\acode{empty}可以创建一个空的 map。使用\acode{singleton}可以创建只包含一对键值的 map。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> import qualified Data.Map as M
+  ghci> M.empty
+  fromList []
+  ghci> M.singleton "foo" True
+  fromList [("foo",True)]
+\end{lstlisting}
+
+由于实现是抽象的，我们无法对\acode{Map}值进行模式匹配。相反，它提供了一系列的查询函数，其中有两个是被广泛使用的。\acode{lookup}函数的函数签名会稍微
+比较严格，不过无需担心，我们会在第十四章中进行详细的说明。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t M.lookup
+  M.lookup :: Ord k => k -> M.Map k a -> Maybe a
+\end{lstlisting}
+
+通常而言，类型签名\acode{m}会是\acode{Maybe}。换言之，如果 map 包含给定键的值，那么\acode{lookup}则会返回被\acode{Just}所包含的值；否则返回
+\acode{Nothing}。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let m = M.singleton "foo" 1 :: M.Map String Int
+  ghci> case M.lookup "bar" m of {Just v -> "yay"; Nothing -> "boo"}
+  "boo"
+\end{lstlisting}
+
+\acode{findWithDefault}函数接受一个值，在键不存在时作为返回。
+
+\begin{awarn}
+  小心偏函数！
+
+  存在一个\acode{(!)}操作符，它执行查找并返回与键相关的未修饰值（即不包装在\acode{Maybe}或其它）。不幸的是，它并不是一个完整的函数：它在键不存在时调用
+  \acode{error}。
+\end{awarn}
+
+要添加一对键值至 map，最有用的函数就是\acode{insert}与\acode{insertWith}了。前者插入一个值，且覆盖可能存在的值。\textbf{注}：原文中的
+\acode{insertWith‘}已废弃，现直接使用\acode{insertWith}即可。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t M.insert
+  M.insert :: Ord k => k -> a -> M.Map k a -> M.Map k a
+  ghci> M.insert "quux" 10 m
+  fromList [("foo",1),("quux",10)]
+  ghci> M.insert "foo" 9999 m
+  fromList [("foo",9999)]
+\end{lstlisting}
+
+\acode{insertWith}函数接受一个\textit{合并函数 combining function}作为其参数。如果没有匹配的键，则直接插入该值；否则，合并函数被调用用于新旧值，并
+将函数返回插入 map 中。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t M.insertWith
+  M.insertWith
+    :: Ord k => (a -> a -> a) -> k -> a -> M.Map k a -> M.Map k a
+  ghci> M.insertWith (+) "zippity" 10 m
+  fromList [("foo",1),("zippity",10)]
+  ghci> M.insertWith (+) "foo" 9999 m
+  fromList [("foo",10000)]
+\end{lstlisting}
+
+\acode{delete}函数删除 map 中给定的键值。如果键不存在，那么 map 不变。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t M.delete
+  M.delete :: Ord k => k -> M.Map k a -> M.Map k a
+  ghci> M.delete "foo" m
+  fromList []
+\end{lstlisting}
+
+最后还有若干高效的函数类似集合类型的操作用于 map。例如下面的\acode{union}，该函数是“偏向左值的”：如果两个 map 包含同样的键，那么返回的结果中则是包含左
+map 的值。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> m `M.union` M.singleton "quux" 1
+  fromList [("foo",1),("quux",1)]
+  ghci> m `M.union` M.singleton "foo" 0
+  fromList [("foo",1)]
+\end{lstlisting}
+
+以上我们仅覆盖大约百分之十的\acode{Data.Map}的 API。我们将会在下一章进一步讲解 map 的更多细节。
+
 \subsection*{将位数变为答案}
 
-\subsubsection*{并行的校验数}
+现在还需要解决另有一个问题。有了很多条形码最后 12 位数字的候选码。此外还需要使用前六位数的奇偶来计算第一位数，最后需要确保答案符合校验码。
+
+这看起来很有挑战性！我们仍有大量的未确定数据；那么我们该怎么做呢？通过\textbf{ghci}可以知道有多少组合需要测试。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> product . map length . candidateDigits $ input
+  34012224
+\end{lstlisting}
+
+\textbf{注}：\acode{input}在上文有交代过。
+
+这个想法到此为止。同样，我们将先关注子问题，再去考虑后续。
+
+\subsubsection*{并行的方式解决校验位数}
+
+校验条形码的数组可以假设十分之一的数。对于一个给定的奇偶数，什么样的输入序列会导致该位数被计算？
+
+\begin{lstlisting}[language=Haskell]
+  type Map a = M.Map Digit [a]
+\end{lstlisting}
+
+该 map 的键是一个校验数，值则是该校验书所计算的序列值。另外两个基于该 map 定义的 map：
+
+\begin{lstlisting}[language=Haskell]
+  type DigitMap = Map Digit
+
+  type ParityMap = Map (Parity Digit)
+\end{lstlisting}
+
+我们通常将它们称为“解映射”，因为它们展示了“解出”每个校验数的数字序列。
+
+\begin{lstlisting}[language=Haskell]
+  updateMap ::
+    Parity Digit -> -- new digit
+    Digit -> -- existing key
+    [Parity Digit] -> -- existing digit sequence
+    ParityMap -> -- map to update
+    ParityMap
+  updateMap digit key seq = insertMap key (fromParity digit) (digit : seq)
+
+  insertMap :: Digit -> Digit -> [a] -> Map a -> Map a
+  insertMap key digit val m = val `seq` M.insert key' val m
+    where
+      key' = (key + digit) `mod` 10
+\end{lstlisting}
+
+通过从 map 中得到的现有校验数，求解该校验数的序列和一个新的输入数字，该函数用指向新校验数的新序列更新 map。
+
+这可能看起来难以理解，不过使用一个例子就很清楚了。假设需要找的校验数是\acode{4}，其序列为\acode{[1,3]}，同时需要添加至该 map 的数是\acode{8}。
+那么\acode{4}与\acode{8}之和，取模\acode{10}，即为\acode{2}，也是需要插入至 map 的键。那么新校验数\acode{2}所携带的序列就是\acode{[8,1,3]}，
+即所需插入至 map 的值。
+
+对于一个序列中的每个位数，将使用位数与旧的解映射来生成新的解映射。
+
+\begin{lstlisting}[language=Haskell]
+  useDigit :: ParityMap -> ParityMap -> Parity Digit -> ParityMap
+  useDigit old new digit = new `M.union` M.foldrWithKey (updateMap digit) M.empty old
+\end{lstlisting}
+
+\textbf{注}：原文中的\acode{M.foldWithKey}已废弃，先用\acode{M.foldrWithKey}替代。
+
+通过一些例子来测试一下：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let single n = M.singleton n [Even n] :: ParityMap
+  ghci> useDigit (single 1) M.empty (Even 1)
+  fromList [(2,[Even 1,Even 1])]
+  ghci> useDigit (single 1) (single 2) (Even 2)
+  fromList [(2,[Even 2]),(3,[Even 2,Even 1])]
+\end{lstlisting}
+
+我们提供给\acode{useDigits}新的解映射为空，通过\acode{useDigits} fold 输入序列来进行求解。
+
+\begin{lstlisting}[language=Haskell]
+  incorporateDigits :: ParityMap -> [Parity Digit] -> ParityMap
+  incorporateDigits old = foldl' (useDigit old) M.empty
+\end{lstlisting}
+
+从旧的解映射生成一个新的：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> incorporateDigits (M.singleton 0 []) [Even 1, Even 5]
+  fromList [(1,[Even 1]),(5,[Even 5])]
+\end{lstlisting}
+
+最后是构建一个完整的解映射。从空 map 开始，fold 每个位数的位置。在每个位置，创建一个新的 map。该 map 在下一轮的 fold 中又变成了旧的 map。
+
+\begin{lstlisting}[language=Haskell]
+  finalDigits :: [[Parity Digit]] -> ParityMap
+  finalDigits = foldl' incorporateDigits (M.singleton 0 []) . mapEveryOther (map $ fmap (* 3))
+\end{lstlisting}
+
+那么调用\acode{finalDigits}所需的列表有多长呢？我们暂且不知道序列的第一个位数，显然还不能提供它。同时我们并不想在校验位数是包含猜测。因此该列表必须
+有十一位元素那么长。
+
+一旦从\acode{finalDigits}返回答案，解映射又是不完整的，因为我们仍未知第一位数是什么。
 
 \subsubsection*{通过第一位数完成求解 map}
 

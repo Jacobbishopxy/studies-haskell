@@ -173,6 +173,12 @@ gen-hie > hie.yaml
 
   - Ch28 Software transactional memory
 
+## Exercises
+
+- [Ninety-Nine Haskell Problems](./h99/README.md)
+
 ## Reference
 
 - [How to install Haskell toolchains (CN)](https://zhuanlan.zhihu.com/p/455688955)
+
+- [H-99: Ninety-Nine Haskell Problems](https://wiki.haskell.org/H-99:_Ninety-Nine_Haskell_Problems)
