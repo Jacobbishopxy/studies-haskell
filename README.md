@@ -139,7 +139,7 @@ gen-hie > hie.yaml
 
   - [Ch11 Testing and quality assurance](./learn_real_world_haskell/Ch11%20Testing%20and%20quality%20assurance.tex)
 
-  - Ch12 Barcode recognition
+  - [Ch12 Barcode recognition](./learn_real_world_haskell/Ch12%20Barcode%20recognition.tex)
 
   - Ch13 Data structures
 

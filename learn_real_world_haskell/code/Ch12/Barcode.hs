@@ -10,9 +10,9 @@ import Data.ByteString.Lazy.Char8 qualified as L
 import Data.Char (digitToInt)
 import Data.Function (on)
 import Data.Ix (Ix (..))
-import Data.List (foldl', group, sort, sortBy, tails)
+import Data.List (find, foldl', group, sort, sortBy, tails)
 import Data.Map qualified as M
-import Data.Maybe (catMaybes, listToMaybe)
+import Data.Maybe (catMaybes, listToMaybe, mapMaybe)
 import Data.Ratio (Ratio)
 import Data.Word (Word8)
 import Parse
@@ -323,3 +323,82 @@ incorporateDigits old = foldl' (useDigit old) M.empty
 
 finalDigits :: [[Parity Digit]] -> ParityMap
 finalDigits = foldl' incorporateDigits (M.singleton 0 []) . mapEveryOther (map $ fmap (* 3))
+
+-- completing the solution map w/ the first digit
+
+firstDigit :: [Parity a] -> Digit
+firstDigit =
+  snd
+    . head
+    . bestScores paritySRL
+    . runLengths
+    . map parityBit
+    . take 6
+  where
+    parityBit (Even _) = Zero
+    parityBit (Odd _) = One
+
+addFirstDigit :: ParityMap -> DigitMap
+addFirstDigit = M.foldrWithKey updateFirst M.empty
+
+updateFirst :: Digit -> [Parity Digit] -> DigitMap -> DigitMap
+updateFirst key seq = insertMap key digit $ digit : renormalize qes
+  where
+    renormalize = mapEveryOther (`div` 3) . map fromParity
+    digit = firstDigit qes
+    qes = reverse seq
+
+buildMap :: [[Parity Digit]] -> DigitMap
+buildMap =
+  M.mapKeys (10 -)
+    . addFirstDigit
+    . finalDigits
+
+solve :: [[Parity Digit]] -> [[Digit]]
+solve [] = []
+solve xs = mapMaybe (addCheckDigit m) checkDigits
+  where
+    checkDigits = map fromParity $ last xs
+    m = buildMap $ init xs
+    addCheckDigit m k = (++ [k]) <$> M.lookup k m
+
+-- Working w/ row data
+
+withRow :: Int -> Pixmap -> (RunLength Bit -> a) -> a
+withRow n greymap f = f . runLength . elems $ posterized
+  where
+    posterized = threshold 0.4 . fmap luminance . row n $ greymap
+
+row :: (Ix a, Ix b) => b -> Array (a, b) c -> Array a c
+row j a = ixmap (l, u) project a
+  where
+    project i = (i, j)
+    ((l, _), (u, _)) = bounds a
+
+-- Pulling it all together
+
+findMatch :: [(Run, Bit)] -> Maybe [[Digit]]
+-- findMatch =
+--   listToMaybe
+--     . filter (not . null)
+--     . map (solve . candidateDigits)
+--     . tails
+findMatch =
+  find (not . null)
+    . map (solve . candidateDigits)
+    . tails
+
+findEAN13 :: Pixmap -> Maybe [Digit]
+findEAN13 pixmap = withRow center pixmap $ fmap head . findMatch
+  where
+    (_, (maxX, _)) = bounds pixmap
+    center = (maxX + 1) `div` 2
+
+main :: IO ()
+main = do
+  args <- getArgs
+  forM_ args $ \arg -> do
+    e <- parse parseRawPPM <$> L.readFile arg
+    case e of
+      Left err -> print $ "error: " ++ err
+      Right pixmap -> print $ findEAN13 pixmap

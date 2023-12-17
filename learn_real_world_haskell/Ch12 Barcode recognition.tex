@@ -970,12 +970,151 @@ map 的值。
 
 \subsubsection*{通过第一位数完成求解 map}
 
+我们仍未讨论如何从左侧组的奇偶性中提取第一个位数。实际上只需要复用之前写过的代码即可。
+
+\begin{lstlisting}[language=Haskell]
+  firstDigit :: [Parity a] -> Digit
+  firstDigit =
+    snd
+      . head
+      . bestScores paritySRL
+      . runLengths
+      . map parityBit
+      . take 6
+    where
+      parityBit (Even _) = Zero
+      parityBit (Odd _) = One
+\end{lstlisting}
+
+奇偶解映射中的每个元素现在包含了一个倒序的数值列表以及奇偶性数据。下一个任务就是创建一个完整的解映射，通过计算每个序列的第一个位数，再使用它创建最后一个解映射。
+
+\begin{lstlisting}[language=Haskell]
+  addFirstDigit :: ParityMap -> DigitMap
+  addFirstDigit = M.foldrWithKey updateFirst M.empty
+
+  updateFirst :: Digit -> [Parity Digit] -> DigitMap -> DigitMap
+  updateFirst key seq = insertMap key digit $ digit : renormalize qes
+    where
+      renormalize = mapEveryOther (`div` 3) . map fromParity
+      digit = firstDigit qes
+      qes = reverse seq
+\end{lstlisting}
+
+\textbf{注}：与前文相同，这里使用的是\acode{M.foldrWithKey}。
+
+通过这样的方式，去除了\acode{Parity}类型，同时恢复了之前乘上的\acode{3}。最后一步就是完成校验码的计算。
+
+\begin{lstlisting}[language=Haskell]
+  buildMap :: [[Parity Digit]] -> DigitMap
+  buildMap =
+    M.mapKeys (10 -)
+      . addFirstDigit
+      . finalDigits
+\end{lstlisting}
+
 \subsubsection*{寻找正确的序列}
+
+现在有了所有可能的校验和以及对应序列的 map。剩下的就是猜测校验位，看看是否拥有与之对应的解映射。
+
+\begin{lstlisting}[language=Haskell]
+  import Data.Maybe (mapMaybe)
+
+  ...
+
+  solve :: [[Parity Digit]] -> [[Digit]]
+  solve [] = []
+  solve xs = mapMaybe (addCheckDigit m) checkDigits
+    where
+      checkDigits = map fromParity $ last xs
+      m = buildMap $ init xs
+      addCheckDigit m k = (++ [k]) <$> M.lookup k m
+\end{lstlisting}
+
+\textbf{注}：原文的\acode{catMaybes \$ map (addCheckDigit m) checkDigits}被\acode{mapMaybe}简化。
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> listToMaybe . solve . candidateDigits $ input
+  Just [7,2,0,0,1,3,1,1,1,4,6,7,3]
+\end{lstlisting}
 
 \subsection*{处理行数据}
 
+反复的提到从图像中取出一行：
+
+\begin{lstlisting}[language=Haskell]
+  withRow :: Int -> Pixmap -> (RunLength Bit -> a) -> a
+  withRow n greymap f = f . runLength . elems $ posterized
+    where
+      posterized = threshold 0.4 . fmap luminance . row n $ greymap
+\end{lstlisting}
+
+\acode{withRow}函数接受一行，转换成黑白图像，接着调用另一个函数在 run length 编码的行数据上。通过调用\acode{row}，来获取行数据：
+
+\begin{lstlisting}[language=Haskell]
+  row :: (Ix a, Ix b) => b -> Array (a, b) c -> Array a c
+  row j a = ixmap (l, u) project a
+    where
+      project i = (i, j)
+      ((l, _), (u, _)) = bounds a
+\end{lstlisting}
+
+该函数需要详细讲解一下。\acode{fmap}函数用于转换数组中的\textit{值}，而\acode{ixmap}则用于转换数组中的\textit{索引}。这是一个极为强大的函数，可以让
+我们随心所欲的堆数组进行“切片”。
+
+\acode{ixmap}的第一个参数是新数组的边界。该边界可以是与源数组不同维度的。\acode{row}函数则是从一个二维数组中提取一个意为数组。
+
+第二个参数则是\textit{投影}函数，它从新数组中获取一个索引，并返回源数组的索引。该投影索引处的值将成为新数组中位于原始索引处的值。例如，传入\acode{2}至
+投影函数，其返回\acode{(2,2)}，在新数组的索引\acode{2}处的元素将被源数组的\acode{(2,2)}处的元素所替代。
+
 \subsection*{合并所有}
 
+除非是在条形码序列一开始就调用\acode{candidateDigits}函数，否则返回一个空结果。我们可以轻松的扫描整个行，直到得到一个匹配的结果。
+
+\begin{lstlisting}[language=Haskell]
+  import Data.List (find)
+
+  ...
+
+  findMatch :: [(Run, Bit)] -> Maybe [[Digit]]
+  findMatch =
+    find (not . null)
+      . map (solve . candidateDigits)
+      . tails
+\end{lstlisting}
+
+\textbf{注}：原文的\acode{listToMaybe . filter}可以被\acode{find}简化。
+
+这里利用了惰性求值。对\acode{tails}调用\acode{map}只会在其结果为非空列表时才会被计算。
+
+接下来从图像中选择一行，并尝试从中找到条形码。
+
+\begin{lstlisting}[language=Haskell]
+  findEAN13 :: Pixmap -> Maybe [Digit]
+  findEAN13 pixmap = withRow center pixmap $ fmap head . findMatch
+    where
+      (_, (maxX, _)) = bounds pixmap
+      center = (maxX + 1) `div` 2
+\end{lstlisting}
+
+最后是一个简单的封装，用于从命令行中获取 netpbm 图像文件，并打印条形码
+
+\begin{lstlisting}[language=Haskell]
+  main :: IO ()
+  main = do
+    args <- getArgs
+    forM_ args $ \arg -> do
+      e <- parse parseRawPPM <$> L.readFile arg
+      case e of
+        Left err -> print $ "error: " ++ err
+        Right pixmap -> print $ findEAN13 pixmap
+\end{lstlisting}
+
+注意，本章我们已经定义了超过三十个函数，而只有\acode{main}是唯一需要\acode{IO}的。
+
 \subsection*{一些开发风格的评论}
+
+略
 
 \end{document}
