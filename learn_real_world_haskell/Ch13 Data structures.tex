@@ -2,6 +2,120 @@
 
 \begin{document}
 
-WIP
+\subsection*{关联列表}
+
+通常我们需要处理由键索引的无序数据。例如 Unix 管理员会有一系列的数值 UIDs 以及其关联的用户名。该列表的价值在于能够查找给定 UID 的用户名，而不是按照数据的顺序。
+换言之，UID 是数据库的键。
+
+在 Haskell 中，有若干方法可以处理类似这样数据的结构。两个最常见的就是关联列表以及由\acode{Data.Map}模块提供的\acode{Map}类型。关联列表很方便，因为它们很简单。
+它们就是 Haskell 的列表，因此所有熟悉的列表函数同样可用于关联列表。然而对于较大的数据集，\acode{Map}则比关联列表具有更大的性能优势。
+
+关联列表就是一个包含了（键，值）元组的普通列表。对于 UID 映射至用户名的类型就是\acode{[(Integer, String)]}。
+
+Haskell 拥有一个称为\acode{Data.List.lookup}的内建函数用于关联列表的查询。其类型为\acode{Eq a => a -> [(a, b)] -> Maybe b}。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let al = [(1,"one"),(2,"two"),(3,"three"),(4,"four")]
+  ghci> lookup 1 al
+  Just "one"
+  ghci> lookup 5 al
+  Nothing
+\end{lstlisting}
+
+\acode{lookup}函数实际很简单，我们可以自己编写一个：
+
+\begin{lstlisting}[language=Haskell]
+  myLookup :: (Eq a) => a -> [(a, b)] -> Maybe b
+  myLookup _ [] = Nothing
+  myLookup key ((thisKey, thisVal) : rest) =
+    if key == thisKey
+      then Just thisVal
+      else myLookup key rest
+\end{lstlisting}
+
+让我们来看一个更复杂的关联列表。在 Unix/Linux 机器中存在一个名为\acode{/etc/passwd}的文件用于存储用户名，UIDs，home 路径，已经其它数据。我们将编写一个程序用于
+解析该文件，创建一个关联列表，令用户通过给定的 UID 来查找用户名。
+
+\begin{lstlisting}[language=Haskell]
+  import Control.Monad (when)
+  import Data.List
+  import System.Environment (getArgs)
+  import System.Exit
+  import System.IO
+
+  main = do
+    -- Load the command-line arguments
+    args <- getArgs
+
+    -- If we don't have the right amount of args, give an error and abort
+    when (length args /= 2) $ do
+      putStrLn "Syntax: passwd-al filename uid"
+      exitFailure
+
+    -- Read the file lazily
+    content <- readFile $ head args
+
+    -- Compute the username in pure code
+    let username = findByUID content $ read $ args !! 1
+
+    -- Display the result
+    case username of
+      Just x -> putStrLn x
+      Nothing -> putStrLn "Could not find that UID"
+
+    putStrLn "whatever"
+
+  -- Given the entire input and a UID, see if we can find a username.
+  findByUID :: String -> Integer -> Maybe String
+  findByUID content uid =
+    let al = map parseLine . filter (('#' /=) . head) . lines $ content
+     in lookup uid al
+
+  -- Convert a colon-separated line into fields
+  parseLine :: String -> (Integer, String)
+  parseLine input =
+    let fields = split ':' input
+     in (read (fields !! 2), head fields)
+
+  -- Takes a delimiter and a list. Break up the list based on the delimiter.
+  split :: (Eq a) => a -> [a] -> [[a]]
+  -- If the input is empty, the result is a list of empty lists.
+  split _ [] = [[]]
+  split delim str =
+    -- Find the part of the list before delim and put it in "before".
+    -- The rest of the list, including the leading delim, goes in "remainder".
+    let (before, remainder) = span (/= delim) str
+     in before : case remainder of
+          [] -> []
+          -- If there is more data to precess,
+          -- call split recursively to process it
+          x ->
+            split delim $ tail x
+\end{lstlisting}
+
+\textbf{注}：原文的\acode{findByUID}函数中的\acode{let al = map parseLine . lines \$ content}需要修改成
+\acode{let al = map parseLine . filter (('#' /=) . head) . lines \$ content}才能对\acode{/etc/passwd}文件生效。否则会抛出异常
+\acode{Prelude.!!: index too large}。
+
+测试：
+
+\begin{lstlisting}
+  % runhaskell passwd-al.hs /etc/passwd 0
+  root
+  % runhaskell passwd-al.hs /etc/passwd 3
+  Could not find that UID
+\end{lstlisting}
+
+\subsection*{映射}
+
+\subsection*{函数也是数据}
+
+\subsection*{拓展案列：/etc/passwd}
+
+\subsection*{拓展案列：数值类型}
+
+\subsection*{函数作为数据的优点}
+
+\subsection*{通用序列}
 
 \end{document}
