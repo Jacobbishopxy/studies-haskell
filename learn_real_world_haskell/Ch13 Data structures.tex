@@ -108,7 +108,145 @@ Haskell 拥有一个称为\acode{Data.List.lookup}的内建函数用于关联列
 
 \subsection*{映射}
 
+\acode{Data.Map}模块提供了一个与关联列表行为相似的\acode{Map}类型，不过有更优异的性能。
+
+映射提供了其它语言中与哈希表一样功能。其内部的实现为一个平衡二叉树。相较于哈希表，在不可变数据上的表现而言，映射更加的高效。这也是纯函数式编程如何深刻影响我们编写代码的
+最明显的例子：我们选择的数据结构和算法可以清晰的表达并且高效的执行，但是我们对特定任务的选择通常与命令式语言中的对应选项不同。
+
+\acode{Data.Map}中有些函数与 Prelude 同名，因此需要\acode{import qualified Data.Map as Map}并使用\acode{Map.name}来引用模块中对应的名称。
+
+\begin{lstlisting}[language=Haskell]
+  import Data.Map qualified as Map
+
+  -- Functions to generate a Map that represents an association list as a map
+
+  al = [(1, "one"), (2, "two"), (3, "three"), (4, "four")]
+
+  {-
+  Create a map representation of 'al' by converting the association list using Map.fromList
+  -}
+  mapFromAL = Map.fromList al
+
+  {-
+  Create a map representation of 'al' by doing a fold
+  -}
+  mapFold = foldl (\map (k, v) -> Map.insert k v map) Map.empty al
+
+  {-
+  Manually create a map with the elements of 'al' in it
+  -}
+  mapManual =
+    Map.insert 2 "two"
+      . Map.insert 4 "four"
+      . Map.insert 1 "one"
+      . Map.insert 3 "three"
+      $ Map.empty
+\end{lstlisting}
+
+类似\acode{Map.insert}的函数通常在 Haskell 中这么工作：它们返回输入数据的拷贝，并应用所需的修改。这对于映射而言很轻松。这意味着可以使用\acode{foldl}来构建一个如
+\acode{mapFold}案例中那样的映射。或者是调用\acode{Map.insert}串联在一起如\acode{mapManual}案例中那样。使用\textbf{ghci}来查看是否如同预期：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :l buildmap.hs
+  [1 of 2] Compiling Main             ( buildmap.hs, interpreted )
+  Ok, one module loaded.
+  ghci> mapFromAL
+  fromList [(1,"one"),(2,"two"),(3,"three"),(4,"four")]
+  ghci> mapFold
+  fromList [(1,"one"),(2,"two"),(3,"three"),(4,"four")]
+  ghci> mapManual
+  fromList [(1,"one"),(2,"two"),(3,"three"),(4,"four")]
+\end{lstlisting}
+
+注意\acode{mapManual}的输出与之前使用列表来构建映射的输出是不一样的。映射并不确保原始的顺序。
+
 \subsection*{函数也是数据}
+
+Haskell 一部分的能力就是创建于操作函数非常的容易。下面是一个将函数存储为 record 字段的例子：
+
+\begin{lstlisting}[language=Haskell]
+  data CustomColor = CustomColor {red :: Int, green :: Int, blue :: Int}
+    deriving (Eq, Show, Read)
+
+  data FuncRec = FuncRec {name :: String, colorCalc :: Int -> (CustomColor, Int)}
+
+  plus5func color x = (color, x + 5)
+
+  purple = CustomColor 255 0 255
+
+  plus5 = FuncRec {name = "plus5", colorCalc = plus5func purple}
+
+  always0 = FuncRec {name = "always0", colorCalc = const (purple, 0)}
+\end{lstlisting}
+
+注意\acode{colorCalc}的类型：它是一个函数，接受一个\acode{Int}并返回\acode{(CustomColor, Int)}的元组。我们创建了两个\acode{FuncRec}的 records：
+\acode{plus5}与\acode{always0}。注意两者的\acode{colorCalc}总是返回紫色。\acode{FuncRec}其本身并没有字段用于存储颜色，而是以某种方式使值成为了函数本身。
+这就是\textit{闭包 closure}。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :l funcrecs.hs
+  [1 of 2] Compiling Main             ( funcrecs.hs, interpreted )
+  Ok, one module loaded.
+  ghci> :t plus5
+  plus5 :: FuncRec
+  ghci> name plus5
+  "plus5"
+  ghci> :t colorCalc plus5
+  colorCalc plus5 :: Int -> (CustomColor, Int)
+  ghci> (colorCalc plus5) 7
+  (CustomColor {red = 255, green = 0, blue = 255},12)
+  ghci> :t colorCalc always0
+  colorCalc always0 :: Int -> (CustomColor, Int)
+  ghci> (colorCalc always0) 7
+  (CustomColor {red = 255, green = 0, blue = 255},0)
+\end{lstlisting}
+
+更高级的方式，例如将数据用于若干地方，使用类型构造函数则会大有帮助：
+
+\begin{lstlisting}[language=Haskell]
+  data FuncRec = FuncRec
+    { name :: String,
+      calc :: Int -> Int,
+      namedCalc :: Int -> (String, Int)
+    }
+
+  mkFuncRec :: String -> (Int -> Int) -> FuncRec
+  mkFuncRec name calcfunc =
+    FuncRec
+      { name = name,
+        calc = calcfunc,
+        namedCalc = \x -> (name, calcfunc x)
+      }
+
+  plus5 = mkFuncRec "plus5" (+ 5)
+
+  always0 = mkFuncRec "always0" (const 0)
+\end{lstlisting}
+
+这里有一个名为\acode{mkFuncRec}的函数，其接受一个\acode{String}以及另一个函数作为参数，返回一个新的\acode{FuncRec} record。注意\acode{mkFuncRec}的两个参数
+在若干地方都被用到了。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :l funcrecs2.hs
+  [1 of 2] Compiling Main             ( funcrecs2.hs, interpreted )
+  Ok, one module loaded.
+  ghci> :t plus5
+  plus5 :: FuncRec
+  ghci> name plus5
+  "plus5"
+  ghci> (calc plus5) 5
+  10
+  ghci> (namedCalc plus5) 5
+  ("plus5",10)
+  ghci> let plus5a = plus5 {name = "PLUS5A"}
+  ghci> name plus5a
+  "PLUS5A"
+  ghci> (namedCalc plus5a) 5
+  ("plus5",10)
+\end{lstlisting}
+
+注意\acode{plus5a}的创建。我们修改了\acode{name}字段而不是\acode{namedCalc}字段。这是为什么\acode{name}拥有一个新的名称，而\acode{namedCalc}仍然返回的是
+传入\acode{mkFuncRec}的名称；它不会改变，除非我们显式的修改它。
 
 \subsection*{拓展案列：/etc/passwd}
 
