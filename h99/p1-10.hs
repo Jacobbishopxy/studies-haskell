@@ -30,6 +30,7 @@ myLength :: [a] -> Integer
 myLength [] = 0
 myLength xs = f xs 0
   where
+    f :: [a] -> Integer -> Integer
     f [] i = i
     f (_ : xs) i = f xs (i + 1)
 
@@ -82,23 +83,24 @@ myCompress (x : y : xs)
 
 -- P9: Pack consecutive duplicates of list elements into sublists
 myPack :: (Eq a) => [a] -> [[a]]
-myPack xs =
-  f [xs]
+myPack [] = []
+myPack xs = f xs []
   where
-    f :: (Eq a) => [[a]] -> [[a]]
-    f [x : xs] = f [[x], xs]
-    f [x, []] = [x]
-    f (h@(x : _) : t@((y : ys) : zs))
-      | x == y = f ((h ++ [y]) : (ys : zs))
-      | otherwise = h : f t
+    -- processing, working on, result
+    f :: (Eq a) => [a] -> [a] -> [[a]]
+    f [] xs = [xs]
+    f (x : xs) [] = f xs [x]
+    f (x : xs) y'@(y : _)
+      | x == y = f xs (x : y')
+      | otherwise = y' : f xs [x]
 
 -- P10: Run-length encoding of a list
 myEncode :: (Eq a) => [a] -> [(Integer, a)]
-myEncode (x : xs) =
-  let (_, res) = f xs [(1, x)] in myReverse res
+myEncode [] = []
+myEncode (x : xs) = f xs (1, x)
   where
-    f :: (Eq a) => [a] -> [(Integer, a)] -> ([a], [(Integer, a)])
-    f [] i = ([], i)
-    f (x : xs) (h@(i, y) : ys)
-      | x == y = f xs ((i + 1, x) : ys)
-      | otherwise = f xs ((1, x) : h : ys)
+    f :: (Eq a) => [a] -> (Integer, a) -> [(Integer, a)]
+    f [] z = [z]
+    f (x : xs) (i, y)
+      | x == y = f xs (i + 1, x)
+      | otherwise = (i, y) : f xs (1, x)
