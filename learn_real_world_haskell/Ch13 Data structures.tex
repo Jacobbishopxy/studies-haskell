@@ -397,6 +397,199 @@ Haskell 一部分的能力就是创建于操作函数非常的容易。下面是
 
 \subsection*{拓展案列：数值类型}
 
+略
+
+\subsubsection*{第一步}
+
+如果希望为加号操作符实现一些自定义行为，则必须定义一个 newtype，并使其成为 Num 的一个实例。该类型需要以符号方式存储表达式。为此我们需要存储操作本身，其左侧以及右侧。
+其中，左右侧也可以是表达式。
+
+\begin{lstlisting}[language=Haskell]
+  -- The "operators" that we're going to support
+  data Op = Plus | Minus | Mul | Div | Pow
+    deriving (Eq, Show)
+
+  {- The core symbolic manipulation type -}
+  data SymbolicManip a
+    = Number a -- Simple number, such as 5
+    | Arith Op (SymbolicManip a) (SymbolicManip a)
+    deriving (Eq, Show)
+
+  {-
+    SymbolicManip will be an instance of Num.
+    Define how the Num operations are handled over a SymbolicManip.
+    This will implement things like (+) for SymbolicManip.
+  -}
+  instance (Num a) => Num (SymbolicManip a) where
+    a + b = Arith Plus a b
+    a - b = Arith Minus a b
+    a * b = Arith Mul a b
+    negate = Arith Mul (Number (-1))
+    abs a = error "abs is unimplemented"
+    signum _ = error "signum is unimplemented"
+    fromInteger i = Number (fromInteger i)
+\end{lstlisting}
+
+这里定义了名为\acode{Op}的类型。该类型代表了某些的操作符。接着是\acode{SymbolicManip a}的定义，由于有\acode{Num a}约束，任何\acode{Num}都可用作于\acode{a}。
+一个完整类型会像\acode{SymbolicManip Int}这样。
+
+一个\acode{SymbolicManip}类型可以是一个简单的数字，或者是某些计算操作。\acode{Arith}构造函数的类型是递归的，这在 Haskell 中很合理。\acode{Arith}用一个
+\acode{Op}和另外两个\acode{SymbolicManip}创建了一个新的\acode{SymbolicManip}。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :l numsimple.hs
+  [1 of 2] Compiling Main             ( numsimple.hs, interpreted )
+  Ok, one module loaded.
+  ghci> Number 5
+  Number 5
+  ghci> :t Number 5
+  Number 5 :: Num a => SymbolicManip a
+  ghci> :t Number (5::Int)
+  Number (5::Int) :: SymbolicManip Int
+  ghci> Number 5 * Number 10
+  Arith Mul (Number 5) (Number 10)
+  ghci> (5 * 10)::SymbolicManip Int
+  Arith Mul (Number 5) (Number 10)
+  ghci> (5 * 10 + 2)::SymbolicManip Int
+  Arith Plus (Arith Mul (Number 5) (Number 10)) (Number 2)
+\end{lstlisting}
+
+可以看到非常基础的表达式是如何工作的。注意 Haskell 是如何“转换”\acode{5 * 10 + 2}成一个\acode{SymbolicManip}的，以及其中的处理顺序。这并非一个真实的转换；
+\acode{SymbolicManip}如今是一个 first-class 数值。整数数值的字面量会被视为包裹在\acode{fromInteger}内，因此\acode{5}等同于\acode{SymbolicManip Int}
+等同于\acode{Int}。
+
+至此我们的任务就简单了：拓展\acode{SymbolicManip}类型来表达所有需求的操作，为其实现其他数值 typeclasses 的实例，并实现自身的\acode{Show}。
+
+\subsubsection*{完整代码}
+
+以下是完整的\acode{num.hs}代码：
+
+\begin{lstlisting}[language=Haskell]
+  import Data.List
+
+  -- Symbolic/units manipulation
+  data Op
+    = Plus
+    | Minus
+    | Mul
+    | Div
+    | Pow
+    deriving (Eq, Show)
+
+  {-
+    The core symbolic manipulation type.
+    It can be a simple number, a symbol, a binary arithmetic operation (such as +),
+    or a unary arithmetic operation (such as cos)
+
+    Notice the types of BinaryArith and UnaryArith: it's a recursive type.
+    So, we could represent a (+) over two SymbolicManips.
+  -}
+  data SymbolicManips a
+    = Number a -- Simple number, such as 5
+    | Symbol String -- A symbol, such as x
+    | BinaryArith Op (SymbolicManips a) (SymbolicManips a)
+    | UnaryArith String (SymbolicManips a)
+    deriving (Eq)
+\end{lstlisting}
+
+上述代码定义了之前使用过的\acode{Op}，以及\acode{SymbolicManips}，与之前类似。这个版本支持了单元算法符（即仅接受一个参数）例如\acode{abs}以及\acode{cos}。
+接下来定义\acode{Num}。
+
+\begin{lstlisting}[language=Haskell]
+  {-
+    SymbolicManips will be an instance of Num.
+    Define how the Num operations are handled over a SymbolicManips.
+    This will implement things like (+) for SymbolicManips.
+  -}
+  instance (Num a) => Num (SymbolicManips a) where
+    a + b = BinaryArith Plus a b
+    a - b = BinaryArith Minus a b
+    a * b = BinaryArith Mul a b
+    negate = BinaryArith Mul (Number (-1))
+    abs = UnaryArith "abs"
+    signum _ = error "signum is unimplemented"
+    fromInteger = Number . fromInteger
+\end{lstlisting}
+
+以上代码简单直接。注意之前的版本并不支持\acode{abs}，不过现在有了\acode{UnaryArith}构造函数就能支持了。接下来是更多的实例：
+
+\begin{lstlisting}[language=Haskell]
+  {-
+    Make SymbolicManips an instance of Fractional
+  -}
+  instance (Fractional a) => Fractional (SymbolicManips a) where
+    a / b = BinaryArith Div a b
+    recip = BinaryArith Div $ Number 1
+    fromRational = Number . fromRational
+
+  {-
+    Make SymbolicManips an instance of Floating
+  -}
+  instance (Floating a) => Floating (SymbolicManips a) where
+    pi = Symbol "pi"
+    exp = UnaryArith "exp"
+    log = UnaryArith "log"
+    sqrt = UnaryArith "sqrt"
+    a ** b = BinaryArith Pow a b
+    sin = UnaryArith "sin"
+    cos = UnaryArith "cos"
+    tan = UnaryArith "tan"
+    asin = UnaryArith "asin"
+    acos = UnaryArith "acos"
+    atan = UnaryArith "atan"
+    sinh = UnaryArith "sinh"
+    cosh = UnaryArith "cosh"
+    tanh = UnaryArith "tanh"
+    asinh = UnaryArith "asinh"
+    acosh = UnaryArith "acosh"
+    atanh = UnaryArith "atanh"
+\end{lstlisting}
+
+以上代码实现的是\acode{Fractional}与\acode{Floating}。接下来是将表达式以字符串形式展示的实现：
+
+\begin{lstlisting}[language=Haskell]
+  {-
+    Show a SymbolicManips as a String, using conventional algebraic notation
+  -}
+  prettyShow :: (Show a, Num a) => SymbolicManips a -> String
+  -- Show a number or symbol as a bare number or serial
+  prettyShow (Number x) = show x
+  prettyShow (Symbol x) = x
+  prettyShow (BinaryArith op a b) =
+    let pa = simpleParen a
+        pb = simpleParen b
+        pop = op2str op
+    in pa ++ pop ++ pb
+  prettyShow (UnaryArith opstr a) =
+    opstr ++ "(" ++ prettyShow a ++ ")"
+
+  op2str :: Op -> String
+  op2str Plus = "+"
+  op2str Minus = "-"
+  op2str Mul = "*"
+  op2str Div = "/"
+  op2str Pow = "**"
+
+  {-
+    Add parenthesis where needed. This function is fairly conservative and will
+    add parenthesis when not needed in some cases.
+
+    Haskell will have already figured out precedence for us while building up
+    the SymbolicManips.
+  -}
+  simpleParen :: (Show a, Num a) => SymbolicManips a -> String
+  simpleParen (Number x) = prettyShow (Number x)
+  simpleParen (Symbol x) = prettyShow (Symbol x)
+  simpleParen x@(BinaryArith _ _ _) = "(" ++ prettyShow x ++ ")"
+  simpleParen x@(UnaryArith _ _) = prettyShow x
+
+  {-
+    Showing a SymbolicManips calls the prettyShow function on it
+  -}
+  instance (Show a, Num a) => Show (SymbolicManips a) where
+    show = prettyShow
+\end{lstlisting}
+
 \subsection*{函数作为数据的优点}
 
 \subsection*{通用序列}
