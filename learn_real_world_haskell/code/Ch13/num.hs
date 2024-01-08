@@ -108,8 +108,8 @@ op2str Pow = "**"
 simpleParen :: (Show a, Num a) => SymbolicManips a -> String
 simpleParen (Number x) = prettyShow (Number x)
 simpleParen (Symbol x) = prettyShow (Symbol x)
-simpleParen x@(BinaryArith _ _ _) = "(" ++ prettyShow x ++ ")"
-simpleParen x@(UnaryArith _ _) = prettyShow x
+simpleParen x@(BinaryArith {}) = "(" ++ prettyShow x ++ ")"
+simpleParen x@(UnaryArith {}) = prettyShow x
 
 {-
   Showing a SymbolicManips calls the prettyShow function on it
