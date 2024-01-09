@@ -73,3 +73,64 @@ myDiffSelect' i xs = evalState (replicateM i f) xs
 myRndPermu :: (Eq a) => [a] -> [a]
 myRndPermu [] = []
 myRndPermu xs = myDiffSelect' (length xs) xs
+
+-- P26: Generate combinations of K distinct objects chosen from the N elements of a list
+-- combinations 5 "abcdef"
+-- ["abcde","abcdf","abcef","abdef","acdef","bcdef"]
+myCombinations :: Int -> [a] -> [[a]]
+myCombinations _ [] = [[]]
+myCombinations 0 _ = [[]]
+-- Get all combinations that start with x, recursively choosing (k-1) from the
+-- remaining xs. After exhausting all the possibilities starting with x, if there
+-- are at least k elements in the remaining xs, recursively get combinations of k
+-- from the remaining xs.
+myCombinations i (x : xs) = x_start ++ others
+  where
+    x_start = [x : rest | rest <- myCombinations (i - 1) xs]
+    others
+      | i <= length xs = myCombinations i xs
+      | otherwise = []
+
+-- std fn: `tails "abc"` get `["abc","bc","c",""]`
+myCombinations' :: Int -> [a] -> [[a]]
+myCombinations' 0 _ = [[]]
+myCombinations' i xs = [y : ys | y : xs' <- tails xs, ys <- myCombinations' (i - 1) xs']
+
+-- alternate syntax by using 'do' block
+myCombinations'' :: Int -> [a] -> [[a]]
+myCombinations'' 0 _ = return []
+myCombinations'' i xs = do
+  y : xs' <- tails xs
+  ys <- myCombinations'' (i - 1) xs'
+  return (y : ys)
+
+-- P27: Group the elements of a set into disjoint subsets
+-- group [2,3,4] ["aldo","beat","carla","david","evi","flip","gary","hugo","ida"]
+-- [[["aldo","beat"],["carla","david","evi"],["flip","gary","hugo","ida"]],...]
+-- group [2,2,5] ["aldo","beat","carla","david","evi","flip","gary","hugo","ida"]
+-- [[["aldo","beat"],["carla","david"],["evi","flip","gary","hugo","ida"]],...]
+-- TODO: incorrect, duplications occurred
+myGroup :: (Eq a) => [Int] -> [a] -> [[[a]]]
+myGroup [] _ = []
+myGroup is@(i : is') xs
+  | sum is /= length xs = error "`is` size and `xs` size are not compatible."
+  | otherwise = do
+      ys <- myCombinations i xs
+      let zs = deleteItems ys xs
+      return ys : myGroup is' zs
+  where
+    deleteItems :: (Eq a) => [a] -> [a] -> [a]
+    deleteItems [] = id
+    deleteItems (x : xs) = deleteItems xs . delete x
+
+myGroup' :: [Int] -> [a] -> [[[a]]]
+myGroup' [] _ = [[]]
+myGroup' (i : is) xs = [y : ys | (y, zs) <- combination i xs, ys <- myGroup' is zs]
+  where
+    combination :: Int -> [a] -> [([a], [a])]
+    combination 0 xs = [([], xs)]
+    combination _ [] = []
+    combination i (x : xs) = ts ++ ds
+      where
+        ts = [(x : ys, zs) | (ys, zs) <- combination (i - 1) xs]
+        ds = [(ys, x : zs) | (ys, zs) <- combination i xs]

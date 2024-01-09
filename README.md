@@ -4,11 +4,11 @@
 
 1. `curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh`
 
-2. `cat ~/.ghcup/env`
+1. [MacOS] copy the entire file (`cat ~/.ghcup/env`) into `~/.zshrc`
 
-3. [MacOS] copy the entire file into `~/.zshrc`
+1. `ghcup tui` open a GUI to install the rest part, (`i` for install; `u` for uninstall; `s` for set and enable)
 
-4. `ghcup tui` open a GUI to install the rest part, (`i` for install; `u` for uninstall; `s` for set and enable)
+1. [optional] set `ghcup` mirror: <https://mirrors.ustc.edu.cn/help/ghcup.html>
 
 ## Cabal
 
