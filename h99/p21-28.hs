@@ -109,23 +109,9 @@ myCombinations'' i xs = do
 -- [[["aldo","beat"],["carla","david","evi"],["flip","gary","hugo","ida"]],...]
 -- group [2,2,5] ["aldo","beat","carla","david","evi","flip","gary","hugo","ida"]
 -- [[["aldo","beat"],["carla","david"],["evi","flip","gary","hugo","ida"]],...]
--- TODO: incorrect, duplications occurred
-myGroup :: (Eq a) => [Int] -> [a] -> [[[a]]]
-myGroup [] _ = []
-myGroup is@(i : is') xs
-  | sum is /= length xs = error "`is` size and `xs` size are not compatible."
-  | otherwise = do
-      ys <- myCombinations i xs
-      let zs = deleteItems ys xs
-      return ys : myGroup is' zs
-  where
-    deleteItems :: (Eq a) => [a] -> [a] -> [a]
-    deleteItems [] = id
-    deleteItems (x : xs) = deleteItems xs . delete x
-
-myGroup' :: [Int] -> [a] -> [[[a]]]
-myGroup' [] _ = [[]]
-myGroup' (i : is) xs = [y : ys | (y, zs) <- combination i xs, ys <- myGroup' is zs]
+myGroup :: [Int] -> [a] -> [[[a]]]
+myGroup [] _ = [[]]
+myGroup (i : is) xs = [y : ys | (y, zs) <- combination i xs, ys <- myGroup is zs]
   where
     combination :: Int -> [a] -> [([a], [a])]
     combination 0 xs = [([], xs)]
@@ -134,3 +120,22 @@ myGroup' (i : is) xs = [y : ys | (y, zs) <- combination i xs, ys <- myGroup' is 
       where
         ts = [(x : ys, zs) | (ys, zs) <- combination (i - 1) xs]
         ds = [(ys, x : zs) | (ys, zs) <- combination i xs]
+
+-- P28: Sorting a list of lists according to length of sublists
+myLSort :: [[a]] -> [[a]]
+myLSort [] = []
+myLSort (x : xs) = f x $ myLSort xs
+  where
+    f :: [a] -> [[a]] -> [[a]]
+    f x [] = [x]
+    f x (x' : xs)
+      | length x <= length x' = x : x' : xs
+      | otherwise = x' : f x xs
+
+-- TODO
+myLFSort :: [[a]] -> [[a]]
+myLFSort [] = []
+myLFSort xs = undefined
+  where
+    f :: [[a]] -> [(Int, Int)]
+    f [] = []
