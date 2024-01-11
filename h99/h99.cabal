@@ -68,7 +68,10 @@ library
   -- other-extensions:
 
   -- Other library packages from which modules are imported.
-  build-depends:    base ^>=4.17.2.1
+  build-depends:
+    , assoc-list
+    , base        ^>=4.17.2.1
+    , random
 
   -- Directories containing source files.
   hs-source-dirs:   .
