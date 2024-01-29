@@ -760,6 +760,213 @@ Haskell 一部分的能力就是创建于操作函数非常的容易。下面是
 
 \subsection*{函数作为数据的优点}
 
+在命令式语言中，两个列表的追加廉价且容易。这里是一个简单的 C 结构，其中维护了两个列表的头尾指针：
+
+\begin{lstlisting}[language=C]
+  struct list {
+    struct node *head, *tail;
+  };
+\end{lstlisting}
+
+当我们想将一个列表附加到另一个列表时，需要修改前一个列表的最后一个节点并指向后一个列表的\acode{head}节点，接着更新尾指针指向尾结点。
+
+显然在 Haskell 中，如果想要保持纯粹性，这种方法是不行的。因为数据是不可变的，所以不能随意修改列表。Haskell 用来附加列表的\acode{(++)}操作符：
+
+\begin{lstlisting}[language=Haskell]
+  (++) :: [a] -> [a] -> [a]
+  (x : xs) ++ ys = x : xs ++ ys
+  _ ++ ys = ys
+\end{lstlisting}
+
+从代码中可知，创建一个新的列表取决于初始列表的长度。
+
+如果是不断的附加，那么这个代价是巨大的。\acode{(++)}操作符是右关联的：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :info (++)
+  (++) :: [a] -> [a] -> [a] 	-- Defined in GHC.Base
+  infixr 5 ++
+\end{lstlisting}
+
+这就意味着 Haskell 将表达式\acode{"a" ++ "b" ++ "c"}转换为\acode{"a" ++ ("b" ++ "c")}。这样可以使性能达到最优，因为它令左侧的操作尽可能的简短。
+
+当我们重复的对一个列表进行附加时，我们便破坏了这种结合性。
+
+与此同时，命令式程序员却在呵呵笑，因为他们重复追加的成本只取决于他们执行追加的次数。它们的性能是线性的，而我们则是平方函数。
+
+像这样重复对列表进行附加的常见操作会造成性能损失时，就需要从另一个角度来看待这个问题了。
+
+表达式\acode{"a"++}是一个偏应用函数。它的类型是什么？
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :type ("a" ++)
+  ("a" ++) :: [Char] -> [Char]
+\end{lstlisting}
+
+由于这是一个函数，我们可以使用\acode{(.)}操作符与其它操作进行组合，例如\acode{("b"++)}。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :type ("a" ++) . ("b" ++)
+  ("a" ++) . ("b" ++) :: [Char] -> [Char]
+\end{lstlisting}
+
+新的函数拥有同样的类型。那么当停止组合函数时，并将一个\acode{String}提供给函数会得到什么呢？
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let f = ("a" ++) . ("b" ++)
+  ghci> f []
+  "ab"
+\end{lstlisting}
+
+我们附加了字符串！我们用这些偏应用函数来存储数据，通过一个空列表来获取它。每个偏应用的\acode{(++)}与\acode{(.)}\textit{代表}着一个附加，但是又不实际
+\textit{执行}附加。
+
+关于这个方法有两点非常有趣的地方。首先偏应用的成本是恒定的，因此很多偏应用的成本是线性的。其次当我们最终提供\acode{[]}值来获取偏应用中的最终列表时，应用的顺序是
+从右至左的。这使得\acode{(++)}的左侧操作最小，从而让附加操作的整体成本是线性而不是二次方程的。
+
+\subsubsection*{将差异列表变为一个合理的库}
+
+第一步是使用\acode{newtype}声明对用户隐藏基础类型。我们将创建一个名为\acode{DList}的新类型。
+
+\begin{lstlisting}[language=Haskell]
+  newtype DList a = DL
+  { unDL :: [a] -> [a]
+  }
+\end{lstlisting}
+
+\acode{unDL}函数即解构函数，即移除\acode{DL}构造函数。
+
+\begin{lstlisting}[language=Haskell]
+  append :: DList a -> DList a -> DList a
+  append xs ys = DL (unDL xs . unDL ys)
+\end{lstlisting}
+
+\acode{append}函数看起来有点复杂，但它实际上只是之前展示的\acode{(.)}操作符的相同用法。对函数进行组合，首先需要从\acode{DL}构造函数中解包，因此使用了
+\acode{unDL}。接着通过\acode{DL}构造函数重新将结果包装起来。
+
+下面是另一种写法，这里使用了模式匹配来解包\acode{xs}与\acode{ys}：
+
+\begin{lstlisting}[language=Haskell]
+  append' :: DList a -> DList a -> DList a
+  append' (DL xs) (DL ys) = DL (xs . ys)
+\end{lstlisting}
+
+\acode{DList}类型如果不能与正常列表互相转换的话，那么用处也不会很大：
+
+\begin{lstlisting}[language=Haskell]
+  fromList :: [a] -> DList a
+  fromList xs = DL (xs ++)
+
+  toList :: DList a -> [a]
+  toList (DL xs) = xs []
+\end{lstlisting}
+
+如果我们还想要\acode{DList}变得跟普通列表一样好用，那么还需要提供一些列表的常规操作。
+
+\begin{lstlisting}[language=Haskell]
+  empty :: DList a
+  empty = DL id
+
+  -- equivalent of the list type's (:) operator
+  cons :: a -> DList a -> DList a
+  cons x (DL xs) = DL $ (x :) . xs
+
+  dfoldr :: (a -> b -> b) -> b -> DList a -> b
+  dfoldr f z xs = foldr f z $ toList xs
+\end{lstlisting}
+
+尽管\acode{DList}令列表附加的成本下降，但并不是所有的类列表操作都是可用的。\acode{head}函数的成本对于普通列表是常数，而\acode{DList}需要将整个\acode{DList}
+转换为正常列表才能进行，因此这使成本变得额外高昂。
+
+\begin{lstlisting}[language=Haskell]
+  safeHead :: DList a -> Maybe a
+  safeHead xs = case toList xs of
+    (y : _) -> Just y
+    _ -> Nothing
+\end{lstlisting}
+
+对于\acode{map}而言，我们需要将\acode{DList}类型成为一个函子。
+
+\begin{lstlisting}[language=Haskell]
+  dmap :: (a -> b) -> DList a -> DList b
+  dmap f = dfoldr go empty
+    where
+      go x = cons (f x)
+
+  instance Functor DList where
+    fmap = dmap
+\end{lstlisting}
+
+最终可在源文件头部添加模块头进行导出：
+
+\begin{lstlisting}[language=Haskell]
+  module DList
+    ( DList,
+      fromList,
+      toList,
+      empty,
+      append,
+      cons,
+      dfoldr,
+    )
+  where
+\end{lstlisting}
+
+\subsubsection*{列表，差异列表，以及幺半群}
+
+在抽象代数中，存在一个名为\textit{幺半群 monoid}的简单抽象结构。很多数学对象就是幺半群，它们必须有两个属性：
+
+\begin{itemize}
+  \item 一个二维操作符。名为\acode{(*)}：表达式\acode{a * (b * c)}的结果必须等同于\acode{(a * b) * c}的结果。
+  \item 一个 id 值。如果是\acode{e}，它必须遵循两个规则：\acode{a * e == a}以及\acode{e * a == a}。
+\end{itemize}
+
+具体实现：
+
+\begin{lstlisting}[language=Haskell]
+  instance Semigroup (DList a) where
+    (<>) = append
+
+  instance Monoid (DList a) where
+    mempty = empty
+\end{lstlisting}
+
+\textbf{注}：与原文不同，\acode{Monoid}现在需要\acode{Semigroup}作为约束。
+
 \subsection*{通用序列}
+
+Haskell 内建的列表类型和我们所构建的\acode{DList}类型在某些特定场景下的性能非常的差。而\acode{Data.Sequence}模块中定义的\acode{Seq}容器类型则是在大量的操作下
+具有优异的性能。
+
+\begin{lstlisting}[language=Haskell]
+  import Data.Sequence qualified as Seq
+
+  import Data.Sequence ((<|), (><), (|>))
+
+  import Data.Foldable qualified as Foldable
+\end{lstlisting}
+
+示例：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :l DataSequence.hs
+  [1 of 2] Compiling Main             ( DataSequence.hs, interpreted )
+  Ok, one module loaded.
+  ghci> Seq.empty
+  fromList []
+  ghci> Seq.singleton 1
+  fromList [1]
+  ghci> let a = Seq.fromList [1,2,3]
+  ghci> Seq.singleton 1 |> 2
+  fromList [1,2]
+  ghci> let left = Seq.fromList [1,3,3]
+  ghci> let right = Seq.fromList [7,1]
+  ghci> left >< right
+  fromList [1,3,3,7,1]
+  ghci> Foldable.toList (Seq.fromList [1,2,3])
+  [1,2,3]
+  ghci> Foldable.foldl' (+) 0 (Seq.fromList [1,2,3])
+  6
+\end{lstlisting}
 
 \end{document}
