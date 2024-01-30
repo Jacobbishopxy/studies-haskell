@@ -52,11 +52,39 @@ myPrimeFactorsMult = map encode . group . myPrimeFactors
     encode xs = (head xs, length xs)
 
 -- P37: Calculate Euler's totient function phi(m) (improved)
+myPhiM :: Int -> Int
+myPhiM m = foldl (\acc (p, m) -> acc * (p - 1) * p ^ (m - 1)) 1 (myPrimeFactorsMult m)
+
+myPhiM' :: Int -> Int
+myPhiM' m = product [(p - 1) * p ^ (c - 1) | (p, c) <- myPrimeFactorsMult m]
 
 -- P38: Compare the two methods of calculating Euler's totient function
+-- skip
 
 -- P39: A list of prime numbers in a give range
+myPrimesR :: Int -> Int -> [Int]
+myPrimesR s e
+  | s > e = error "invalid range"
+  | otherwise = takeWhile (<= e) (dropWhile (< s) primesTME)
 
 -- P40: Goldbach's conjecture
+myGoldbach :: Int -> (Int, Int)
+myGoldbach n = head [(x, y) | x <- zs, y <- zs, x + y == n]
+  where
+    zs :: [Int]
+    zs = myPrimesR 2 (n - 2)
+
+myGoldbachFull :: Int -> [(Int, Int)]
+myGoldbachFull n = [(x, y) | x <- zs, y <- zs, x + y == n, x <= y]
+  where
+    zs :: [Int]
+    zs = myPrimesR 2 (n - 2)
 
 -- P41: A list of even numbers and their Goldbach compositions in a give range
+myGoldbachList :: Int -> Int -> [(Int, Int)]
+-- myGoldbachList s e = concatMap myGoldbachFull (filter even [s .. e])
+myGoldbachList s e = map myGoldbach (filter even [s .. e])
+
+-- TODO: wrong ans
+myGoldbachListGt :: Int -> Int -> Int -> [(Int, Int)]
+myGoldbachListGt s e g = filter ((> g) . fst) $ myGoldbachList s e
