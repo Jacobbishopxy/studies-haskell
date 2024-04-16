@@ -4,25 +4,209 @@
 
 \subsection*{简介}
 
+在第七章 I/O 中，我们讨论了\acode{IO}单子，然而当时只局限于如何它与外界进行交互，并没有讨论什么是单子。
+
+...
+
 \subsection*{重构早期代码}
 
 \subsubsection*{Maybe 链}
 
+回忆一下第十章的\acode{PNM.hs}代码中的\acode{parseP5}函数：
+
+\begin{lstlisting}[language=Haskell]
+  -- header
+  matchHeader :: L.ByteString -> L.ByteString -> Maybe L.ByteString
+  matchHeader prefix str
+    | prefix `L8.isPrefixOf` str = Just (L8.dropWhile isSpace (L.drop (L.length prefix) str))
+    | otherwise = Nothing
+
+  -- nat = natural number
+  getNat :: L.ByteString -> Maybe (Int, L.ByteString)
+  getNat s = case L8.readInt s of
+    Nothing -> Nothing
+    Just (num, rest)
+      | num <= 0 -> Nothing
+      | otherwise -> Just (fromIntegral num, rest)
+
+  getBytes :: Int -> L.ByteString -> Maybe (L.ByteString, L.ByteString)
+  getBytes n str =
+    let count = fromIntegral n
+        both@(prefix, _) = L.splitAt count str
+     in if L.length prefix < count
+          then Nothing
+          else Just both
+
+  -- parse function
+  parseP5 :: L.ByteString -> Maybe (Greymap, L.ByteString)
+  parseP5 s =
+    case matchHeader (L8.pack "PS") s of
+      Nothing -> Nothing
+      Just s1 ->
+        case getNat s1 of
+          Nothing -> Nothing
+          Just (width, s2) ->
+            case getNat (L8.dropWhile isSpace s2) of
+              Nothing -> Nothing
+              Just (height, s3) ->
+                case getNat (L8.dropWhile isSpace s3) of
+                  Nothing -> Nothing
+                  Just (maxGrey, s4)
+                    | maxGrey > 255 -> Nothing
+                    | otherwise ->
+                        case getBytes 1 s4 of
+                          Nothing -> Nothing
+                          Just (_, s5) ->
+                            case getBytes (width * height) s5 of
+                              Nothing -> Nothing
+                              Just (bitmap, s6) ->
+                                Just (Greymap width height maxGrey bitmap, s6)
+\end{lstlisting}
+
+接着又使用了\acode{(>>?)}函数来减少模式匹配：
+
+\begin{lstlisting}[language=Haskell]
+  (>>?) :: Maybe a -> (a -> Maybe b) -> Maybe b
+  Nothing >>? _ = Nothing
+  Just v >>? f = f v
+\end{lstlisting}
+
+...
+
 \subsubsection*{隐式状态}
+
+简化后的代码如下：
+
+\begin{lstlisting}[language=Haskell]
+  parseP5_take2 :: L.ByteString -> Maybe (Greymap, L.ByteString)
+  parseP5_take2 s =
+    matchHeader (L8.pack "P5") s
+      >>? \s ->
+        skipSpace ((), s)
+          >>? (getNat . snd)
+          >>? skipSpace
+          >>? \(width, s) ->
+            getNat s
+              >>? skipSpace
+              >>? \(height, s) ->
+                getNat s
+                  >>? \(maxGrey, s) ->
+                    getBytes 1 s
+                      >>? (getBytes (width * height) . snd)
+                      >>? \(bitmap, s) -> Just (Greymap width height maxGrey bitmap, s)
+\end{lstlisting}
+
+我们仍然遇到了重复的行为模式：消费一些字符串，返回一个结果，接着将剩下的字符串传入下一个函数进行消费。然而这套模式有隐藏的风险：如果希望将其余部分的信息在链中传递，
+那么就需要将链中的每个元素都进行修改，将每个二元元组改为三元元组！
+
+我们解决这个问题的方法是将管理当前字符串的责任从链中的单个函数移动到将函数进行串联的函数中：
+
+\begin{lstlisting}[language=Haskell]
+  (==>) :: Parse a -> (a -> Parse b) -> Parse b
+  firstParser ==> secondParser = Parse chainedParser
+    where
+      chainedParser initState =
+        case runParse firstParser initState of
+          Left errMessage ->
+            Left errMessage
+          Right (firstResult, newState) ->
+            runParse (secondParser firstResult) newState
+\end{lstlisting}
+
+我们同样将解析状态的细节隐藏进\acode{ParseState}类型中。即使\acode{getState}与\acode{putState}函数都不会检查解析状态，因此对\acode{ParseState}的任何修改
+都不会影响现有的代码。
 
 \subsection*{寻找共有模式}
 
+...
+
 \subsection*{单子 typeclass}
 
-\subsection*{现在是黑话时间}
+我们可以在 Haskell 的 typeclass 中捕获链接和注入的概念，同时又希望它们具有类型。标准的 Prelude 已经定义了这样的一个 typeclass，即\acode{Monad}。
+
+\begin{lstlisting}[language=Haskell]
+  class Monad m where
+    -- chain
+    (>>=)  :: m a -> (a -> m b) -> m b
+    -- inject
+    return :: a -> m a
+\end{lstlisting}
+
+注：新的 Haskell 版本中 Monad 还需要先实现\acode{Applicative}实例，而\acode{Applicative}又需要先实现\acode{Functor}实例。
+
+这里的\acode{>>=}是链接函数，而\acode{return}则是注入函数。
+
+...
+
+\subsection*{行话时间}
+
+\begin{itemize}
+  \item "Monadic" 即为“与单子有关”。一个 monadic \textit{类型}就是\acode{Monad} typeclass 的一个实例；一个 monadic \textit{值}拥有一个 monadic 类型。
+  \item 当我们说一个类型“是一个单子”，这实际上在简述它是\acode{Monad} typeclass 的一个实例。作为\acode{Monad}的一个实例则拥有必要的 monadic 的类型构造函数，
+        注入函数，以及链接函数。
+  \item 同样的，引用“\acode{Foo}单子”意味着正在谈论名为\acode{Foo}的类型，且它是\acode{Monad}的一个实例。
+  \item “动作 action”则是一个 monadic 值的别称。这个词的这种用法可能起源于用于 I/O 单子的引入，其中像\acode{print "foo"}这样的单子值可能具有可观察到的副作用。
+        具有 monadic 返回类型的函数也可以称为操作，尽管这种情况不太常见。
+\end{itemize}
 
 \subsection*{使用一个新的单子：展示你的成果！}
 
-\subsubsection*{信息隐藏}
+在介绍单子时，我们展示了一些已经具备 monadic 形态的预定义代码。现在让我们定义其接口。
 
-\subsubsection*{控制逃脱}
+纯 Haskell 代码编写很简单，但是它不能执行 I/O。有时我们希望在记录一些决策时，不必将 log 信息写入文件中。现在来开发一个这样的库。
 
-\subsubsection*{留下痕迹}
+回忆在之前将 glob 模式转为正则表达式的小节中所开发的\acode{globToRegex}函数。我们将修改它，使其保存它所翻译的每个特殊模式序列的记录。
+
+作为开始，首先将返回类型通过\acode{Logger}类型构造函数进行包装。
+
+\begin{lstlisting}[language=Haskell]
+  globToRegex :: String -> Logger String
+\end{lstlisting}
+
+\subsubsection*{隐藏信息}
+
+\begin{lstlisting}[language=Haskell]
+  module Logger
+    ( Logger,
+      Log,
+      runLogger,
+      record,
+    )
+  where
+\end{lstlisting}
+
+像这样隐藏细节有两个好处：它为我们实现单子提供了相当大的灵活性，更重要的是，它为用户提供了一个简单的界面。
+
+我们的\acode{Logger}类型存粹是一个\textit{类型}构造函数。没有导出用户创建这种类型的值所需的值构造函数，用户仅仅可以使用 \acode{Logger} 来编写类型签名。
+
+\acode{Log} 类型即字符串列表的同义词，将若干签名变得更有可读性。使用列表字符串是为了实现起来更加的方便。
+
+\begin{lstlisting}[language=Haskell]
+  type Log = [String]
+\end{lstlisting}
+
+相较于提供用户一个值构造函数，更好的是提供一个\acode{runLogger}函数，用于记录操作。它将同时返回操作的结果，以及计算时的日志。
+
+\begin{lstlisting}[language=Haskell]
+  runLogger :: Logger a -> (a, Log)
+\end{lstlisting}
+
+\subsubsection*{控制退出}
+
+\acode{Monad} typeclass 不提供任何方法让值脱离它们的 monadic 束缚。可以使用\acode{return}将值注入进一个单子中，可以使用\acode{(>>=)}将值从单子中提取出来，
+而位于其右侧的函数将会得到解包的值，该函数再将其结果重新进行包装。
+
+多数单子拥有一个或多个类似\acode{runLogger}的函数。最典型的就是\acode{IO}，通常只会在退出程序时才退出。
+
+一个单子执行函数会将代码运行在单子内部并展开其结果。这样的函数通常是提供给值从其一元包装器中转义的唯一方法。因此单子的作者可以完全控制单子内发生的任何事物。
+
+\subsubsection*{留痕}
+
+当在一个\acode{Logger}中操作时，用户代码调用\acode{record}来记录事物。
+
+\begin{lstlisting}[language=Haskell]
+  record :: String -> Logger ()
+\end{lstlisting}
 
 \subsubsection*{使用 Logger 单子}
 
