@@ -49,14 +49,14 @@ Haskell 为 I/O 定义了相当多的基本函数，其中许多函数与其它�
 \begin{center}
   \begin{tabular}{|l|l|l|l|l|}
     \hline
-    \multicolumn{5}{|c|}{\textbf{可能的 IOMode 值}}                                     \\
+    \multicolumn{5}{|c|}{\textbf{可能的 IOMode 值}}                                                            \\
     \hline
-    IOMode        & \textbf{可读？} & \textbf{可写？} & \textbf{起始位置} & \textbf{说明}       \\
+    IOMode        & \textbf{可读？} & \textbf{可写？} & \textbf{起始位置} & \textbf{说明}                      \\
     \hline
-    ReadMode      & Yes          & No           & 文件起始          & 文件必须存在            \\
-    WriteMode     & No           & Yes          & 文件起始          & 文件存在时会被清空         \\
-    ReadWriteMode & Yes          & Yes          & 文件起始          & 文件不存在时创建；否则现有数据保留 \\
-    AppendMode    & No           & Yes          & 文件尾部          & 文件不存在时创建；否则现有数据保留 \\
+    ReadMode      & Yes             & No              & 文件起始          & 文件必须存在                       \\
+    WriteMode     & No              & Yes             & 文件起始          & 文件存在时会被清空                 \\
+    ReadWriteMode & Yes             & Yes             & 文件起始          & 文件不存在时创建；否则现有数据保留 \\
+    AppendMode    & No              & Yes             & 文件尾部          & 文件不存在时创建；否则现有数据保留 \\
     \hline
   \end{tabular}
 \end{center}
@@ -293,7 +293,7 @@ Haskell 还提供了另一种方式处理 I/O。由于 Haskell 是 lazy 语言�
   使用，那么就在其使用结束后尽快的释放内存。这里需要记住：内存只有在最后一次使用后才会被释放。
 \end{awarn}
 
-这段代码有点啰嗦，我们可以让它变得更简洁一些：
+这段代码有点繁琐，我们可以让它变得更简洁一些：
 
 \begin{lstlisting}[language=Haskell]
   import Data.Char (toUpper)

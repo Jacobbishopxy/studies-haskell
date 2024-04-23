@@ -143,7 +143,7 @@ gen-hie > hie.yaml
 
   - [Ch12 Barcode recognition](./learn_real_world_haskell/Ch12%20Barcode%20recognition.tex)
 
-  - Ch13 Data structures
+  - [Ch13 Data structures](./learn_real_world_haskell/Ch13%20Data%20structures.tex)
 
   - Ch14 Monads
 

@@ -748,7 +748,7 @@ Haskell 提供了一个著名的 typeclass 来泛化\acode{treeMap}。该 typecl
         else identity []
 \end{lstlisting}
 
-下面是一个不使用函子的啰嗦版本，不过更加直接：
+下面是一个不使用函子的繁琐版本，不过更加直接：
 
 \begin{lstlisting}[language=Haskell]
   parseWhileVerbose p =
@@ -764,7 +764,7 @@ Haskell 提供了一个著名的 typeclass 来泛化\acode{treeMap}。该 typecl
             identity []
 \end{lstlisting}
 
-这个啰嗦的版本在不熟悉函子时虽然看似易读，但是在 Haskell 中使用函子更为常见，它的表达更加简洁，因此应该同时成为读与写的本能。
+这个繁琐的版本在不熟悉函子时虽然看似易读，但是在 Haskell 中使用函子更为常见，它的表达更加简洁，因此应该同时成为读与写的本能。
 
 \subsection*{重写 PGM 解析器}
 
