@@ -2,6 +2,7 @@
 -- author: Jacob Xie
 -- date: 2024/01/11 23:45:51 Thursday
 -- brief:
+{-# OPTIONS_GHC -Wno-incomplete-patterns #-}
 
 import Data.List (group, union)
 
@@ -41,9 +42,9 @@ myPrimeFactors n = f n 2
   where
     f :: Int -> Int -> [Int]
     f 1 _ = []
-    f n x
-      | n `mod` x == 0 = x : f (n `div` x) x
-      | otherwise = f n $ x + 1
+    f n' x
+      | n' `mod` x == 0 = x : f (n' `div` x) x
+      | otherwise = f n' $ x + 1
 
 -- P36: Determine the prime factors and their multiplicities of a given positive integer
 myPrimeFactorsMult :: Int -> [(Int, Int)]
@@ -53,7 +54,7 @@ myPrimeFactorsMult = map encode . group . myPrimeFactors
 
 -- P37: Calculate Euler's totient function phi(m) (improved)
 myPhiM :: Int -> Int
-myPhiM m = foldl (\acc (p, m) -> acc * (p - 1) * p ^ (m - 1)) 1 (myPrimeFactorsMult m)
+myPhiM m = foldl (\acc (p, m') -> acc * (p - 1) * p ^ (m' - 1)) 1 (myPrimeFactorsMult m)
 
 myPhiM' :: Int -> Int
 myPhiM' m = product [(p - 1) * p ^ (c - 1) | (p, c) <- myPrimeFactorsMult m]

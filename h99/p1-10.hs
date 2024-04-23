@@ -5,16 +5,19 @@
 
 -- P1: Find the last element of a list
 myLast :: [a] -> a
+myLast [] = error "empty list"
 myLast [x] = x
 myLast (_ : xs) = myLast xs
 
 -- P2: Find the last-but-one (or second-last) element of a list
 myButLast :: [a] -> a
+myButLast [] = error "empty list"
 myButLast [x, _] = x
 myButLast (_ : xs) = myButLast xs
 
 -- P3: Find the K'th element of a list
 elementAt :: [a] -> Integer -> a
+elementAt [] _ = error "empty list"
 elementAt (x : xs) i
   | i == 1 = x
   | otherwise = elementAt xs (i - 1)
@@ -32,7 +35,7 @@ myLength xs = f xs 0
   where
     f :: [a] -> Integer -> Integer
     f [] i = i
-    f (_ : xs) i = f xs (i + 1)
+    f (_ : xs') i = f xs' (i + 1)
 
 myLength' :: [a] -> Integer
 myLength' [] = 0
@@ -42,8 +45,8 @@ myLength' (_ : xs) = myLength' xs + 1
 myReverse :: [a] -> [a]
 myReverse xs = f xs []
   where
-    f [] xs = xs
-    f (x : xs) ys = f xs (x : ys)
+    f [] xs' = xs'
+    f (x : xs') ys = f xs' (x : ys)
 
 -- P6: Find out whether a list is a palindrome
 isPalindrome :: (Eq a) => [a] -> Bool
@@ -62,7 +65,7 @@ myFlatten :: NestedList a -> [a]
 myFlatten a = myReverse $ f a []
   where
     f :: NestedList a -> [a] -> [a]
-    f a xs = case a of
+    f a' xs = case a' of
       Elem e -> e : xs
       List [] -> xs
       List (y : ys) -> f (List ys) (f y xs)
@@ -88,11 +91,11 @@ myPack xs = f xs []
   where
     -- processing, working on, result
     f :: (Eq a) => [a] -> [a] -> [[a]]
-    f [] xs = [xs]
-    f (x : xs) [] = f xs [x]
-    f (x : xs) y'@(y : _)
-      | x == y = f xs (x : y')
-      | otherwise = y' : f xs [x]
+    f [] xs' = [xs']
+    f (x : xs') [] = f xs' [x]
+    f (x : xs') y'@(y : _)
+      | x == y = f xs' (x : y')
+      | otherwise = y' : f xs' [x]
 
 -- P10: Run-length encoding of a list
 myEncode :: (Eq a) => [a] -> [(Integer, a)]
@@ -101,6 +104,6 @@ myEncode (x : xs) = f xs (1, x)
   where
     f :: (Eq a) => [a] -> (Integer, a) -> [(Integer, a)]
     f [] z = [z]
-    f (x : xs) (i, y)
-      | x == y = f xs (i + 1, x)
-      | otherwise = (i, y) : f xs (1, x)
+    f (x' : xs') (i, y)
+      | x' == y = f xs' (i + 1, x')
+      | otherwise = (i, y) : f xs' (1, x')

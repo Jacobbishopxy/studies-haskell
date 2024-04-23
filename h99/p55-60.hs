@@ -10,9 +10,11 @@ singletonTree x = Branch x Empty Empty
 
 replaceTreeL :: Tree a -> a -> Tree a
 replaceTreeL (Branch x _ r) a = Branch x (singletonTree a) r
+replaceTreeL Empty a = Branch a Empty Empty
 
 replaceTreeR :: Tree a -> a -> Tree a
-replaceTreeR (Branch x l r) a = Branch x l (singletonTree a)
+replaceTreeR (Branch x l _) a = Branch x l (singletonTree a)
+replaceTreeR Empty a = Branch a Empty Empty
 
 -- P55: Construct completely balanced binary trees
 myCbalTree :: Int -> [Tree Char]

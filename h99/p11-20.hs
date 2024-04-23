@@ -14,10 +14,10 @@ myEncodeModified (x : xs) = f xs (1, x)
     f [] (i, a)
       | i == 1 = [Single a]
       | otherwise = [Multiple i a]
-    f (x : xs) (i, y)
-      | x == y = f xs (i + 1, x)
-      | i == 1 = Single y : f xs (1, x)
-      | otherwise = Multiple i y : f xs (1, x)
+    f (x' : xs') (i, y)
+      | x' == y = f xs' (i + 1, x')
+      | i == 1 = Single y : f xs' (1, x')
+      | otherwise = Multiple i y : f xs' (1, x')
 
 -- P12: Decode a run-length encoded list
 myDecodeModified :: (Eq a) => [SMVal a] -> [a]
@@ -46,9 +46,9 @@ myDropEvery xs i = f xs i 1
   where
     f :: [a] -> Integer -> Integer -> [a]
     f [] _ _ = []
-    f (x : xs) i j
-      | i == j = f xs i 1
-      | otherwise = x : f xs i (j + 1)
+    f (x : xs') i' j
+      | i == j = f xs' i' 1
+      | otherwise = x : f xs' i' (j + 1)
 
 -- P17: Split a list into two parts; the length of the first part is given
 mySplit :: [a] -> Integer -> ([a], [a])
@@ -57,9 +57,9 @@ mySplit xs i = f xs i []
   where
     f :: [a] -> Integer -> [a] -> ([a], [a])
     f [] _ ys = ([], ys)
-    f (x : xs) i ys
-      | i == 1 = (ys ++ [x], xs)
-      | otherwise = f xs (i - 1) (ys ++ [x])
+    f (x : xs') i' ys
+      | i' == 1 = (ys ++ [x], xs')
+      | otherwise = f xs' (i' - 1) (ys ++ [x])
 
 mySplit' :: [a] -> Integer -> ([a], [a])
 mySplit' [] _ = ([], [])
@@ -76,16 +76,17 @@ mySlice xs i j = f xs i j []
   where
     f :: [a] -> Integer -> Integer -> [a] -> [a]
     f [] _ _ _ = []
-    f (x : xs) i j ys
-      | i == 1 && j > 1 = f xs 1 (j - 1) (ys ++ [x])
-      | i == 1 && j == 1 = ys ++ [x]
-      | otherwise = f xs (i - 1) (j - 1) ys
+    f (x : xs') i' j' ys
+      | i' == 1 && j' > 1 = f xs' 1 (j' - 1) (ys ++ [x])
+      | i' == 1 && j' == 1 = ys ++ [x]
+      | otherwise = f xs' (i' - 1) (j' - 1) ys
 
 mySlice' :: [a] -> Integer -> Integer -> [a]
 mySlice' [] _ _ = []
 mySlice' (x : xs) i j
   | i > 1 = ys
   | j > 0 = x : ys
+  | otherwise = error "`i` or `j` is not a valid number"
   where
     ys = mySlice xs (i - 1) (j - 1)
 
@@ -100,15 +101,16 @@ myRotate xs i = f xs (absI i) []
   where
     f :: [a] -> Integer -> [a] -> [a]
     f [] _ _ = []
-    f l@(x : xs) i ys
-      | i == 0 = l ++ ys
-      | i > 0 = f xs (i - 1) (ys ++ [x])
+    f l@(x : xs') i' ys
+      | i' == 0 = l ++ ys
+      | i' > 0 = f xs' (i' - 1) (ys ++ [x])
+      | otherwise = error "`i` is a negative number!"
     s :: [a] -> Integer
     s [] = 0
-    s (_ : xs) = s xs + 1
-    absI i
-      | i > 0 = i
-      | otherwise = s xs + i
+    s (_ : xs') = s xs' + 1
+    absI i'
+      | i' > 0 = i'
+      | otherwise = s xs + i'
 
 -- std fn: `drop` `take` & `length`
 myRotate' :: [a] -> Int -> [a]
@@ -132,10 +134,10 @@ myRemoveAt _ [] = (Nothing, [])
 myRemoveAt i xs = f i xs []
   where
     f :: Integer -> [a] -> [a] -> (Maybe a, [a])
-    f _ [] xs = (Nothing, xs)
-    f i (x : xs) ys
-      | i > 1 = f (i - 1) xs (ys ++ [x])
-      | otherwise = (Just x, ys ++ xs)
+    f _ [] xs' = (Nothing, xs')
+    f i' (x : xs') ys
+      | i' > 1 = f (i' - 1) xs' (ys ++ [x])
+      | otherwise = (Just x, ys ++ xs')
 
 myRemoveAt' :: Integer -> [a] -> (Maybe a, [a])
 myRemoveAt' _ [] = (Nothing, [])

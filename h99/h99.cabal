@@ -71,6 +71,7 @@ library
   build-depends:
     , assoc-list
     , base        ^>=4.17.2.1
+    , containers
     , mtl
     , random
 

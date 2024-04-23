@@ -35,7 +35,7 @@ infixl 3 `equ'`
 myTableN :: Int -> ([Bool] -> Bool) -> IO ()
 myTableN n f = mapM_ putStrLn [toStr a ++ " => " ++ show (f a) | a <- args n]
   where
-    args n = replicateM n [True, False]
+    args n' = replicateM n' [True, False]
     toStr = unwords . map (\x -> show x ++ space x)
     space True = "  "
     space False = " "
