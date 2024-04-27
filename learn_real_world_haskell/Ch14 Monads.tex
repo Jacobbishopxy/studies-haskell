@@ -208,13 +208,203 @@
   record :: String -> Logger ()
 \end{lstlisting}
 
+由于记录发生在单子的管道中，所以操作的结果不提供任何信息。
+
+通常来说，一个单子会提供一个或多个像\acode{record}一样的帮助函数。它们是访问该单子的特殊行为的方法。
+
+模块中也为\acode{Logger}类型提供了\acode{Monad}实例。它们是客户端模块为了能使用这个单子所需的全部定义。
+
 \subsubsection*{使用 Logger 单子}
+
+下面是将 glob-to-regexp 在\acode{Logger}单子中转换的方法：
+
+\begin{lstlisting}[language=Haskell]
+  globToRegex :: String -> Logger String
+  globToRegex cs =
+    globToRegex' cs >>= \ds -> return $ '^' : ds
+\end{lstlisting}
+
+注意\acode{(>>=)}的类型：它从左侧的\acode{Logger}包裹中中提取值，然后将解包的值传递给右侧的函数。在其右侧的函数则需要使用\acode{Logger}包装其结果。这也正是
+\acode{return}所做的：获取一个纯值，包裹该值进入一个单子类型的构造函数中。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :type (>>=)
+  (>>=) :: (Monad m) => m a -> (a -> m b) -> m b
+  ghci> :type (globToRegex "" >>=)
+  (globToRegex "" >>=) :: (String -> Logger b) -> Logger b
+\end{lstlisting}
+
+即使编写一个不做任何事情的函数也要调用\acode{return}将结果包装成正确的类型。
+
+\begin{lstlisting}[language=Haskell]
+  globToRegex' :: String -> Logger String
+  globToRegex' "" = return "$"
+\end{lstlisting}
+
+当调用\acode{record}来存储一个日志，需要用\acode{(>>)}而不是\acode{(>>=)}来进行串联。
+
+\begin{lstlisting}[language=Haskell]
+  globToRegex' ('?' : cs) =
+  record "any"
+    >> globToRegex' cs
+    >>= \ds -> return ('.' : ds)
+\end{lstlisting}
+
+记住它是\acode{(>>=)}的一种变体，它会忽略左侧的结果。我们知道\acode{record}的结果总是\acode{()}，因此无需捕获该结果。
+
+我们可以使用\acode{do}符号来整洁一下代码：
+
+\begin{lstlisting}[language=Haskell]
+  globToRegex'' ('*' : cs) = do
+    record "kleene star"
+    ds <- globToRegex'' cs
+    return $ ".*" ++ ds
+\end{lstlisting}
+
+解析字符类主要遵循以上这种模式：
+
+\begin{lstlisting}[language=Haskell]
+  globToRegex' ('[' : '!' : c : cs) =
+    record "character class, negative"
+      >> charClass cs
+      >>= \ds -> return $ "[^" ++ c : ds
+  globToRegex' ('[' : c : cs) =
+    record "character class"
+      >> charClass cs
+      >>= \ds -> return $ "[" ++ c : ds
+  globToRegex' ('[' : _) =
+    fail "unterminated character class"
+\end{lstlisting}
 
 \subsection*{混合纯代码与单子代码}
 
+根据目前所见到的代码，单子看起来有一个很大的缺点：使用普通的纯函数处理被包装后的值时，会变得很棘手。以下是这个浅显问题的一个简单说明。假设有一个简单的代码运行在
+\acode{Logger}单子中并返回一个字符串。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> let m = return "foo" :: Logger String
+\end{lstlisting}
+
+如果希望得知该字符串的长度，我们无法直接调用\acode{length}：因为字符串被封装了，类型并不匹配。
+
+迄今为止我们所能做的就是类似这样：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :type   m >>= \s -> return (length s)
+  m >>= \s -> return (length s) :: Logger Int
+\end{lstlisting}
+
+通过\acode{(>>=)}解包该字符串，接着用一个小的匿名函数来调用\acode{length}并通过\acode{return}重新进行包装。
+
+由于\acode{Monad} typeclass 已经提供了\acode{(>>=)}与\acode{return}函数用于解包与打包一个值，\acode{liftM}函数则不需要知道任何单子实现的细节。
+
+\begin{lstlisting}[language=Haskell]
+  liftM :: (Monad m) => (a -> b) -> m a -> m b
+  liftM f m = m >>= \i -> return $ f i
+\end{lstlisting}
+
+当我们为一个类型声明\acode{Functor} typeclass 实例时，我们需要编写自己的\acode{fmap}。相反的，\acode{liftM}不需要了解单子的内部，因为它们抽象出来了
+\acode{(>>=)}与\acode{return}。我们只需要通过适当的类型约束编写它一次。
+
+\acode{liftM}函数预定义在\acode{Control.Monad}模块中。
+
+为了检测\acode{liftM}是如何提高可读性的，我们来比较连个相同作用的代码。首先是不使用\acode{liftM}的情况：
+
+\begin{lstlisting}[language=Haskell]
+  charClass_wordy (']' : cs) =
+    globToRegex' cs >>= \ds -> return $ ']' : ds
+  charClass_wordy (c : cs) =
+    charClass_wordy cs >>= \ds -> return $ c : ds
+\end{lstlisting}
+
+然后是使用\acode{liftM}来去除\acode{(>>=)}以及匿名函数：
+
+\begin{lstlisting}[language=Haskell]
+  charClass (']' : cs) = (']' :) `liftM` globToRegex' cs
+  charClass (c : cs) = (c :) `liftM` globToRegex' cs
+\end{lstlisting}
+
+与\acode{fmap}一样，我们经常以中缀形式使用\acode{liftM}。阅读这种表达式的一种简单方法是“将左侧的纯函数应用于右侧一元操作的结果”。
+
+\acode{liftM}太有用了以致于\acode{Control.Monad}定义了若干变体，用于结合更长的操作链。来看一下\acode{globToRegex'}函数的最后一个分句：
+
+\begin{lstlisting}[language=Haskell]
+  globToRegex' (c : cs) = liftM2 (++) (escape c) (globToRegex' cs)
+
+  escape :: Char -> Logger String
+  escape c
+    | c `elem` regexChars = record "escape" >> return ['\\', c]
+    | otherwise = return [c]
+    where
+      regexChars = "\\+()^$.{}]|"
+\end{lstlisting}
+
+而上述的\acode{liftM2}函数定义如下：
+
+\begin{lstlisting}[language=Haskell]
+  liftM2 :: (Monad m) => (a -> b -> c) -> m a -> m b -> m c
+  liftM2 f m1 m2 =
+    m1 >>= \a ->
+      m2 >>= \b ->
+        return (f a b)
+\end{lstlisting}
+
+它首先执行第一个操作，接着第二个，再使用纯函数\acode{f}组合它们的结果，并封装该结果。除了\acode{liftM2}，\acode{Control.Monad}中的变体达到了\acode{liftM5}。
+
 \subsection*{消除一些误解}
 
+略。
+
+\subsection*{构建一个 Logger 单子}
+
+\acode{Logger}类型的定义非常简单：
+
+\begin{lstlisting}[language=Haskell]
+  newtype Logger a = Logger {execLogger :: (a, Log)}
+\end{lstlisting}
+
+它一个二元元组，第一个元素是具体操作的结果，而第二个元素则是该操作中产生的所有日志的列表。
+
+我们将该元组包装进了一个\acode{newtype}中使其变为独立类型。\acode{runLogger}函数则是从包装中提取出该元组。而暴露出来执行一个日志行为的函数，\acode{runLogger}，
+则是\acode{execLogger}的一个别名。
+
+\begin{lstlisting}[language=Haskell]
+  runLogger = execLogger
+\end{lstlisting}
+
+\acode{record}帮助函数则是通过传入的信息，创建了一个单例列表：
+
+\begin{lstlisting}[language=Haskell]
+  record s = Logger ((), [s])
+\end{lstlisting}
+
+该操作的结果为\acode{()}，这也是为什么在结果位置放置它的缘故。
+
+现在开始\acode{Monad}实例的\acode{return}，它很简单：不记录日志，并将其入参存储值结果位置。
+
+\begin{lstlisting}[language=Haskell]
+  instance Functor Logger where
+    fmap f (Logger (a, l)) = Logger (f a, l)
+
+  instance Applicative Logger where
+    pure a = Logger (a, [])
+    (<*>) (Logger (h, w)) (Logger (a, x)) = Logger (h a, w ++ x)
+
+  instance Monad Logger where
+    m >>= k =
+      let (a, w) = execLogger m
+          n = k a
+          (b, x) = execLogger n
+      in Logger (b, w ++ x)
+\end{lstlisting}
+
+注：现代版本 Haskell 在实现 Monad 实例之前还需要先实现 Functor 与 Applicative 实例。
+
 \subsubsection*{序列化日志，而不是序列化计算}
+
+我们定义的\acode{(>>=)}确保了左侧的日志信息将会附加到右侧的新的日志信息中。然而，它并没有涉及\acode{a}与\acode{b}的计算：\acode{(>>=)}是惰性的。
+
+正如其它大多数的单子行为一样，严格程度是由单子的实现者所控制的。它不是所有单子都共享的常量。实际上一些单子由多种风格，每一种都会有不同的严格程度。
 
 \subsubsection*{Writer 单子}
 
