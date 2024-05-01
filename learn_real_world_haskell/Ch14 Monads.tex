@@ -513,19 +513,164 @@
 
 \subsection*{列表单子}
 
-% TODO
+虽然\acode{Maybe}类型即可以表示没有值，也可以表示一个值，但在很多情况下，我们希望返回一些事先不知道的结果。显然列表非常适合这个目的。列表的类型表明我们可以将它用作
+单子，因为他的类型构造函数有一个自由变量。当然，我们可以使用列表作为单子。
+
+略。
+
+如果将\acode{(>>=)}应用至列表，我们会发现其类型为\acode{[a] -> (a -> [b]) -> [b]}。这看起来就跟\acode{map}类似：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :type (>>=)
+  (>>=) :: (Monad m) => m a -> (a -> m b) -> m b
+  ghci> :type map
+  map :: (a -> b) -> [a] -> [b]
+\end{lstlisting}
+
+看上去并不匹配，不过可以使用\acode{flip}：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :type (>>=)
+  (>>=) :: (Monad m) => m a -> (a -> m b) -> m b
+  ghci> :type flip map
+  flip map :: [a] -> (a -> b) -> [b]
+\end{lstlisting}
+
+仍有一个问题：\acode{flip map}的第二个参数的类型是\acode{a -> b}，而\acode{(>>=)}对于列表的第二个参数是\acode{a -> [a]}。我们该怎么做呢？
+
+函数\acode{flip map}可以返回任何\acode{b}类型作为其结果。如果在签名中将\acode{b}替换为\acode{[b]}，那么类型签名就变为\acode{a -> (a -> [a]) -> [[b]]}。
+换言之，如果我们 map 一个函数返回列表的列表，我们则会得到列表的列表作为返回。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> flip map [1,2,3] (\a -> [a,a+100])
+  [[1,101],[2,102],[3,103]]
+\end{lstlisting}
+
+有趣的是，我们并没有真正改变类型签名。\acode{(>>=)}的类型是\acode{[a] -> (a -> [b]) -> [b]}，而当映射函数返回列表时，\acode{flip map}的类型为
+\acode{[a] -> (a -> [b]) -> [[b]]}。这里仍有一个类型不匹配；我们仅仅将一项从类型签名的中间移到了末尾。不过这并没有白费功夫：现在需要一个接受\acode{[[b]]}并
+返回\acode{[b]}的函数，这里推荐\acode{concat}：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :type concat
+  concat :: [[a]] -> [a]
+\end{lstlisting}
+
+该类型建议我们翻转参数给到\acode{map}，接着\acode{concat}结果得到一个非嵌套的列表。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :type \xs f -> concat (map f xs)
+  \xs f -> concat (map f xs) :: [a] -> (a -> [a1]) -> [a1]
+\end{lstlisting}
+
+这正是列表的\acode{(>>=)}的定义：
+
+\begin{lstlisting}[language=Haskell]
+  instance Monad [] where
+    return x = [x]
+    xs >>= f = concat (map f xs)
+\end{lstlisting}
+
+注：以上是旧版的定义。略。
 
 \subsubsection*{理解列表单子}
 
-\subsubsection*{列表单子生效}
+列表单子类似于我们熟悉的 Haskell 工具：列表表达式。我们可以通过两个列表的笛卡尔积来说明它们的相似性。首先是写一个列表表达式：
 
-\subsection*{do 块的脱糖}
+\begin{lstlisting}[language=Haskell]
+  comprehensive xs ys = [(x, y) | x <- xs, y <- ys]
+\end{lstlisting}
+
+这一次，我们将对一元代码使用花括号表示法。这将突出一元代码在结构上与列表表达式的相似之处：
+
+\begin{lstlisting}[language=Haskell]
+  monadic xs ys = do x <- xs; y <- ys; return (x, y)
+\end{lstlisting}
+
+注：原本的\acode{monadic xs ys = do { x <- xs; y <- ys; return (x, y)}}会被 HLS 简化成上述代码。
+
+这里的唯一真正的区别是，我们构造的值出现在一系列表达式的末尾，而不是像列表表达式那样出现在开头。两者的结果是完全一致的：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> comprehensive [1,2] "bar"
+  [(1,'b'),(1,'a'),(1,'r'),(2,'b'),(2,'a'),(2,'r')]
+  ghci> comprehensive [1,2] "bar" == monadic [1,2] "bar"
+  True
+\end{lstlisting}
+
+刚开始的时候很容易对列表单子感到困惑，让我们再次看一下单子笛卡尔乘积代码。这次将重新排列函数：
+
+\begin{lstlisting}[language=Haskell]
+  blockyDo :: Monad m => m a -> m b -> m (a, b)
+  blockyDo xs ys = do
+    x <- xs
+    y <- ys
+    return (x, y)
+\end{lstlisting}
+
+对于列表\acode{xs}中的每个元素，函数的其余部分求值一次，每次都将\acode{x}绑定到列表中的不同的值上。然后对于列表\acode{ys}中的每个元素，函数的剩余部分求值一次，
+每次都将\acode{y}绑定到列表中的不同值。
+
+这里我们真正拥有的是一个双重嵌套循环！这突出了一个关于单子的重要事实：除非知道一个单子代码块将在那个单子中执行，否则无法预测它的行为。
+
+现在让嵌套的循环更加明显一些：
+
+\begin{lstlisting}[language=Haskell]
+  blockyPlain :: (Monad m) => m a -> m b -> m (a, b)
+  blockyPlain xs ys =
+    xs
+      >>= \x ->
+        ys
+          >>= \y -> return (x, y)
+
+  blockyPlain_reloaded :: [a] -> [b] -> [(a, b)]
+  blockyPlain_reloaded xs ys =
+    concatMap (\x -> concatMap (\y -> return (x, y)) ys) xs
+\end{lstlisting}
+
+注：这里与文中不同之处在于使用了\acode{concatMap}而不是\acode{concat (map (...}。
+
+\subsubsection*{令列表单子生效}
+
+下面是一个简单的暴力约束求解。给定一个整数，它会找到所有正整数对，这些正整数相乘后会得到该值（这就是要解决的约束）。
+
+\begin{lstlisting}[language=Haskell]
+  guarded :: Bool -> [a] -> [a]
+  guarded True xs = xs
+  guarded False _ = []
+
+  multiplyTo :: Int -> [(Int, Int)]
+  multiplyTo n = do
+    x <- [1 .. n]
+    y <- [x .. n]
+    guarded (x * y == n) $ return (x, y)
+\end{lstlisting}
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> multiplyTo 8
+  [(1,8),(2,4)]
+  ghci> multiplyTo 100
+  [(1,100),(2,50),(4,25),(5,20),(10,10)]
+  ghci> multiplyTo 891
+  [(1,891),(3,297),(9,99),(11,81),(27,33)]
+\end{lstlisting}
+
+\subsection*{do 代码块的脱糖}
+
+略。
 
 \subsubsection*{单子作为可编程的分号}
 
+略。
+
 \subsubsection*{为何选择无糖？}
 
+略。
+
 \subsection*{State 单子}
+
+% TODO
 
 \subsubsection*{状态单子}
 
