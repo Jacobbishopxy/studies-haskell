@@ -408,13 +408,112 @@
 
 \subsubsection*{Writer 单子}
 
+我们的\acode{Logger}单子实际上是标准\acode{Writer}单子的特殊版本，可以在\acode{mtl}库的\acode{Control.Monad.Writer}模块中找到。关于\acode{Writer}的例子
+将会在下一章中讲到。
+
 \subsection*{Maybe 单子}
+
+\acode{Maybe}类型是最简单的\acode{Monad}实例。它代表着计算可能不会返回一个结果。
+
+当我们将一系列返回\acode{Maybe}的计算通过\acode{(>>=)}或\acode{>>}串联起时，它们任意一个返回\acode{Nothing}时，后续的计算都不再进行。
+
+注意，尽管链条并不是完全短路的。链路中的每个\acode{(>>=)}或\acode{(>>)}仍然会匹配左侧的\acode{Nothing}，并生产一个\acode{Nothing}在右侧，直至最后。容易
+遗忘的点：当链路中的一个计算失败时，剩下的链路以及\acode{Nothing}值的消费在运行时是廉价的，但并不是全免。
 
 \subsubsection*{执行 Maybe 单子}
 
+执行\acode{Maybe}单子的函数名为\acode{maybe}。（记住“执行”一个单子包括对单子求值并返回一个去掉单子类型包装的结果。）
+
+\begin{lstlisting}[language=Haskell]
+  maybe :: b -> (a -> b) -> Maybe a -> b
+  maybe n _ Nothing  = n
+  maybe _ f (Just x) = f x
+\end{lstlisting}
+
+它第一个参数是当结果为\acode{Nothing}时，给定的返回；第二个参数则是当结果为\acode{Just}时，应用到解包值上的函数。
+
 \subsubsection*{Maybe 作为优秀的 API 设计}
 
+下面是一个\acode{Maybe}作为单子使用的例子。给定一个用户名，希望通过移动电话运营商找到账单地址。
+
+\begin{lstlisting}[language=Haskell]
+  import Data.Map qualified as M
+
+  type PersonName = String
+
+  type PhoneNumber = String
+
+  type BillingAddress = String
+
+  data MobileCarrier
+    = Honest_Bobs_Phone_Network
+    | Morrisas_Marvelous_Mobiles
+    | Petes_Plutocratic_Phones
+    deriving (Eq, Ord)
+
+  findCarrierBillingAddress ::
+    PersonName ->
+    M.Map PersonName PhoneNumber ->
+    M.Map PhoneNumber MobileCarrier ->
+    M.Map MobileCarrier BillingAddress ->
+    Maybe BillingAddress
+\end{lstlisting}
+
+我们的第一个版本是可怕的梯形代码，带着一堆\acode{case}表达式：
+
+\begin{lstlisting}[language=Haskell]
+  variation1 :: (Ord k1, Ord k2, Ord k3) => k1 -> M.Map k1 k2 -> M.Map k2 k3 -> M.Map k3 a -> Maybe a
+  variation1 person phoneMap carrierMap addressMap =
+    case M.lookup person phoneMap of
+      Nothing -> Nothing
+      Just number ->
+        case M.lookup number carrierMap of
+          Nothing -> Nothing
+          Just carrier -> M.lookup carrier addressMap
+\end{lstlisting}
+
+\acode{Data.Map}模块的\acode{lookup}函数拥有一个 monadic 返回类型
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :module +Data.Map
+  ghci> :type Data.Map.lookup
+  Data.Map.lookup :: (Ord k, Monad m) => k -> Map k a -> m a
+\end{lstlisting}
+
+换言之，如果给定的键在 map 中，\acode{lookup}通过\acode{return}将值注入至单子；反之，调用\acode{fail}。这是很有意思的 API 设计，尽管我们会认为这是一个糟糕的
+选择。
+
+\begin{itemize}
+  \item 正面来看，成功与失败的行为是根据调用\acode{lookup}所产生的单子自动定值的。更妙的的是，\acode{lookup}本身并不需要知道或关系这些行为。
+  \item 反面来看，问题在于错误的单子中使用\acode{file}会抛出令人厌恶的异常。
+\end{itemize}
+
+使用\acode{do}简化：
+
+\begin{lstlisting}[language=Haskell]
+  variation2 :: (Ord k1, Ord k2, Ord k3) => k1 -> M.Map k1 k2 -> M.Map k2 k3 -> M.Map k3 b -> Maybe b
+  variation2 person phoneMap carrierMap addressMap = do
+    number <- M.lookup person phoneMap
+    carrier <- M.lookup number carrierMap
+    M.lookup carrier addressMap
+\end{lstlisting}
+
+如果这些 lookup 中任意一个失败了，那么\acode{(>>=)}以及\acode{(>>)}的定义意味着函数的整个结果将会变为\acode{Nothing}，正如第一次尝试中显式的使用\acode{case}
+那样。
+
+通过\acode{flip}还可以将函数体变为一行：
+
+\begin{lstlisting}[language=Haskell]
+  variation3 :: Ord a => a -> M.Map a a -> M.Map a a -> M.Map a b -> Maybe b
+  variation3 person phoneMap carrierMap addressMap =
+    lookup phoneMap person >>= lookup carrierMap >>= lookup addressMap
+    where
+      lookup = flip M.lookup
+\end{lstlisting}
+
 \subsection*{列表单子}
+
+% TODO
 
 \subsubsection*{理解列表单子}
 

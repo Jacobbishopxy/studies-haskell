@@ -1,10 +1,11 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+
+{-# HLINT ignore "Use camelCase" #-}
+
 -- file: Logger.hs
 -- author: Jacob Xie
 -- date: 2024/03/09 09:48:52 Saturday
 -- brief:
-{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
-
-{-# HLINT ignore "Use camelCase" #-}
 
 module Logger
   ( Logger,
@@ -23,6 +24,8 @@ import Control.Monad (liftM, liftM2)
 type Log = [String]
 
 newtype Logger a = Logger {execLogger :: (a, Log)}
+
+----------------------------------------------------------------------------------------------------
 
 instance Functor Logger where
   fmap f (Logger (a, l)) = Logger (f a, l)
