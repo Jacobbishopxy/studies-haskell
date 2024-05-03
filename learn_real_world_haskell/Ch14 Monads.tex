@@ -670,15 +670,142 @@
 
 \subsection*{State 单子}
 
-% TODO
+我们早在第十章节中就发现了\acode{Parse}是一个单子。它有着两个独立的角度：一个是当解析失败时，提供带有细节的错误信息（通过\acode{Either}类型达成）；另一个就是
+它携带着隐式状态，该例子中为\acode{ByteString}。
+
+这种读写状态的需求在 Haskell 程序中很常见，因此标准库提供了一个名为\acode{State}的单子，其位于\acode{Control.Monad.State}模块中。
+
+当我们的\acode{Parse}类型携带一个\acode{ByteString}作为它的状态片段时，\acode{state}单子可以携带任何类型的状态。我们将状态的未知类型称为\acode{s}。
+
+给定一个状态值，我们检查它，然后产生一个结果和一个新的状态值。假设结果可以是任何类型\acode{a}。捕获这个想法的类型签名是\acode{s -> (a, s)}；获取一个状态
+\acode{s}，对其做某些操作，然后返回结果\acode{a}，以及一个新的状态\acode{s}。
 
 \subsubsection*{状态单子}
 
+我们先来开发一个\acode{State}单子
+
+\begin{lstlisting}[language=Haskell]
+  type SimpleState s a = s -> (a, s)
+\end{lstlisting}
+
+我们的单子是一个函数，用于转换一个状态，并返回一个值。正因如此，状态单子有时候会被称为状态转换单子。
+
+这是一个类型别名，而不是一个新类型，所以这里有点作弊，不过这可以简化很多之后的描述。
+
+早在本章开头，我们提到了一个单子有一个单类型入参的类型构造函数，而这里则是带两个参数的类型。这里的关键是要理解我们可以部分应用类型，正如部分应用普通函数那样。接下来是
+一个简单的示例：
+
+\begin{lstlisting}[language=Haskell]
+  type StringState a = SimpleState String a
+\end{lstlisting}
+
+这里将变量\acode{s}绑定至\acode{String}。\acode{StringState}类型仍有一个类型参数\acode{a}。现在有了一个适合单子的类型构造函数，换言之，单子的类型构造函数是
+\acode{SimpleState s}，而不仅仅只是\acode{SimpleState}。
+
+接下来是单子所需的\acode{return}函数：
+
+\begin{lstlisting}[language=Haskell]
+  returnSt :: a -> SimpleState s a
+  returnSt a = \s -> (a, s)
+\end{lstlisting}
+
+它所做的就是获取结果和当前状态，并将它们“元组化”。到目前为止，我们可能已经习惯了这样的想法，即带有多个参数的 Haskell 函数知识一个单参数的函数链，不过以防万一，这里
+有一种更熟悉的编写\acode{returnSt}的方法，它使这个函数更明显且简单：
+
+\begin{lstlisting}[language=Haskell]
+  returnAlt :: a -> SimpleState s a
+  returnAlt a s = (a, s)
+\end{lstlisting}
+
+单子最后一块定义就是\acode{(>>=)}，这里使用了标准库中\acode{State}定义中的实际变量名：
+
+\begin{lstlisting}[language=Haskell]
+  bindSt :: SimpleState s a -> (a -> SimpleState s b) -> SimpleState s b
+  bindSt m k = \s -> let (a, s') = m s in k a s'
+\end{lstlisting}
+
+这些单字母变量名对可读性并没有什么好处，所以让我们看看是否可以替换一些更有意义的名称。
+
+\begin{lstlisting}[language=Haskell]
+  -- m == step
+  -- k == makeStep
+  -- s == oldState
+  bindAlt step makeStep oldState =
+    let (result, newState) = step oldState
+     in makeStep result newState
+\end{lstlisting}
+
+为了理解这个定义，记住\acode{step}是一个类型为\acode{s -> (a, s)}的函数。当需要计算它时，将会得到一个元组，我们需要使用它返回一个新的\acode{s -> (a, s)}类型的
+函数。这恐怕比从\acode{bindAlt}类型中去掉\acode{SimpleState}类型别名，以及测试类型的入参与返回值，要来的更简单。
+
+\begin{lstlisting}[language=Haskell]
+  bindAlt :: (s -> (a, s)) -> (a -> s -> (b, s)) -> (s -> (b, s))
+\end{lstlisting}
+
 \subsubsection*{读取与修改状态}
+
+状态单子的\acode{(>>=)}与\acode{return}定义很简单：移动状态，但并不触碰该状态。
+
+\begin{lstlisting}[language=Haskell]
+  getSt :: SimpleState s s
+  getSt = \s -> (s, s)
+
+  putSt :: s -> SimpleState s ()
+  putSt s = const ((), s)
+\end{lstlisting}
+
+注：原文的\acode{putSt s = \_ -> ((), s)}现改为\acode{putSt s = const ((), s)}。
 
 \subsubsection*{真正的状态单子可用吗？}
 
+我们在前一节中使用的唯一简化技巧是为\acode{SimpleState}使用类型别名而不是类型定义。如果引入了一个线类型的包装器，那么额外的包装和解包将使代码变得更难理解。
+
+为了定义一个\acode{Monad}实例，我们需要提供合适的类型构造函数，以及\acode{(>>=)}与\acode{return}的定义。这就是\textit{真实的}\acode{State}定义。
+
+\begin{lstlisting}[language=Haskell]
+  newtype State s a = State
+    { runState :: s -> (a, s)
+    }
+\end{lstlisting}
+
+这里所做的是包装\acode{s -> (a, s)}类型进一个\acode{State}构造函数中。使用 Haskell 的 record 语义来进行类型定义，自动获得一个\acode{runState}函数用来从其
+构造函数中解包一个\acode{State}值。\acode{runState}的类型是\acode{State s a -> s -> (a, s)}。
+
+\acode{return}的定义与\acode{SimpleState}几乎相同，除了需要通过\acode{State}构造函数来进行包装。
+
+\begin{lstlisting}[language=Haskell]
+  returnState :: a -> State s a
+  returnState a = State (a,)
+\end{lstlisting}
+
+注：原文为\acode{returnState a = State \$ \s -> (a, s)}，这里进行了简化。
+
+\acode{(>>=)}的定义有点复杂，因为它需要使用\acode{runState}来移除\acode{State}包装器。
+
+\begin{lstlisting}[language=Haskell]
+  bindState :: State s a -> (a -> State s b) -> State s b
+  bindState m k = State $ \s ->
+    let (a, s') = runState m s
+     in runState (k a) s'
+\end{lstlisting}
+
+该函数与早前定义的\acode{bindSt}仅在多了包装和解包动作上有所不同。
+
+读与修改状态也是同理，添加包装：
+
+\begin{lstlisting}[language=Haskell]
+  get :: State s s
+  get = State $ \s -> (s, s)
+
+  put :: s -> State s ()
+  put s = State $ const ((), s)
+\end{lstlisting}
+
+注：原文为\acode{put s = State \$ \_ -> ((), s)}。
+
 \subsubsection*{使用状态单子：生成随机值}
+
+% TODO
 
 \subsubsection*{尝试纯粹性}
 
