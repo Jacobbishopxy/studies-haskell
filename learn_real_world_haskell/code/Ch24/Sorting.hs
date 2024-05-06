@@ -7,6 +7,7 @@ module Sorting
   ( sort,
     parSort,
     sillySort,
+    force,
   )
 where
 

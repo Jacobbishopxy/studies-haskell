@@ -2,3 +2,6 @@ cradle:
   cabal:
     - path: "."
       component: "lib:my-concurrent"
+
+    - path: "./SortMain.hs"
+      component: "my-concurrent:exe:sort-main"
