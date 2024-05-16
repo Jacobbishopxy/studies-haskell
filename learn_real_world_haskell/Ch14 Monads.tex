@@ -805,17 +805,159 @@
 
 \subsubsection*{使用状态单子：生成随机值}
 
-% TODO
+我们已经使用过状态单子的前身\acode{Parse}用于解析二进制数据。这个例子中，是将要操作的状态类型直接连接到\acode{Parse}类型中。
+
+\acode{State}单子，相反，接受任意状态类型作为参数，\acode{State ByteString}。
+
+如果拥有命令式语言的背景，那么状态单子可能会比其它单子更易接受。因为命令式语言都是关于携带一些隐式状态，读取一部分，并通过赋值修改其它部分，而这正是状态单子的作用。
+
+Haskell 生成随机值的标准库名为\acode{System.Random}。它允许任何类型的随机值生成，不仅仅是数值。该模块包含了若干方便的函数于\acode{IO}单子中。例如，等同于
+C 的 \acode{rand} 函数：
+
+\begin{lstlisting}[language=Haskell]
+  import System.Random
+
+  rand :: IO Int
+  rand = getStdRandom $ randomR (0, maxBound)
+\end{lstlisting}
+
+（\acode{randomR}函数接受一个闭合的区间作为随机值的范围）
+
+\acode{System.Random}模块提供一个 typeclass，\acode{RandomGen}，其供我们定义随机的\acode{Int}源。\acode{StdGen}类型则是标准\acode{RandomGen}的实例。
+它生成伪随机值。如果我们拥有真正随机数据的外部来源，便可以将其作为\acode{RandomGen}的实例，并获得真正随机的值，而不仅仅是伪随机值。
+
+另一个 typeclass，\acode{Random}，则指示如何生成特定类型的随机值。模块定义了所有常用类型的\acode{Random}实例。
+
+顺带一提，上面\acode{rand}的定义读取并修改了一个内置的全局随机生成器，该生成器位于\acode{IO}单子中。
 
 \subsubsection*{尝试纯粹性}
 
+到目前为止，我们一直强调尽可能避免使用\acode{IO}单子，如果只是为了生成一些随机值而使用它，那就很可惜。实际上\acode{System.Random}包含了纯随机数生成函数。
+
+纯函数的缺点是，我们必须获得或创建一个随机生成器，在调用它时，它返回一个新的随机数生成器：记住，在纯函数中我们不能修改现有生成器的状态。
+
+如果我们忘记不可变性，并且在函数中重用相同的生成器，那么则会得到完全相同的“随机”数：
+
+\begin{lstlisting}[language=Haskell]
+  twoBadRandoms :: (RandomGen g) => g -> (Int, Int)
+  twoBadRandoms gen = (fst $ random gen, fst $ random gen)
+\end{lstlisting}
+
+\acode{random}函数使用了一个隐式范围而不是\acode{randomR}里用户提供的范围。\acode{getStdGen}函数从\acode{IO}单子中获取当前的全局标准数值生成器。
+
+不幸的是，正确的传递和使用生成器的连续版本并不会产生令人满意的数。
+
+\begin{lstlisting}[language=Haskell]
+  twoGoodRandoms :: (RandomGen g) => g -> ((Int, Int), g)
+  twoGoodRandoms gen =
+    let (a, gen') = random gen
+        (b, gen'') = random gen'
+     in ((a, b), gen'')
+\end{lstlisting}
+
+现在我们了解了状态单子，但是它看起来是隐藏生成器的一个很好的候选。状态单子允许我们规整的管理可变状态，同时保证我们的代码不会有其它意想不到的副作用，比如修改文件或建立
+网络连接。这使得我们更容易推断代码的行为。
+
 \subsubsection*{状态单子中的随机值}
 
-\subsubsection*{允许状态单子}
+下面是一个状态单子，携带一个\acode{StdGen}作为它的状态：
+
+\begin{lstlisting}[language=Haskell]
+  type RandomState a = State StdGen a
+\end{lstlisting}
+
+生成一个随机值现在只需要获取当前的生成器，使用它，然后修改状态，用新的生成器替换它。
+
+\begin{lstlisting}[language=Haskell]
+  getRandom :: (Random a) => RandomState a
+  getRandom =
+    get >>= \gen ->
+      let (val, gen') = random gen
+       in put gen' >> return val
+\end{lstlisting}
+
+我们现在可以使用之前看到的一些一元机制来编写一个更简洁的函数，用于给出一对随机数：
+
+\begin{lstlisting}[language=Haskell]
+  getTwoRandoms :: (Random a) => RandomState (a, a)
+  getTwoRandoms = liftM2 (,) getRandom getRandom
+\end{lstlisting}
+
+\subsubsection*{运行状态单子}
+
+正如之前提到的那样，每个单子都有其特化的计算函数。本例的状态单子，有若干种选择：
+
+\begin{itemize}
+  \item \acode{runState} 同时返回结果和最终状态；
+  \item \acode{evalState} 仅返回结果，丢弃最终状态；
+  \item \acode{execState} 丢弃结果，仅返回最终状态。
+\end{itemize}
+
+\acode{evalState}与\acode{execState}函数仅仅是\acode{runState}以及\acode{fst}与\acode{snd}的组合。因此最需要记住的是\acode{runState}函数。
+
+以下是如何实现\acode{getTwoRandoms}函数的完整用例：
+
+\begin{lstlisting}[language=Haskell]
+  runTwoRandoms :: IO (Int, Int)
+  runTwoRandoms = do
+    oldState <- getStdGen
+    let (result, newState) = runState getTwoRandoms oldState
+    setStdGen newState
+    return result
+\end{lstlisting}
+
+\acode{runState}的调用遵循一个标准模式：传递它至一个包含在状态单子中的函数，以及一个初始状态；它返回函数的结果以及最终状态。
+
+围绕\acode{runState}调用的代码仅仅获取当前全局\acode{StdGen}值，然后替换它，以便后续对\acode{runTwoRandoms}或其他随机生成函数的调用可以获得更新的状态。
 
 \subsubsection*{更多特性}
 
+很难想象编写只有一个状态值要传递的代码。当我们想要一次跟踪多个状态片段时，通常的技巧是在一个数据类型中维护它们。这里有一个例子：跟踪我们分发的随机数的数量：
+
+\begin{lstlisting}[language=Haskell]
+  data CountedRandom = CountedRandom
+    { crGen :: StdGen,
+      crCount :: Int
+    }
+
+  type CRState = State CountedRandom
+
+  getCountedRandom :: (Random a) => CRState a
+  getCountedRandom = do
+    st <- get
+    let (val, gen') = random (crGen st)
+    put CountedRandom {crGen = gen', crCount = crCount st + 1}
+    return val
+\end{lstlisting}
+
+该例子碰巧消耗了状态的两个元素，并构造了一个全新的状态。更普遍的场景是，可能只读取或修改状态的一部分。该函数获取到目前为止生成的随机值数量。
+
+\begin{lstlisting}[language=Haskell]
+  getCount :: CRState Int
+  getCount = gets crCount
+\end{lstlisting}
+
+注：原文为\acode{getCount = crCount `liftM` get}，这里用\acode{gets crCount}进行简化。
+
+如果我们希望更新部分状态，那么代码可能就没那么显而易见了。
+
+\begin{lstlisting}[language=Haskell]
+  putCount :: Int -> CRState ()
+  putCount a = do
+    st <- get
+    put st {crCount = a}
+\end{lstlisting}
+
+还存在一个名为\acode{modify}的函数，其组合了\acode{get}与\acode{put}步骤。它将状态转换函数作为参数，但它并不令人满意：我们仍然无法摆脱笨拙的记录更新语法：
+
+\begin{lstlisting}[language=Haskell]
+  putCountModify :: Int -> CRState ()
+  putCountModify a = modify $ \st -> st {crCount = a}
+\end{lstlisting}
+
 \subsection*{单子与函子}
+
+% TODO
 
 \subsubsection*{看待单子的另一种方式}
 
