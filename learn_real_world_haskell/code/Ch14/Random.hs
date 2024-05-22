@@ -3,6 +3,8 @@
 -- date: 2024/05/13 23:10:10 Monday
 -- brief:
 
+module Rand where
+
 import Control.Monad (liftM2)
 import Control.Monad.State
 import System.Random

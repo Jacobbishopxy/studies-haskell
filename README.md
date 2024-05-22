@@ -145,7 +145,7 @@ gen-hie > hie.yaml
 
   - [Ch13 Data structures](./learn_real_world_haskell/Ch13%20Data%20structures.tex)
 
-  - Ch14 Monads
+  - [Ch14 Monads](./learn_real_world_haskell/Ch14%20Monads.tex)
 
   - Ch15 Programming with monads
 

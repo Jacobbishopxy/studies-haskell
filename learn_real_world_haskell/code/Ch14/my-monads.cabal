@@ -58,6 +58,7 @@ library
   default-language: Haskell2010
   build-depends:
     , base
+    , mtl
     , random
 
   exposed-modules:

@@ -3,7 +3,7 @@
 -- date: 2024/05/01 22:37:24 Wednesday
 -- brief:
 
-module Main where
+module MultiplyTo where
 
 guarded :: Bool -> [a] -> [a]
 guarded True xs = xs
