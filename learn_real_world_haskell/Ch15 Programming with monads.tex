@@ -2,6 +2,126 @@
 
 \begin{document}
 
-WIP
+\subsection*{练习：关联列表}
+
+Web 客户端与服务端之间经常通过简单的键值对列表进行信息传输。
+
+\begin{lstlisting}
+  name=Attila+%42The+Hun%42&occupation=Khan
+\end{lstlisting}
+
+这里的编码名为\acode{application/x-www-form-urlencoded}，同时非常便于理解。每个键值对都被一个“\&”符号分隔。在一个兼职对中，键为“=”符号之前的所有字符，而值为
+之后的所有字符。
+
+显然可以将一个\acode{String}作为键，但是 HTTP 并不清楚该键是否必须跟着一值。可以通过\acode{Maybe String}来表示一个模糊的值。如果值为\acode{Nothing}，即无值
+可展示。当使用\acode{Just}包裹一个值时则以为着有值。使用\acode{Maybe}让我们可以区分“无值”与“空值”。
+
+Haskell 程序员使用类型为\acode{[(a, b)]}的\textit{关联列表}，可以视作关联列表中的每个元素都是键与值的关联。
+
+假设我们想用这些列表中的一个来填充一个数据结构。
+
+\begin{lstlisting}[language=Haskell]
+  data MovieReview = MovieReview
+    { revTitle :: String,
+      revUser :: String,
+      revReview :: String
+    }
+\end{lstlisting}
+
+从一个朴素的函数开始：
+
+\begin{lstlisting}[language=Haskell]
+  simpleReview :: [(String, Maybe String)] -> Maybe MovieReview
+  simpleReview alist =
+    case lookup "title" alist of
+      Just (Just title@(_ : _)) ->
+        case lookup "user" alist of
+          Just (Just user@(_ : _)) ->
+            case lookup "review" alist of
+              Just (Just review@(_ : _)) ->
+                Just (MovieReview title user review)
+              _ -> Nothing -- no review
+          _ -> Nothing -- no user
+      _ -> Nothing -- no title
+\end{lstlisting}
+
+当关联列表包含了所有必要值且不为空值时，它将返回一个\acode{MovieReview}。
+
+我们对\acode{Maybe}单子已经很熟悉了，因此可以简化一下上述的阶梯式代码：
+
+\begin{lstlisting}[language=Haskell]
+  maybeReview :: [(String, Maybe [Char])] -> Maybe MovieReview
+  maybeReview alist = do
+    title <- lookup1 "title" alist
+    user <- lookup1 "user" alist
+    review <- lookup1 "review" alist
+    return $ MovieReview title user review
+
+  lookup1 :: Eq a1 => a1 -> [(a1, Maybe [a2])] -> Maybe [a2]
+  lookup1 key alist =
+    case lookup key alist of
+      Just (Just s@(_ : _)) -> Just s
+      _ -> Nothing
+\end{lstlisting}
+
+尽管这看起来简洁多了，但仍然在重复自身。我们可以利用\acode{MoviewReview}构造函数作为一个普通的纯函数，通过\textit{lifting}它至单子：
+
+\begin{lstlisting}[language=Haskell]
+  liftedReview :: [(String, Maybe [Char])] -> Maybe MovieReview
+  liftedReview alist =
+    liftM3
+      MovieReview
+      (lookup1 "title" alist)
+      (lookup1 "user" alist)
+      (lookup1 "review" alist)
+\end{lstlisting}
+
+这里仍然有一些重复，不过更难简化。
+
+\subsection*{泛化的 lifting}
+
+% TODO
+
+\subsection*{寻找其它方案}
+
+\subsubsection*{mplus 并不是加法}
+
+\subsubsection*{MonadPlus 的规则}
+
+\subsubsection*{失败安全的 MonadPlus}
+
+\subsection*{隐藏管道的冒险}
+
+\subsubsection*{支持随机数}
+
+\subsubsection*{再一次尝试}
+
+\subsection*{从实现中分离接口}
+
+\subsubsection*{若干参数的 typeclasses}
+
+\subsubsection*{函数式依赖}
+
+\subsubsection*{完善我们的模块}
+
+\subsubsection*{对单子接口进行编程}
+
+\subsection*{reader 单子}
+
+\subsection*{返回自动推导}
+
+\subsection*{隐藏 IO 单子}
+
+\subsubsection*{使用 newtype}
+
+\subsubsection*{为意想不到的用途设计}
+
+\subsubsection*{使用 typeclasses}
+
+\subsubsection*{隔离与测试}
+
+\subsubsection*{writer 单子与列表}
+
+\subsubsection*{任意 I/O 的重新访问}
 
 \end{document}
