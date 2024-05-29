@@ -80,9 +80,173 @@ Haskell 程序员使用类型为\acode{[(a, b)]}的\textit{关联列表}，可�
 
 \subsection*{泛化的 lifting}
 
-% TODO
+尽管使用\acode{liftM3}得以简化代码，但是我们无法使用 liftM 家族的函数来解决更泛化的问题，因为标准库仅定义到了\acode{liftM5}。虽然可以自定义此类型的变体函数，
+但是这个数量仍然是一个问题。
+
+假设一个构造函数或者纯函数接收十个参数，并决定坚持使用标准库，这可能就不太合适了。
+
+在\acode{Control.Monad}中，有一个名为\acode{ap}的函数拥有着有趣的类型签名。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :m +Control.Monad
+  ghci> :type ap
+  ap :: (Monad m) => m (a -> b) -> m a -> m b
+\end{lstlisting}
+
+我们可能会疑惑谁会将单参数纯函数放在单子中，且为什么。不过回想一下\textit{所有的} Haskell 函数实际上只接受一个参数，这里开始将看到其与\acode{MovieReview}构造函数
+的管理。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :type MovieReview
+  MovieReview :: String -> String -> String -> MovieReview
+\end{lstlisting}
+
+我们当然可以简单的将类型写作\acode{String -> (String -> (String -> MovieReview))}。如果使用旧的\acode{liftM}将\acode{MovieReview}提升至\acode{Maybe}
+单子，那么我们将会得到类型为\acode{Maybe (String -> (String -> (String -> MovieReview)))}的值。现在可以看出来该类型适用于单个参数的\acode{ap}。我们可以
+一次将这个传递给\acode{ap}，并继续链式执行，直到得到该定义。
+
+\begin{lstlisting}[language=Haskell]
+  apReview :: [(String, Maybe [Char])] -> Maybe MovieReview
+  apReview alist =
+    MovieReview
+      `liftM` lookup1 "title" alist
+      `ap` lookup1 "user" alist
+      `ap` lookup1 "review" alist
+\end{lstlisting}
+
+注：以下为步骤拆解后的类型变化。
+
+\begin{lstlisting}[language=Haskell]
+  MovieReview :: String -> ( String -> String -> MovieReview )
+  MovieReview `liftM` :: Maybe String -> Maybe ( String -> String -> MovieReview )
+  MovieReview `liftM` lookup1 "title" alist :: Maybe ( String -> String -> MovieReview )
+  MovieReview `liftM` lookup1 "title" alist `ap` :: Maybe String -> Maybe ( String -> MovieReview )
+  MovieReview `liftM` lookup1 "title" alist `ap` lookup1 "user" alist :: Maybe ( String -> MovieReview )
+\end{lstlisting}
+
+我们可以像这样把\acode{ap}的应用链接起来，只要有需要就可以多次链接，从而绕过\acode{liftM}系列函数。
+
+看待\acode{ap}的另一种有用的方式是，它是我们熟悉的\acode{(\$)}操作符的一元等价物：可以把\acode{ap}读作\textit{apply}。当比较两者的函数签名时可知：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :type ($)
+  ($) :: (a -> b) -> a -> b
+  ghci> :type ap
+  ap :: (Monad m) => m (a -> b) -> m a -> m b
+\end{lstlisting}
+
+实际上，\acode{ap}通常被定义为\acode{liftM2 id}或是\acode{liftM2 (\$)}。
 
 \subsection*{寻找其它方案}
+
+以下是某人的电话号码：
+
+\begin{lstlisting}[language=Haskell]
+  data Context = Home | Mobile | Business deriving (Eq, Show)
+
+  type Phone = String
+
+  albulena :: [(Context, String)]
+  albulena = [(Home, "+355-652-55512")]
+
+  nils :: [(Context, String)]
+  nils =
+    [ (Mobile, "+47-922-55-512"),
+      (Business, "+47-922-12-121"),
+      (Home, "+47-925-55-121"),
+      (Business, "+47-922-25-551")
+    ]
+
+  twalumba :: [(Context, String)]
+  twalumba = [(Business, "+260-02-55-5121")]
+\end{lstlisting}
+
+假设我们想要通过打电话来联系某人。我们不希望通过商务号码，更倾向于使用家庭号码（如果存在的话）而不是移动电话。
+
+\begin{lstlisting}[language=Haskell]
+  onePersonalPhone :: [(Context, Phone)] -> Maybe Phone
+  onePersonalPhone ps =
+    case lookup Home ps of
+      Nothing -> lookup Mobile ps
+      Just n -> Just n
+\end{lstlisting}
+
+当然我们可以使用\acode{Maybe}作为返回类型，我们无法考虑到某人可能拥有多个号码的可能性。因此我们需要一个列表：
+
+\begin{lstlisting}[language=Haskell]
+  allBusinessPhones :: [(Context, Phone)] -> [Phone]
+  allBusinessPhones ps = map snd numbers
+    where
+      numbers =
+        case filter (contextIs Business) ps of
+          [] -> filter (contextIs Mobile) ps
+          ns -> ns
+
+  contextIs :: Eq a => a -> (a, b) -> Bool
+  contextIs a (b, _) = a == b
+\end{lstlisting}
+
+注意这两个函数的\acode{case}表达式结构类似：一个替代方法处理第一次查找返回空值，而另一个方法处理非空情况。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> onePersonalPhone twalumba
+  Nothing
+  ghci> onePersonalPhone albulena
+  Just "+355-652-55512"
+  ghci> allBusinessPhones nils
+  ["+47-922-12-121","+47-922-25-551"]
+\end{lstlisting}
+
+Haskell 的\acode{Control.Monad}模块定义了一个 typeclass，\acode{MonadPlus}，它让我们可以出\acode{case}表达式中抽象出公共模式。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> import Control.Monad
+  ghci> :i MonadPlus
+  type MonadPlus :: (* -> *) -> Constraint
+  class (GHC.Base.Alternative m, Monad m) => MonadPlus m where
+    mzero :: m a
+    mplus :: m a -> m a -> m a
+          -- Defined in ‘GHC.Base’
+  instance MonadPlus IO -- Defined in ‘GHC.Base’
+  instance MonadPlus [] -- Defined in ‘GHC.Base’
+  instance MonadPlus Maybe -- Defined in ‘GHC.Base’
+\end{lstlisting}
+
+\acode{mzero}代表一个空值，而\acode{mplus}则是将两个结果合并成一个。我们现在可以使用\acode{mplus}来完全的移除\acode{case}表达式了。
+
+\begin{lstlisting}[language=Haskell]
+  oneBusinessPhone :: [(Context, Phone)] -> Maybe Phone
+  oneBusinessPhone ps = lookup Business ps `mplus` lookup Mobile ps
+
+  allPersonalPhones :: [(Context, Phone)] -> [Phone]
+  allPersonalPhones ps =
+    map snd $
+      filter (contextIs Home) ps
+        `mplus` filter (contextIs Mobile) ps
+\end{lstlisting}
+
+这些函数中由于我们知道\acode{lookup}返回一个类型为\acode{Maybe}的值，以及\acode{filter}返回一个列表，那么\acode{mplus}使用的版本就很明显了。
+
+更有趣的是，我们可以使用\acode{mzero}与\acode{mplus}来编写任何对\acode{MonadPlus}实例都有用的函数。以下是标准查找函数的例子：
+
+\begin{lstlisting}[language=Haskell]
+  lookup :: (Eq a) => a -> [(a, b)] -> Maybe b
+  lookup _ []                      = Nothing
+  lookup k ((x,y):xys) | x == k    = Just y
+                       | otherwise = lookup k xys
+\end{lstlisting}
+
+我们可以轻易地泛化返回类型至任意\acode{MonadPlus}的实例：
+
+\begin{lstlisting}[language=Haskell]
+  lookupM :: (MonadPlus m, Eq a) => a -> [(a, b)] -> m b
+  lookupM _ [] = mzero
+  lookupM k ((x, y) : xys)
+    | x == k = return y `mplus` lookupM k xys
+    | otherwise = lookupM k xys
+\end{lstlisting}
+
+如果结果类型是\acode{Maybe}，即要么没有结果，要么一个结果；如果类型是列表，即所有结果；或者其它更适合于\acode{MonadPlus}的奇异实例。
 
 \subsubsection*{mplus 并不是加法}
 

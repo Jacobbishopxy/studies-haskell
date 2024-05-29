@@ -5,7 +5,7 @@
 
 module MovieReview (module MovieReview) where
 
-import Control.Monad (liftM3)
+import Control.Monad (ap, liftM, liftM3)
 
 data MovieReview = MovieReview
   { revTitle :: String,
@@ -46,3 +46,17 @@ liftedReview alist =
     (lookup1 "title" alist)
     (lookup1 "user" alist)
     (lookup1 "review" alist)
+
+{-
+  MovieReview :: String -> ( String -> String -> MovieReview )
+  MovieReview `liftM` :: Maybe String -> Maybe ( String -> String -> MovieReview )
+  MovieReview `liftM` lookup1 "title" alist :: Maybe ( String -> String -> MovieReview )
+  MovieReview `liftM` lookup1 "title" alist `ap` :: Maybe String -> Maybe ( String -> MovieReview )
+  MovieReview `liftM` lookup1 "title" alist `ap` lookup1 "user" alist :: Maybe ( String -> MovieReview )
+-}
+apReview :: [(String, Maybe [Char])] -> Maybe MovieReview
+apReview alist =
+  MovieReview
+    `liftM` lookup1 "title" alist
+    `ap` lookup1 "user" alist
+    `ap` lookup1 "review" alist
