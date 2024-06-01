@@ -250,13 +250,183 @@ Haskell 的\acode{Control.Monad}模块定义了一个 typeclass，\acode{MonadPl
 
 \subsubsection*{mplus 并不是加法}
 
+尽管\acode{mplus}函数包含了“plus”，但这并不意味着将两个值求和。
+
+根据单子定义\acode{mplus}\textit{可能}会实现类似于加法的操作。例如立标单子中的\acode{mplus}是作为\acode{(++)}操作符实现的。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> [1,2,3] `mplus` [4,5,6]
+  [1,2,3,4,5,6]
+\end{lstlisting}
+
+然而切换到其他单子，类似加法的行为并不成立：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> Just 1 `mplus` Just 2
+  Just 1
+\end{lstlisting}
+
 \subsubsection*{MonadPlus 的规则}
+
+\acode{MonadPlus} typeclass 的实例相较于普通的单子规则还需要遵循某些其他简单的规则。
+
+如果\acode{mzero}出现在绑定表达式的左侧，则实例必须短路。换言之，表达式\acode{mzeor >>= f}的计算结果必须与\acode{mzero}单独计算的结果相同。
+
+\begin{lstlisting}[language=Haskell]
+  mzero >>= f == mzero
+\end{lstlisting}
+
+如果\acode{mzero}出现在序列表达式的\textit{右侧}，那么该实例必须短路。
+
+\begin{lstlisting}[language=Haskell]
+  v >> mzero == mzero
+\end{lstlisting}
 
 \subsubsection*{失败安全的 MonadPlus}
 
+早在“The Monad typeclass”章节中提到的\acode{fail}函数，被告知不要使用它：在很多\acode{Monad}中，它被实现为对\acode{error}的调用，这会产生令人不快的后果。
+
+\acode{MonadPlus} typeclass 为我们提供了一种更温和的方式来失败计算，而不会出现\acode{fail}或\acode{error}。上面介绍的规则允许我们在任何需要的地方在代码中
+引入\acode{mzero}，并在该点上短路。
+
+在\acode{Control.Monad}模块中，标准函数\acode{guard}将此理念打包成了方便的样式。
+
+\begin{lstlisting}[language=Haskell]
+  guard        :: (MonadPlus m) => Bool -> m ()
+  guard True   =  return ()
+  guard False  =  mzero
+\end{lstlisting}
+
+下面是个简单的例子，一个函数接受一个值\acode{x}并计算它对另一个数字\acode{n}取模。如果结果为零返回\acode{x}，否则返回当前单子的\acode{mzero}。
+
+\begin{lstlisting}[language=Haskell]
+  x `zeroMod` n = guard ((x `mod` n) == 0) >> return x
+\end{lstlisting}
+
 \subsection*{隐藏管道的冒险}
 
+略。
+
+我们给单子取名为\acode{Supply}，将执行函数\acode{runSupply}提供一个列表；需要确保列表中每一个元素都是唯一的。
+
+\begin{lstlisting}[language=Haskell]
+  runSupply :: Supply s a -> [s] -> (a, [s])
+\end{lstlisting}
+
+单子并不会关心内部的值：它们有可能是随机数，临时文件的名称，或是 HTTP cookies 的 ID。
+
+单子内部，消费者每次需求一个值，\acode{next}则会从列表中获取下一个元素并给到消费者。每个值都会被\acode{Maybe}构造函数包装，以防列表长度不够。
+
+\begin{lstlisting}[language=Haskell]
+  next :: Supply s (Maybe s)
+\end{lstlisting}
+
+为了隐藏管道，模块声明时仅导出类型构造函数，执行函数，以及\acode{next}操作函数：
+
+\begin{lstlisting}[language=Haskell]
+  module Supply (Supply, next, runSupply) where
+\end{lstlisting}
+
+管道非常的简单：使用\acode{newtype}声明来包装一个\acode{State}单子：
+
+\begin{lstlisting}[language=Haskell]
+  import Control.Monad.State
+
+  newtype Supply s a = S (State [s] a)
+\end{lstlisting}
+
+这里型参\acode{s}是我们将要提供的唯一值类型，而\acode{a}是为了类型成为单子而必须提供的通常类型参数。
+
+我们对\acode{Supply}类型的\acode{newtype}的使用和模块头文件联合起来防止用户使用\acode{State}单子的\acode{get}和\acode{set}操作。由于模块没有导出\acode{S}
+的构造函数，所以外部无法通过编程的方式看到包装的\acode{State}单子，也无法访问它。
+
+此刻有了类型\acode{Supply}，我们需要它来创建\acode{Monad} typeclass 实例。我们可以遵循\acode{(>>=)}以及\acode{return}的通常模式，但这只是存粹的样板代码。
+我们所要做的是包装盒解包\acode{State}单子的\acode{(>>=)}版本，并使用\acode{S}值构造函数返回。
+
+\begin{lstlisting}[language=Haskell]
+  unwrapS :: Supply s a -> State [s] a
+  unwrapS (S s) = s
+
+  instance Functor (Supply s) where
+    fmap f s = S $ fmap f $ unwrapS s
+
+  instance Applicative (Supply s) where
+    pure = S . return
+    f <*> a = S $ unwrapS f <*> unwrapS a
+
+  instance Monad (Supply s) where
+    s >>= m = S $ unwrapS s >>= unwrapS . m
+\end{lstlisting}
+
+注：与原文不同，实现单子实例前还需分别实现函子实例与应用函子实例。
+
+Haskell 程序员不喜欢样板文件，且可以肯定的是，GHC 有一个可爱的语言扩展用于消除这些样板。使用它需要再源文件顶部添加：
+
+\begin{lstlisting}[language=Haskell]
+  {-# LANGUAGE GeneralisedNewtypeDeriving #-}
+\end{lstlisting}
+
+通常而言，我们只能自动派生一些标准 typeclass 的实例，例如\acode{Show}和\acode{Eq}。顾名思义，\acode{GeneralisedNewtypeDeriving}扩展了派生 typeclass
+实例的能力，且它是特定于\acode{newtype}声明的。如果我们包装的类型是任何 typeclass 的实例，扩展可以自动将我们的新类型作为该 typeclass 的实例，如下所示：
+
+\begin{lstlisting}[language=Haskell]
+  newtype Supply s a = S (State [s] a)
+    deriving (Monad)
+\end{lstlisting}
+
+那么接下来就是\acode{next}与\acode{runSupply}的定义了：
+
+\begin{lstlisting}[language=Haskell]
+  runSupply :: Supply s a -> [s] -> (a, [s])
+  runSupply (S m) xs = runState m xs
+
+  next :: Supply s (Maybe s)
+  next = S $ do
+    st <- get
+    case st of
+      [] -> return Nothing
+      (x : xs) -> do
+        put xs
+        return $ Just x
+\end{lstlisting}
+
+加载模块至\textbf{ghci}测试一下：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :l Supply
+  [1 of 1] Compiling Supply           ( Supply.hs, interpreted )
+  Ok, one module loaded.
+  ghci> runSupply next [1,2,3]
+  (Just 1,[2,3])
+  ghci> import Control.Monad
+  ghci> runSupply (liftM2 (,) next next) [1,2,3]
+  ((Just 1,Just 2),[3])
+  ghci> runSupply (liftM2 (,) next next) [1]
+  ((Just 1,Nothing),[])
+\end{lstlisting}
+
+我们还可以验证\acode{State}单子是否泄漏了。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :browse Supply
+  type role Supply nominal nominal
+  type Supply :: * -> * -> *
+  newtype Supply s a = S (State [s] a)
+  runSupply :: Supply s a -> [s] -> (a, [s])
+  next :: Supply s (Maybe s)
+  ghci> :info Supply
+  type role Supply nominal nominal
+  type Supply :: * -> * -> *
+  newtype Supply s a = S (State [s] a)
+          -- Defined at Supply.hs:12:1
+  instance Applicative (Supply s) -- Defined at Supply.hs:32:10
+  instance Functor (Supply s) -- Defined at Supply.hs:29:10
+  instance Monad (Supply s) -- Defined at Supply.hs:36:10
+\end{lstlisting}
+
 \subsubsection*{支持随机数}
+
+% TODO
 
 \subsubsection*{再一次尝试}
 
