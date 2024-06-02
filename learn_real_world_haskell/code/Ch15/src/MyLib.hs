@@ -5,11 +5,15 @@
 
 module MyMonadsProgram
   ( module MovieReview,
-    module Supply,
+    -- module Supply,
     module VCard,
+    module RandomSupply,
+    module SupplyClass,
   )
 where
 
 import MovieReview
+import RandomSupply
 import Supply
+import SupplyClass
 import VCard
