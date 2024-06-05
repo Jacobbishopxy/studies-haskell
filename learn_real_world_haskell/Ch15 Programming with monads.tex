@@ -515,15 +515,147 @@ Haskell 程序员不喜欢样板文件，且可以肯定的是，GHC 有一个�
 
 \subsubsection*{函数式依赖}
 
-% TODO
+回忆一下早前忽略的代码片段，\acode{| m -> s}是一个\textit{函数式依赖}，通常称为\textit{fundep}。我们可以将竖线\acode{|}读作“such that”，而箭头\acode{->}
+读作“uniquely determines”。函数式依赖建立了关于\acode{m}与\acode{s}之间的\textit{关系}。
+
+功能依赖是由\acode{FunctionalDependencies}的语言 pragma 控制的。
+
+声明关系的目的是帮助类型检查器。回想一下，Haskell 类型检查器本质上是一个定理证明器，且他的操作方式是保守的：它坚持它的证明必须终止。非终止证明会导致编译器放弃或陷入
+无限循环。
+
+通过函数式依赖，我们告诉类型检查器，每当它看到\acode{MonadSupply s}的上下文中使用某些单子\acode{m}时，类型\acode{s}是唯一可接受的类型。如果我们忽略函数式依赖，
+类型检查器将简单的放弃并显示一条错误信息。
+
+现在看一下这个 typeclass 的实例：
+
+\begin{lstlisting}[language=Haskell]
+  import qualified Supply as S
+
+  instance MonadSupply s (S.Supply s) where
+    next = S.next
+\end{lstlisting}
+
+这里类型变量\acode{m}被类型\acode{S.Supply s}取代。由于函数式依赖，类型检查器知道了当它看到\acode{S.Supply s}时，该类型可以用作 typeclass
+\acode{MonadSupply s}的实例。
+
+为了去掉最后一层抽象，试着考虑一下类型\acode{S.Supply Int}。如果没有函数式依赖，我们可以将其声明为\acode{MonadSupply s}的实例。然而在尝试使用该实例时，编译器
+将无法确定类型的\acode{Int}参数需要与 typeclass 的\acode{s}参数相同，同时编译器将报告一个错误。
+
+函数式依赖关系可能很难理解，一旦超出了简单使用，它们在实践中将很难使用。幸运的是，函数依赖关系最常见的使用方式就是像上述这样的简单情况，它们造成的麻烦会少很多。
 
 \subsubsection*{完善我们的模块}
 
+当我们将 typeclass 与实例保存在一个名为\acode{SupplyClass.hs}的源文件中，我们需要添加一个模块头如下：
+
+\begin{lstlisting}[language=Haskell]
+  {-# LANGUAGE FlexibleInstances #-}
+  {-# LANGUAGE FunctionalDependencies #-}
+  {-# LANGUAGE MultiParamTypeClasses #-}
+
+  module SupplyClass
+    ( MonadSupply (..),
+      S.Supply,
+      S.runSupply,
+    )
+  where
+\end{lstlisting}
+
+为了让编译器接受我们的实例声明，必须使用\acode{FlexibleInstances}扩展。这个扩展放宽了某些情况下编写实例的正常规则，在某种程度上仍然让编译器的类型检查器保证它被
+终止。这里还需要使用\acode{FlexibleInstances}是因为使用了函数式依赖的关系，不过这些细节超出了本书的范围。
+
+\begin{anote}
+  如何知道哪个语言扩展是被需要的
+
+  如果 GHC 因为需要某些语言扩展被开启才能对某部分代码进行编译，它会直接告诉用户需要那些扩展。例如，如果它认为我们的代码需要灵活实例的支持，它会建议我们使用
+  \acode{-XFlexibleInstances}选项来进行编译。一个\acode{-X}选项与\acode{LANGUAGE}的效果一样：开启特定的扩展。
+\end{anote}
+
+最后请注意，我们将重新导出这个模块中的\acode{runSupply}以及\acode{Supply}。从一个模块导出名称是完全合法的，即使它是在另一个模块中定义的。这个例子中，意味着用户
+只需要导入\acode{SupplyClass}模块，而不需要导入\acode{Supply}模块。这减少了用户需要记住的“移动部件”的数量。
+
 \subsubsection*{对单子接口进行编程}
+
+以下是一个简单的函数用于提取\acode{Supply}单子的两个值，并格式化它们成为一个字符串进行返回：
+
+\begin{lstlisting}[language=Haskell]
+  showTwo :: (Show s) => Supply s String
+  showTwo = do
+    a <- next
+    b <- next
+    return $ show "a: " ++ show a ++ ", b: " ++ show b
+\end{lstlisting}
+
+这段代码通过其结果类型绑定到\acode{Supply}单子。通过修改函数类型，我们可以很容易的泛化到任何实现\acode{MonadSupply}接口的单子。注意函数体保持不变：
+
+\begin{lstlisting}[language=Haskell]
+  showTwoClass :: (Show s, Monad m, MonadSupply s m) => m String
+  showTwoClass = do
+    a <- next
+    b <- next
+    return $ show "a: " ++ show a ++ ", b: " ++ show b
+\end{lstlisting}
 
 \subsection*{reader 单子}
 
+\acode{State}单子允许我们在代码中探索可变状态。有时我们希望能够传递一些\textit{不可变}的状态，例如程序的配置数据。我们可以使用\acode{State}单子来实现这个目的，但是我们
+可能会发现自己意外的修改了应该保持不变的数据。
+
+现在考虑一下具有上述期望的特征的函数应该做什么。它应该接受我们传入的数据某种类型\acode{e}的值，并返回另一种类型\acode{a}的值作为结果，即\acode{e -> a}。
+
+将该类型转换为一个方便的\acode{Monad}实例仅需\acode{newtype}包装：
+
+\begin{lstlisting}[language=Haskell]
+  newtype Reader e a = R {runReader :: e -> a}
+\end{lstlisting}
+
+使其成为\acode{Monad}实例并不需要做太多的工作：
+
+\begin{lstlisting}[language=Haskell]
+  instance Functor (Reader a) where
+    fmap f m = R $ f . runReader m
+
+  instance Applicative (Reader a) where
+    pure = R . const
+    f <*> m = R $ \r -> runReader f r $ runReader m r
+
+  instance Monad (Reader e) where
+    m >>= k = R $ \r -> runReader (k $ runReader m r) r
+\end{lstlisting}
+
+注：原文代码过旧。
+
+我们可以把类型\acode{e}看作是计算某个表达式的\textit{环境}。无论环境是什么，\acode{return}操作都应该具有相同效果，即忽略它的环境。
+
+\acode{(>>=)}的定义稍微复杂一些，仅仅是因为需要将环境 -- 这里是变量\acode{r} -- 在当前计算与链接的计算上都适用。
+
+在单子中执行的一段代码如何知道它的环境中有什么？仅需\acode{ask}：
+
+\begin{lstlisting}[language=Haskell]
+  ask :: Reader e e
+  ask = R id
+\end{lstlisting}
+
+在给定的操作链中，每次调用\acode{ask}都将返回相同的值，因为存储在环境中的值不会改变。在\textbf{ghci}中进行测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :l SupplyClass.hs
+  [1 of 2] Compiling Supply           ( Supply.hs, interpreted )
+  [2 of 2] Compiling SupplyClass      ( SupplyClass.hs, interpreted )
+  Ok, two modules loaded.
+  ghci> runReader (ask >>= \x -> return (x * 3)) 2
+  6
+\end{lstlisting}
+
+\acode{Reader}单子包含在标准的\acode{mtl}库中，这个库通常与 GHC 捆绑在一起。我们可以在\acode{Control.Monad.Reader}模块中找到它。这个单子的动机最初看起来
+可能有点单薄，但是它在复杂的代码中很有用。我们经常要访问程序内部深处的配置信息；将这些信息作为普通参数传递进来，则需要对代码进行痛苦的重构。将这些信息隐藏在单子中，
+不关心配置信息的中间函数则不需要看到它。
+
+\acode{Reader}单子的最明确动机将出现在第 18 章\textit{单子转换}中的合并几个单子来构建一个新的单子的讨论中。这里我们则是看到了如何更好的控制状态，以便我们的代码
+可以通过\acode{State}单子修改一些值，而其他值则通过\acode{Reader}单子保持不变。
+
 \subsection*{返回自动推导}
+
+% TODO
 
 \subsection*{隐藏 IO 单子}
 

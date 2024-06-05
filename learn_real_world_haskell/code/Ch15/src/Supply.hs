@@ -5,7 +5,7 @@
 -- date: 2024/05/31 22:03:21 Friday
 -- brief:
 
-module Supply (Supply, next, runSupply) where
+module Supply (Supply, next, runSupply, showTwo) where
 
 import Control.Monad.State
 
@@ -35,3 +35,9 @@ instance Applicative (Supply s) where
 
 instance Monad (Supply s) where
   s >>= m = S $ unwrapS s >>= unwrapS . m
+
+showTwo :: (Show s) => Supply s String
+showTwo = do
+  a <- next
+  b <- next
+  return $ show "a: " ++ show a ++ ", b: " ++ show b

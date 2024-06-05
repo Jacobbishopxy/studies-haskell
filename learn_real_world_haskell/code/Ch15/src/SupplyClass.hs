@@ -11,6 +11,8 @@ module SupplyClass
   ( MonadSupply (..),
     S.Supply,
     S.runSupply,
+    showTwoClass,
+    ask,
   )
 where
 
@@ -21,3 +23,24 @@ class (Monad m) => MonadSupply s m | m -> s where
 
 instance MonadSupply s (S.Supply s) where
   next = S.next
+
+showTwoClass :: (Show s, Monad m, MonadSupply s m) => m String
+showTwoClass = do
+  a <- next
+  b <- next
+  return $ show "a: " ++ show a ++ ", b: " ++ show b
+
+newtype Reader e a = R {runReader :: e -> a}
+
+instance Functor (Reader a) where
+  fmap f m = R $ f . runReader m
+
+instance Applicative (Reader a) where
+  pure = R . const
+  f <*> m = R $ \r -> runReader f r $ runReader m r
+
+instance Monad (Reader e) where
+  m >>= k = R $ \r -> runReader (k $ runReader m r) r
+
+ask :: Reader e e
+ask = R id
