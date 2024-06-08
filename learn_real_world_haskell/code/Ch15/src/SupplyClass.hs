@@ -12,6 +12,7 @@ module SupplyClass
     S.Supply,
     S.runSupply,
     showTwoClass,
+    Reader,
     ask,
   )
 where

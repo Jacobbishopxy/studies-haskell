@@ -9,11 +9,19 @@ module MyMonadsProgram
     module VCard,
     module RandomSupply,
     module SupplyClass,
+    module SupplyInstance,
+    -- module HandleIO,
+    module MonadHandle,
+    module MonadHandleIO,
   )
 where
 
+-- import HandleIO
+import MonadHandle
+import MonadHandleIO
 import MovieReview
 import RandomSupply
 import Supply
 import SupplyClass
+import SupplyInstance
 import VCard

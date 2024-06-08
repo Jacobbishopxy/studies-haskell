@@ -29,7 +29,8 @@ library
   -- other-modules:
   -- other-extensions:
   build-depends:
-    , base    ^>=4.19.1.0
+    , base       ^>=4.19.1.0
+    , directory
     , mtl
     , random
 
