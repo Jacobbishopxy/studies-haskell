@@ -21,10 +21,15 @@ common warnings
 library
   import:           warnings
   exposed-modules:
+    MonadHandle
     MovieReview
     MyLib
+    RandomSupply
     Supply
+    SupplyClass
+    SupplyInstance
     VCard
+    WriterIO
 
   -- other-modules:
   -- other-extensions:

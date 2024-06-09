@@ -147,7 +147,7 @@ gen-hie > hie.yaml
 
   - [Ch14 Monads](./learn_real_world_haskell/Ch14%20Monads.tex)
 
-  - Ch15 Programming with monads
+  - [Ch15 Programming with monads](./learn_real_world_haskell/Ch15%20Programming%20with%20monads.tex)
 
   - Ch16 The Parsec parsing library
 

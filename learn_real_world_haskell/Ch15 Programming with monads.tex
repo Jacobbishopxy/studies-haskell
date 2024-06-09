@@ -873,10 +873,99 @@ typeclass 方法的美妙之处在于，我们可以在不涉及太多代码的�
 
 \subsubsection*{隔离与测试}
 
-% TODO
+实际上，由于\acode{safeHello}函数并没有使用\acode{IO}类型，我们甚至可以用一个无法执行 I/O 的单子。这允许我们在一个完全纯净、可控的环境中测试通常会产生副作用的
+代码。
+
+为此我们将创建一个无法执行 I/O 的单子，不过将会记录每个文件相关的事件。
+
+\begin{lstlisting}[language=Haskell]
+  data Event
+    = Open FilePath IOMode
+    | Put String String
+    | Close String
+    | GetContents String
+    deriving (Show)
+\end{lstlisting}
+
+我们在之前的章节中开发了\acode{Logger}类型，不过这里将使用标准且更泛用的\acode{Writer}单子。正如其它\acode{mtl}单子，由\acode{Writer}提供的 API 定义在一个
+typeclass 中，即\acode{MonadWriter}。它最有用的方法是\acode{tell}，即记录一个值。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :m +Control.Monad.Writer
+  ghci> :type tell
+  tell :: (MonadWriter w m) => w -> m ()
+\end{lstlisting}
+
+我们记录的值可以是任何\acode{Monoid}类型。由于列表类型是一个\acode{Monoid}，那么记录到\acode{Event}列表。
+
+我们可以让\acode{Writer [Event]}成为\acode{MonadHandle}的一个实例，但它更便宜，更容易，也更安全。
+
+注：书中遗漏了\acode{MonadHandle}的\acode{WriterIO}实例：
+
+\begin{lstlisting}[language=Haskell]
+  {-# LANGUAGE FlexibleInstances #-}
+  {-# LANGUAGE MultiParamTypeClasses #-}
+
+  import MonadHandle (MonadHandle (..))
+  import MonadHandleIO
+
+  instance MonadHandle FilePath WriterIO where
+    openFile path mode = tell [Open path mode] >> return path
+    hPutStr h str = tell [Put h str]
+    hClose h = tell [Close h]
+    hGetContents h = tell [GetContents h] >> return "fake contents"
+\end{lstlisting}
+
+通过\textbf{ghci}测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :l WriterIO.hs
+  [1 of 3] Compiling MonadHandle      ( MonadHandle.hs, interpreted )
+  [2 of 3] Compiling MonadHandleIO    ( MonadHandleIO.hs, interpreted )
+  [3 of 3] Compiling WriterIO         ( WriterIO.hs, interpreted )
+  Ok, three modules loaded.
+  ghci> runWriterIO (safeHello "foo")
+  ((),[Open "foo" WriteMode,Put "foo" "hello world",Put "foo" "\n",Close "foo"])
+\end{lstlisting}
 
 \subsubsection*{writer 单子与列表}
 
+每次使用\acode{tell}时，writer 单子都会使用单子的\acode{mappend}函数，由于列表的\acode{mappend}是\acode{(++)}，因此列表不是与\acode{Writer}一起使用的
+使用选择：重复追加的代价很高。上面的示例使用列表存粹是为了简单。
+
+在生产代码中，如果使用\acode{Writer}单子同时需要一个类似列表这样的方式记录日志，那么请使用更高效的追加特征的容器。这里有一种选择就是之前介绍的差异列表（十三章）。
+我们无需自己造轮子，而是可以在 Haskell 的库中去寻找一个合适的替代。另一种方案就是使用由\acode{Data.Sequence}模块所提供的\acode{Seq}类型（十三章）。
+
 \subsubsection*{任意 I/O 的重新访问}
+
+如果使用 typeclass 方式来限制\acode{IO}，我们可能仍然希望保留执行任意 I/O 操作的能力。我们可以尝试在 typeclass 上添加\acode{MonadIO}作为约束。
+
+\begin{lstlisting}[language=Haskell]
+  class (MonadHandle h m, MonadIO m) => MonadHandleIO h m | m -> h
+
+  instance MonadHandleIO Handle IO
+
+  tidierHello :: (MonadHandleIO h m) => FilePath -> m ()
+  tidierHello path = do
+    safeHello path
+    liftIO $ removeFile path
+\end{lstlisting}
+
+不过这种方式存在一个问题：添加的\acode{MonadIO}约束使我们失去了在纯环境中测试代码的能力，因为我们不能再判断测试是否可能具有破坏性的副作用。另一种方法是将这个约束
+从 typeclass（它影响所有函数）移到那些真正需要执行 I/O 的函数。
+
+\begin{lstlisting}[language=Haskell]
+  tidyHello :: (MonadIO m, MonadHandle h m) => FilePath -> m ()
+  tidyHello path = do
+    safeHello path
+    liftIO $ removeFile path
+\end{lstlisting}
+
+我们可以对缺少\acode{MonadIO}约束的函数使用纯函数式测试，而对其余的函数使用传统的单元测试。
+
+不幸的是，我们用一个问题替代了另一个问题：我们不能从单独具有\acode{MonadHandle}约束的代码中调用具有\acode{MonadIO}和\acode{MonadHandle}约束的代码。如果我们
+发现在\acode{MonadHandle}代码深处的某个地方，我们确实需要\acode{MonadIO}约束，我们必须将它添加到通向这一点的所有代码路径中。
+
+允许任意I/O是有风险的，并且会对我们如何开发和测试代码产生深远的影响。当我们必须在宽容和更容易的推理和测试之间做出选择时，我们通常会选择后者。
 
 \end{document}
