@@ -2,6 +2,377 @@
 
 \begin{document}
 
-WIP
+\subsection*{动机：避免样板}
+
+单子提供了一种强大的方式来构建具有效果的计算。每个标准单子都专门做一件事。在实际代码中，我们经常需要能够一次使用几个效果。
+
+回忆一下第十章开发的\acode{Parse}类型。在介绍单子的时候，我们提到了这个类型是一个伪装的状态单子。我们的单子比标准的\acode{State}单子更加的复杂，因为它使用了
+\acode{Either}类型来容忍解析错误。这个例子中，如果一个解析提前出现了，我们是希望停止解析而不是继续带着破损的状态。我们的单子结合了携带状态的效果和提前退出的效果。
+
+正常的\acode{State}单子不允许我们以这种方式逃离；它仅携带状态。它使用\acode{fail}的默认实现：即调用\acode{error}，它跑出一个在纯代码中无法捕获的异常。因此，
+\acode{State}单子允许失败，而这种能力实际上没有任何用处。（再次声明，我们建议尽量避免使用\acode{fail}！）
+
+如果能够以某种方式采用标准的\acode{State}单子，并在其中添加错误处理，而不需要大量手工构建自定义单子，那将是最为理想的。\acode{mtl}库中的标准单子不允许我们组合
+它们。相反，该库提供了一组\textit{单子转换}来实现相同的结果。
+
+一个单子转换类似于普通的单子，但它不是一个独立的实体：相反，它修改底层单子的行为。\acode{mtl}库中的大多数单子都有等效的转换。根据惯例，单子转换的版本具有相同的名称，
+末尾有一个\acode{T}。例如，与\acode{State}等价的转换就是\acode{StateT}；它将可变状态添加到底层单子中。\acode{WriterT}单子转换使得在堆叠在另一个单子上时
+写入数据成为可能。
+
+\subsection*{简单单子转换案例}
+
+在介绍单子转换之前，看一下用已经熟悉的技术编写的函数。下面的函数递归到一个目录树，并返回它在树的每级找到的条目数列表。
+
+\begin{lstlisting}[language=Haskell]
+
+  module CountEntries
+    ( listDirectory,
+      countEntriesTrad,
+    )
+  where
+
+  import Control.Monad (forM, liftM)
+  import System.Directory (doesDirectoryExist, getDirectoryContents)
+  import System.FilePath ((</>))
+
+  listDirectory :: FilePath -> IO [FilePath]
+  listDirectory = liftM (filter notDots) . getDirectoryContents
+    where
+      notDots p = p /= "." && p /= ".."
+
+  countEntriesTrad :: FilePath -> IO [(FilePath, Int)]
+  countEntriesTrad path = do
+    contents <- listDirectory path
+    rest <- forM contents $ \name -> do
+      let newName = path </> name
+      isDir <- doesDirectoryExist newName
+      if isDir
+        then countEntriesTrad newName
+        else return []
+    return $ (path, length contents) : concat rest
+\end{lstlisting}
+
+现在我们来看看如何使用 writer 单子来实现同样的目的。由于这个单子允许我们记录任何需要的值，因此不需要显式的构建结果。
+
+因为我们的函数必须在\acode{IO}单子中执行，这样它才能遍历目录，所以不能直接使用\acode{Writer}单子。相反，我们使用\acode{WriterT}向\acode{IO}添加记录功能。
+
+普通的\acode{Writer}单子有两个类型参数，因此这里更为合适的写法是\acode{Writer w a}。第一个参数\acode{w}是要记录的值的类型，而\acode{a}则是\acode{Monad}
+typeclass 通常所需要的类型。因此\acode{Writer [(FilePath, Int)] a}是一个记录目录名称和大小列表的 writer 单子。
+
+\acode{WriterT}转换拥有类似的结构，不过它添加了另一个类型参数\acode{m}：这正是增强其行为的底层单子。\acode{WriterT}的完整签名为\acode{WriterT w m a}。
+
+因为要遍历目录，这需要访问\acode{IO}单子，所以将 Writer 堆栈在\acode{IO}单子的顶部。单子转换和底层单子的组合将具有\acode{WriterT [(FilePath, Int)] IO a}
+类型。这个单子转换和单子的堆栈本身就是一个单子。
+
+\begin{lstlisting}[language=Haskell]
+  module CountEntriesT
+    ( countEntries,
+    )
+  where
+
+  import Control.Monad
+  import Control.Monad.Trans
+  import Control.Monad.Writer
+  import CountEntries (listDirectory)
+  import System.Directory (doesDirectoryExist)
+  import System.FilePath ((</>))
+
+  countEntries :: FilePath -> WriterT [(FilePath, Int)] IO ()
+  countEntries path = do
+    contents <- liftIO . listDirectory $ path
+    tell [(path, length contents)]
+    forM_ contents $ \name -> do
+      let newName = path </> name
+      isDir <- liftIO . doesDirectoryExist $ newName
+      when isDir $ countEntries newName
+\end{lstlisting}
+
+这段代码与之前的版本没有太大的不同。我们使用\acode{liftIO}在必要的地方公开\acode{IO}单子，并使用\acode{tell}来记录对目录的访问。
+
+要使代码能被运行还必须使用\acode{WriterT}的一个执行函数：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t runWriterT
+  runWriterT :: WriterT w m a -> m (a, w)
+  ghci> :t execWriterT
+  execWriterT :: Monad m => WriterT w m a -> m w
+\end{lstlisting}
+
+这些函数执行操作，移除\acode{WriteT}包装并给出一个封装在底层单子中的结果。\acode{runWriterT}函数既提供操作的结果也提供运行时记录的内容，而\acode{execWriteT}
+会丢弃结果，值提供记录的内容。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :l CountEntriesT.hs
+  [1 of 2] Compiling CountEntries     ( CountEntries.hs, interpreted )
+  [2 of 2] Compiling CountEntriesT    ( CountEntriesT.hs, interpreted )
+  Ok, two modules loaded.
+  ghci> :t countEntries ".."
+  countEntries ".." :: WriterT [(FilePath, Int)] IO ()
+  ghci> :t execWriterT (countEntries "..")
+  execWriterT (countEntries "..") :: IO [(FilePath, Int)]
+  ghci> take 4 `liftM` execWriterT (countEntries "..")
+  [("..",6),("../dist-newstyle",2),("../dist-newstyle/cache",8),("../dist-newstyle/tmp",0)]
+\end{lstlisting}
+
+我们在\acode{IO}上使用\acode{WriterT}，因为没有\acode{IOT}单子转换。每当我们使用一个或多个单子转换的\acode{IO}单子时，\acode{IO}总是在堆栈的底部。
+
+\subsection*{单子和单子转换中的常见模式}
+
+%
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+\subsection*{堆叠多个单子转换}
+
+\subsubsection*{隐藏工序}
+
+\subsection*{向下移动堆栈}
+
+\subsubsection*{当需要显式 lifting 时}
+
+\subsection*{通过构建一个单子转换来了解它}
+
+\subsubsection*{创建一个单子转换}
+\subsubsection*{更多的 typeclass 实例}
+
+\subsubsection*{将 Parse 类型替换为单子堆栈}
+
+\subsection*{转换堆栈的顺序很重要}
+
+\subsection*{透视单子和单子转换}
+
+\subsubsection*{对于纯代码的干扰}
+
+\subsubsection*{超出定义的顺序}
+
+\subsubsection*{运行时开支}
+
+\subsubsection*{笨拙的接口}
+
+\subsubsection*{将全部合起来}
 
 \end{document}
