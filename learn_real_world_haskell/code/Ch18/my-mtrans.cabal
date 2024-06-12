@@ -23,7 +23,9 @@ library
   exposed-modules:
     CountEntries
     CountEntriesT
+    LocalReader
     MyLib
+    UglyStack
 
   -- other-modules:
   -- other-extensions:

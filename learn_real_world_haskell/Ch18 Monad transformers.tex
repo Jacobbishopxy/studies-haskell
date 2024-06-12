@@ -118,6 +118,165 @@ typeclass 通常所需要的类型。因此\acode{Writer [(FilePath, Int)] a}是
 
 \subsection*{单子和单子转换中的常见模式}
 
+\acode{mtl}库中大多数的单子和单子转换都遵循着一些关于名称和 typeclasses 的通用模式。
+
+为了解释这些规则，我们将专注于一个单子：reader 单子。reader 的 API 由\acode{MonadReader} typeclass 详细说明。大多数\acode{mtl}单子都有着类似命名的
+typeclasses：\acode{MonadWriter}定义了 writer 单子，以此类推。
+
+\begin{lstlisting}[language=Haskell]
+  class (Monad m) => MonadReader r m | m -> r where
+    ask   :: m r
+    local :: (r -> r) -> m a -> m a
+\end{lstlisting}
+
+类型变量\acode{r}表示 reader 单子所携带的不可变状态。\acode{Reader r}单子是\acode{MonadReader}类的一个实例，即\acode{ReaderT r m}单子转换。这个模式同样
+也被其他\acode{mtl}单子所用：通常存在实体单子以及一个单子转换，它们每个都是用来定义单子 API 的 typeclass 实例。
+
+回到 reader 单子，我们尚未接触到\acode{local}函数。它通过\acode{r -> r}函数临时改变当前环境，同时在修改后的环境中执行其操作。为了更好的理解，以下是一个简单的
+示例：
+
+\begin{lstlisting}[language=Haskell]
+  {-# LANGUAGE FlexibleContexts #-}
+
+  import Control.Monad.Reader
+
+  myName :: (MonadReader String m) => String -> m String
+  myName step = do
+    name <- ask
+    return (step ++ ", I am " ++ name)
+
+  localExample :: Reader String (String, String, String)
+  localExample = do
+    a <- myName "First"
+    b <- local (++ "dy") (myName "Second")
+    c <- myName "Third"
+    return (a, b, c)
+\end{lstlisting}
+
+注：需要添加\acode{FlexibleContexts}扩展，否则\acode{myName}无法编译。
+
+在\textbf{ghci}中执行\acode{localExample}操作时，我们可以看到改变环境的效果局限于一处：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :l LocalReader.hs
+  [1 of 2] Compiling Main             ( LocalReader.hs, interpreted )
+  Ok, one module loaded.
+  ghci> runReader localExample "Fred"
+  ("First, I am Fred","Second, I am Freddy","Third, I am Fred")
+\end{lstlisting}
+
+当底层单子\acode{m}是\acode{MonadIO}的一个实例时，\acode{mtl}库提供了\acode{ReaderT r m}的实例，以及其它的一些 typeclasses。例如：
+
+\begin{lstlisting}[language=Haskell]
+  instance (Monad m) => Functor (ReaderT r m) where
+    ...
+
+  instance (MonadIO m) => MonadIO (ReaderT r m) where
+    ...
+
+  instance (MonadPlus m) => MonadPlus (ReaderT r m) where
+    ...
+\end{lstlisting}
+
+再次声明，大多数\acode{mtl}单子转换都定义了这样的实例，以便我们更容易的使用它们。
+
+\subsection*{堆叠多个单子转换}
+
+正如之前提到的，当我们将单子转换堆叠在普通单子上时，结果便是另一个单子。这表明我们可以再次将单子转换堆叠在合并的单子之上，以提供新的单子，实际上这是一件很常见的事。
+在什么情况下可能需要创建这样一个堆栈？
+
+\begin{enumerate}
+  \item 如果需要与外界沟通，我们将在堆栈的基础上使用\acode{IO}；否则得到的是一些正常的单子。
+  \item 如果添加了一层\acode{ReaderT}，我们将获得对配置信息只读的权限。
+  \item 添加了一层\acode{StateT}，将会得到可控修改的全局状态。
+  \item 当需要将事件输出到日志时，添加一层\acode{WriterT}。
+\end{enumerate}
+
+这个方法的强大之处在于，我们可以根据确切需求定制堆栈，指定我们想要支持的效果类型。
+
+下面是一个堆叠单子转换操作的例子，这里是之前开发的\acode{countEntries}函数。我们将修改它，使其递归到目录树的深度不超过给定的量，并记录它达到的最大深度。
+
+\begin{lstlisting}[language=Haskell]
+  import Control.Monad.Reader
+  import Control.Monad.State
+  import System.Directory
+  import System.FilePath
+
+  data AppConfig = AppConfig
+    { cfgMaxDepth :: Int
+    }
+    deriving (Show)
+
+  data AppState = AppState
+    { stDeepestReached :: Int
+    }
+    deriving (Show)
+\end{lstlisting}
+
+我们使用\acode{ReaderT}来存储配置数据，即将要实现的最大的递归深度。同样使用\acode{StateT}来记录递归过程时所达到的最大深度。
+
+\begin{lstlisting}[language=Haskell]
+  type App = ReaderT AppConfig (StateT AppState IO)
+\end{lstlisting}
+
+我们的转换堆叠由\acode{IO}打底，接着是\acode{StateT}，最后是\acode{ReaderT}在最上层。这种情况下无论是\acode{ReaderT}还是\acode{WriterT}在上层都没有区别，
+但是\acode{IO}必须在最底层。
+
+即使是一小堆单子转换也会很快产生一个笨拙的类型名称。我们可以使用类型别名来减少编写类型签名的长度。
+
+\begin{anote}
+  缺失的类型参数去哪里了？
+
+  你可能已经注意到了\acode{type}别名并没有通常的类型参数\acode{a}用于 monadic 类型：
+
+  \begin{lstlisting}[language=Haskell]
+    type App2 a = ReaderT AppConfig (StateT AppState IO) a
+  \end{lstlisting}
+
+  \acode{App}与\acode{App2}两者作为普通的类型签名都是能正常工作。差别出现在当我们尝试使用它们去构建另一个类型时：假设我们希望添加另一个单子转换到堆栈上：编译器将
+  允许\acode{WriterT [String] App a}，但拒绝\acode{WriterT [String] App2 a}。
+
+  这是因为 Haskell 并不允许我们偏应用一个类型别名。\acode{App}的别名并不带有一个类型参数，这就不会造成问题。但是由于\acode{App2}接受一个类型参数，那么当我们希望
+  使用\acode{App2}来创建另一个类型时，我们就必须为此提供某些类型用于类型参数。
+
+  这个约束仅局限于类型别名。当创建一个单子转换堆栈是，我们通常会通过\acode{newtype}（将在后面见到）来包装。这样的话，我们就杜绝了此类型的问题。
+\end{anote}
+
+单子堆栈的执行函数很简单：
+
+\begin{lstlisting}[language=Haskell]
+  runApp :: App a -> Int -> IO (a, AppState)
+  runApp k maxDepth =
+    let cfg = AppConfig maxDepth
+        stt = AppState 0
+     in runStateT (runReaderT k cfg) stt
+\end{lstlisting}
+
+应用中的\acode{runReaderT}移除了\acode{ReaderT}转换的包装，而\acode{runStateT}移除了\acode{StateT}的包装，最后将结果放置到\acode{IO}单子上。
+
+\begin{lstlisting}[language=Haskell]
+  constrainedCount :: Int -> FilePath -> App [(FilePath, Int)]
+  constrainedCount curDepth path = do
+    contents <- liftIO . listDirectory $ path
+    cfg <- ask
+    rest <- forM contents $ \name -> do
+      let newPath = path </> name
+      isDir <- liftIO $ doesDirectoryExist newPath
+      if isDir && curDepth < cfgMaxDepth cfg
+        then do
+          let newDepth = curDepth + 1
+          st <- get
+          when (stDeepestReached st < newDepth) $ put st {stDeepestReached = newDepth}
+          constrainedCount newDepth newPath
+        else return []
+    return $ (path, length contents) : concat rest
+\end{lstlisting}
+
+我们可以在单子堆栈中编写应用程序的大部分命令式代码，类似于我们的\acode{App}单子。在实际的程序中，我们会携带更复杂的配置数据，但是我们仍然会使用\acode{ReaderT}来
+使其保持只读和需要时的隐藏。我们将有更多的可变状态需要管理，但我们仍然使用\acode{StateT}来封装它。
+
+\subsubsection*{隐藏工序}
+
 %
 
 \begin{lstlisting}[language=Haskell]
@@ -291,64 +450,6 @@ typeclass 通常所需要的类型。因此\acode{Writer [(FilePath, Int)] a}是
 \begin{lstlisting}[language=Haskell]
 
 \end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-\subsection*{堆叠多个单子转换}
-
-\subsubsection*{隐藏工序}
 
 \subsection*{向下移动堆栈}
 
