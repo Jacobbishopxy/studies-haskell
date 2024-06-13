@@ -277,6 +277,146 @@ typeclasses：\acode{MonadWriter}定义了 writer 单子，以此类推。
 
 \subsubsection*{隐藏工序}
 
+我们可以使用\acode{newtype}技巧在自定义单子的实现和它的接口之间建立一个坚实的屏障。
+
+\begin{lstlisting}[language=Haskell]
+  {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+
+  newtype MyApp a = MyA
+    { runA :: ReaderT AppConfig (StateT AppState IO) a
+    }
+    deriving
+      ( Functor,
+        Applicative,
+        Monad,
+        MonadIO,
+        MonadReader AppConfig,
+        MonadState AppState
+      )
+
+  runMyApp :: MyApp a -> Int -> IO (a, AppState)
+  runMyApp k maxDepth =
+    let cfg = AppConfig maxDepth
+        stt = AppState 0
+    in runStateT (runReaderT (runA k) cfg) stt
+\end{lstlisting}
+
+如果我们从模块中导出\acode{MyApp}类型构造函数与\acode{runMyApp}执行函数，客户端代码将无法判断单子的内部是一对单子转换。
+
+这里的\acode{deriving}需要\acode{GeneralizedNewtypeDeriving}语言扩展。它以某种方式让编译器为我们派生出了这些实例。那么这时如何工作的呢？
+
+前面我们提到\acode{mtl}库为每个单子转换都提供了许多 typeclass 的实例。例如\acode{IO}单子实现了\acode{MonadIO}。如果底层单子是\acode{MonadIO}的一个实例，
+\acode{mtl}也会使\acode{StateT}成为一个实例，同理\acode{ReaderT}也是这样。
+
+因此这里并没有什么魔法：堆栈中的顶层单子转换是我们用派生子句重新派生的所有 typeclass 的实例。这是\acode{mtl}提供了一组 typeclass 和实例的结果，它们很好的结合
+在了一起。除了可以用\acode{newtype}声明执行的通常的自动派生之外，我们无需做其它任何操作。
+
+\subsection*{向下移动堆栈}
+
+目前为止，我们对单子转换的使用还很简单，并且\acode{mtl}库让我们能够避免构造单子堆栈的细节。实际上我们已经对单子转换有了足够的了解，可以简化很多常见的编程任务。
+
+有一些有用的方法可以让我们脱离\acode{mtl}带来的舒适。大多数情况下，自定义单子位于堆栈底层，或者自定义单子转换位于堆栈中某层。为了理解这里潜在的困难，让我们看一个例子。
+
+假设我们有个自定义的单子转换，\acode{CustomT}
+
+\begin{lstlisting}[language=Haskell]
+  newtype CustomT m a = ...
+\end{lstlisting}
+
+\acode{mtl}提供的框架中，堆栈中的每个单子转换通过提供一些列 typeclass 的实例来使较低层级的 API 可用。我们可以遵循这个模式，并编写一些样板实例。
+
+\begin{lstlisting}[language=Haskell]
+  instance MonadReader r m => MonadReader r (CustomT m) where
+    ...
+
+  instance MonadIO r m => MonadIO r (CustomT m) where
+    ...
+\end{lstlisting}
+
+如果底层单子是\acode{MonadReader}的一个实例，我们将为\acode{CustomT}编写一个\acode{MonadReader}实例，其中 API 中的每个函数将传递给底层实例中的相应函数。
+这将允许更高层的代码只关心整个堆栈是\acode{MonadReader}的一个实例，而不必知道或关心哪一层提供了真正的实现。
+
+我们可以显式的实现，而不依赖所有这些 typeclass 实例在幕后为我们工作。\acode{MonadTrans} typeclass 定义了一个名为\acode{lift}的有用函数。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :m +Control.Monad.Trans
+  ghci> :i MonadTrans
+  type MonadTrans :: ((* -> *) -> * -> *) -> Constraint
+  class (forall (m :: * -> *). Monad m => Monad (t m)) =>
+        MonadTrans t where
+    lift :: Monad m => m a -> t m a
+    {-# MINIMAL lift #-}
+          -- Defined in ‘transformers-0.6.1.0:Control.Monad.Trans.Class’
+\end{lstlisting}
+
+该函数从堆栈的一层接受单元操作，并将其转换为当前单子转换中的操作，换言之，将\acode{lift}为单子转换中的操作。每个单子转换都是\acode{MonadTrans}的一个实例。
+
+基于\acode{fmap}和\acode{liftM}的用途相似性，我们使用\acode{lift}这个名称。在每种情况下，我们都将一些东西从类型系统的较低层级提升到当前工作的层级。
+
+\begin{enumerate}
+  \item \acode{fmap}将纯函数提升到函子级别；
+  \item \acode{liftM}将纯函数提升到单子级别；
+  \item \acode{lift}将一个 monadic 操作从低层级的堆栈转换提升到当前层级。
+\end{enumerate}
+
+让我们回到之前定义的\acode{App}单子堆栈：
+
+\begin{lstlisting}[language=Haskell]
+  type App = ReaderT AppConfig (StateT AppState IO)
+\end{lstlisting}
+
+如果想要访问由\acode{StateT}携带的\acode{AppState}，我们通常需要依靠\acode{mtl}所提供的 typeclass 以及实例。
+
+\begin{lstlisting}[language=Haskell]
+  implicitGet :: App AppState
+  implicitGet = get
+\end{lstlisting}
+
+\acode{lift}函数拥有同样的效果，通过\acode{get}将\acode{StateT}提升至\acode{ReaderT}。
+
+\begin{lstlisting}[language=Haskell]
+  explicitGet :: App AppState
+  explicitGet = lift get
+\end{lstlisting}
+
+显然，当可以使用\acode{mtl}时，我们可以拥有更整洁的代码。
+
+\subsubsection*{当需要显式 lifting 时}
+
+我们必须使用\acode{lift}的一种情况是，当我们创建一个单子转换堆栈时，同一个 typeclass 的实例出现在多个层级上。
+
+\begin{lstlisting}[language=Haskell]
+  type Foo = StateT Int (State String)
+\end{lstlisting}
+
+如果我们尝试使用\acode{MonadState} typeclass 的\acode{put}操作，我们将获得实例\acode{StateT Int}，因为它位于堆栈的顶层。
+
+\begin{lstlisting}[language=Haskell]
+  outerPut :: Int -> Foo ()
+  outerPut = put
+\end{lstlisting}
+
+这种情况下，访问底层\acode{State}单子的\acode{put}方法的仅有方式是通过\acode{lift}。
+
+\begin{lstlisting}[language=Haskell]
+  innerPut :: String -> Foo ()
+  innerPut = lift . put
+\end{lstlisting}
+
+有时我们需要访问堆栈下面不止一层的单子，这种情况下，我们必须组合调用\acode{lift}。每个组合的\acode{lift}提供更深一层的访问。
+
+\begin{lstlisting}[language=Haskell]
+  type Bar  = ReaderT Bool Foo
+
+  barPut :: String -> Bar ()
+  barPut = lift . lift . put
+\end{lstlisting}
+
+当我们需要使用\acode{lift}时，像上面那样编写包装器函数为执行提升并使用这些函数是一种很好的风格。在整个代码中显式的使用\acode{lift}往往看起来很混乱。更糟糕的是，
+它将单子堆栈的布局细节硬连到了代码中，这会是的后续的修改变得复杂。
+
+\subsection*{通过构建一个单子转换来了解它}
+
 %
 
 \begin{lstlisting}[language=Haskell]
@@ -384,78 +524,6 @@ typeclasses：\acode{MonadWriter}定义了 writer 单子，以此类推。
 \begin{lstlisting}[language=Haskell]
 
 \end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-\subsection*{向下移动堆栈}
-
-\subsubsection*{当需要显式 lifting 时}
-
-\subsection*{通过构建一个单子转换来了解它}
 
 \subsubsection*{创建一个单子转换}
 \subsubsection*{更多的 typeclass 实例}

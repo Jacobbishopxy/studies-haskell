@@ -1,13 +1,9 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+
 -- file: UglyStack.hs
 -- author: Jacob Xie
 -- date: 2024/06/12 20:28:48 Wednesday
 -- brief:
-
-module UglyStack
-  ( runApp,
-    constrainedCount,
-  )
-where
 
 import Control.Monad
 import Control.Monad.Reader
@@ -48,3 +44,29 @@ constrainedCount curDepth path = do
         constrainedCount newDepth newPath
       else return []
   return $ (path, length contents) : concat rest
+
+newtype MyApp a = MyA
+  { runA :: ReaderT AppConfig (StateT AppState IO) a
+  }
+  deriving
+    ( Functor,
+      Applicative,
+      Monad,
+      MonadIO,
+      MonadReader AppConfig,
+      MonadState AppState
+    )
+
+runMyApp :: MyApp a -> Int -> IO (a, AppState)
+runMyApp k maxDepth =
+  let cfg = AppConfig maxDepth
+      stt = AppState 0
+   in runStateT (runReaderT (runA k) cfg) stt
+
+--
+
+implicitGet :: App AppState
+implicitGet = get
+
+explicitGet :: App AppState
+explicitGet = lift get
