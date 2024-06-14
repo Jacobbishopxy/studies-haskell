@@ -417,6 +417,68 @@ typeclasses：\acode{MonadWriter}定义了 writer 单子，以此类推。
 
 \subsection*{通过构建一个单子转换来了解它}
 
+为了让我们深入了解单子转换的工作原理，我们将创建一个单子转换，并在此过程中描述其机制。我们的目标简单有用。令人惊讶的，它居然没有在\acode{mtl}库中：\acode{MaybeT}。
+
+这个单子转换通过\acode{Maybe}包装其类型参数修改底层单子的行为，以给出\acode{m (Maybe a)}。与\acode{Maybe}单子一样，如果在\acode{MaybeT}单子转换中调用
+\acode{fail}，执行将提前终止。
+
+为了将\acode{m (Maybe a)}变为一个\acode{Monad}实例，我们必须通过\acode{newtype}声明将其变为独立类型。
+
+\begin{lstlisting}[language=Haskell]
+  newtype MaybeT m a = MaybeT
+    { runMaybeT :: m (Maybe a)
+    }
+\end{lstlisting}
+
+我们现在需要定义三个标准单子函数。最复杂的就是\acode{(>>=)}，它的内部结构最能说明实际在做什么。在深入研究它之前，让我们先看一下它的类型：
+
+\begin{lstlisting}[language=Haskell]
+  bindMT :: (Monad m) => MaybeT m a -> (a -> MaybeT m b) -> MaybeT m b
+\end{lstlisting}
+
+为了理解这个类型签名，回忆一下之前的多参数 typeclasses 讨论。我们意图构建的一个\acode{Monad}实例是\textit{偏类型}的\acode{MaybtT m}：它带有单类型参数，
+\acode{a}，满足\acode{Monad} typeclass 的要求。
+
+理解\acode{(>>=)}实现的技巧是，\acode{do}块中的所有内容都在\textit{底层}单子\acode{m}中执行，无论它是什么。
+
+\begin{lstlisting}[language=Haskell]
+  x `bindMT` f = MaybeT $ do
+    unwrapped <- runMaybeT x
+    case unwrapped of
+      Nothing -> return Nothing
+      Just y -> runMaybeT (f y)
+\end{lstlisting}
+
+我们的\acode{runMaybeT}函数解包了包含在\acode{x}中的结果。接着，\acode{<-}符号脱糖为\acode{(>>=)}：一个单子转换的\acode{(>>=)}必须使用底层单子的
+\acode{(>>=)}。接着则是判断是否要短路或是串联计算。最后看一下函数体的最上方：这里我们必须通过\acode{MaybeT}的构造函数来包装结果，为的就是再一次隐藏底层单子。
+
+上述代码的\acode{do}声明便于阅读，但是它隐藏了依赖底层单子的\acode{(>>=)}实现这个事实。以下是\acode{MaybeT}的一个更理想的\acode{(>>=)}版本，它令逻辑更为清晰。
+
+\begin{lstlisting}[language=Haskell]
+  altBindMT :: (Monad m) => MaybeT m a -> (a -> MaybeT m b) -> MaybeT m b
+  x `altBindMT` f =
+    MaybeT $ runMaybeT x >>= maybe (return Nothing) (runMaybeT . f)
+\end{lstlisting}
+
+现在我们理解了\acode{(>>=)}是做什么的了，那么\acode{return}与\acode{fail}的实现则无需解释了，\acode{Monad}实例亦是如此。
+
+\begin{lstlisting}[language=Haskell]
+  instance (Functor f) => Functor (MaybeT f) where
+    fmap f x = MaybeT $ fmap f <$> runMaybeT x
+
+  instance (Applicative a) => Applicative (MaybeT a) where
+    pure = MaybeT . pure . Just
+    f <*> x = MaybeT $ fmap (<*>) (runMaybeT f) <*> runMaybeT x
+
+  instance (Monad m) => Monad (MaybeT m) where
+    (>>=) = bindMT
+
+  instance (MonadFail m) => MonadFail (MaybeT m) where
+    fail _ = MaybeT $ return Nothing
+\end{lstlisting}
+
+\subsubsection*{创建一个单子转换}
+
 %
 
 \begin{lstlisting}[language=Haskell]
@@ -495,37 +557,6 @@ typeclasses：\acode{MonadWriter}定义了 writer 单子，以此类推。
 
 \end{lstlisting}
 
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-\subsubsection*{创建一个单子转换}
 \subsubsection*{更多的 typeclass 实例}
 
 \subsubsection*{将 Parse 类型替换为单子堆栈}
