@@ -30,6 +30,7 @@ library
   build-depends:
     , base          ^>=4.19.1.0
     , directory
+    , dlist
     , filepath
     , mtl
     , transformers
