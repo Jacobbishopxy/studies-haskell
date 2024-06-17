@@ -23,12 +23,15 @@ library
   exposed-modules:
     CountEntries
     CountEntriesT
+    MaybeT
+    MaybeTParse
     MyLib
 
   -- other-modules:
   -- other-extensions:
   build-depends:
     , base          ^>=4.19.1.0
+    , bytestring
     , directory
     , dlist
     , filepath

@@ -1,7 +1,19 @@
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE UndecidableInstances #-}
+
 -- file: MaybeT.hs
 -- author: Jacob Xie
 -- date: 2024/06/14 21:26:40 Friday
 -- brief:
+
+module MaybeT
+  ( module MaybeT,
+  )
+where
+
+import Control.Monad
+import Control.Monad.State
 
 newtype MaybeT m a = MaybeT
   { runMaybeT :: m (Maybe a)
@@ -30,3 +42,13 @@ instance (Monad m) => Monad (MaybeT m) where
 
 instance (MonadFail m) => MonadFail (MaybeT m) where
   fail _ = MaybeT $ return Nothing
+
+instance MonadTrans MaybeT where
+  lift m = MaybeT $ Just `liftM` m
+
+instance (MonadIO m) => MonadIO (MaybeT m) where
+  liftIO = lift . liftIO
+
+instance (MonadState s m) => MonadState s (MaybeT m) where
+  get = lift get
+  put = lift . put
