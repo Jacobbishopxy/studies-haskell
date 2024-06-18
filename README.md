@@ -149,7 +149,7 @@ gen-hie > hie.yaml
 
   - [Ch15 Programming with monads](./learn_real_world_haskell/Ch15%20Programming%20with%20monads.tex)
 
-  - Ch16 The Parsec parsing library
+  - [Ch16 The Parsec parsing library](./learn_real_world_haskell/Ch18%20Monad%20transformers.tex)
 
   - Ch17 The foreign function interface
 

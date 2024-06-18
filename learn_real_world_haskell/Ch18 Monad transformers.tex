@@ -551,74 +551,148 @@ evalParse m s = evalState (runMaybeT $ runP m) (ParseState s 0)
 
 \end{lstlisting}
 
-\subsection*{转换堆栈的顺序很重要}
+\subsection*{单子转换的堆栈顺序很重要}
 
-% TODO
+从前面使用\acode{ReaderT}与\acode{StateT}等单子转换的例子中，很容易得出这样的结论：单子转换的堆栈顺序无关紧要。
 
-\begin{lstlisting}[language=Haskell]
+当我们将\acode{StateT}堆叠到\acode{State}上时，我们很清楚的就能知道顺序是有影响的。类型\acode{StateT Int (State String)}与
+\acode{StateT String (State Int)}可能携带了相同的信息，但是我们并不能替换的使用他们。顺序决定了我们什么时候需要\acode{lift}来获取一个或是另一个状态。
 
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
+下面这个例子更生动的说明了顺序的重要性。假设我们有一个可能失败的计算，且想要记录它失败的情况。
 
 \begin{lstlisting}[language=Haskell]
+  {-# LANGUAGE FlexibleContexts #-}
 
+  import Control.Monad.Writer
+  import MaybeT
+
+  problem :: (MonadWriter [String] m, MonadFail m) => m ()
+  problem = do
+    tell ["this is where i fail"]
+    fail "oops"
 \end{lstlisting}
 
-
+下面这些单子堆栈的哪个是我们需要的？
 
 \begin{lstlisting}[language=Haskell]
+  {-# OPTIONS_GHC -Wno-orphans #-}
 
+  type A = WriterT [String] Maybe
+
+  type B = MaybeT (Writer [String])
+
+  a :: A ()
+  a = problem
+
+  instance MonadFail Identity where
+    fail _ = Identity $ error "oops"
+
+  b :: B ()
+  b = problem
 \end{lstlisting}
 
+注：由于\acode{fail}函数不再属于\acode{Monad}的一部分（属于\acode{MonadFail}）因此还需要独立为\acode{Identity}实现\acode{MonadFail}实例，另外还需要表头
+\acode{\{-# OPTIONS_GHC -Wno-orphans #-\}}。
 
+\textbf{ghci}：
 
 \begin{lstlisting}[language=Haskell]
-
+  ghci> :l MTComposition.hs
+  [1 of 3] Compiling MaybeT           ( MaybeT.hs, interpreted )
+  [2 of 3] Compiling Main             ( MTComposition.hs, interpreted )
+  Ok, two modules loaded.
+  ghci> runWriterT a
+  Nothing
+  ghci> runWriterT $ runMaybeT b
+  Identity (Nothing,["this is where i fail"])
 \end{lstlisting}
 
-
+结果的差异并不令人惊讶：只需要看看执行函数的签名就知道了：
 
 \begin{lstlisting}[language=Haskell]
-
+  ghci> :t runWriterT
+  runWriterT :: WriterT w m a -> m (a, w)
+  ghci> :t runWriter . runMaybeT
+  runWriter . runMaybeT
+    :: MaybeT (WriterT w Identity) a -> (Maybe a, w)
 \end{lstlisting}
 
+我们的\acode{WriterT}叠加\acode{Maybe}的堆栈是由\acode{Maybe}作为底层单子，因此\acode{runWriterT}必须返回一个\acode{Maybe}类型。我们的测试用例中，只有在
+没有实际出错的情况下才能看到日志！
 
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
+堆叠单子转换类似于组合函数。如果我们改变应用函数的顺序，然后得到不同的结果，这并不会让人惊讶，而单子转换亦是如此。
 
 \subsection*{透视单子和单子转换}
 
+现在暂时抛开细节，看看使用单子和单子转换进行编程的优缺点。
+
 \subsubsection*{对于纯代码的干扰}
+
+使用单子最大的实际问题可能是，当我们想用纯代码时，单子的类型构造函数经常会妨碍我们。许多有用的纯函数需要 monadic 对应，只是为了给一些 monadic 类型构造函数附加一个
+占位符参数\acode{m}。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t filter
+  filter :: (a -> Bool) -> [a] -> [a]
+  ghci> import Control.Monad
+  ghci> :i filterM
+  filterM :: Applicative m => (a -> m Bool) -> [a] -> m [a]
+          -- Defined in ‘Control.Monad’
+\end{lstlisting}
+
+然而这覆盖范围并不完整：标准库并不总是提供 monadic 版本的纯函数。
+
+略。
 
 \subsubsection*{超出定义的顺序}
 
+我们使用单子的一个主要原因是它允许我们指定效果的顺序。回顾一下早前写的代码：
+
+\begin{lstlisting}[language=Haskell]
+  {-# LANGUAGE FlexibleContexts #-}
+
+  import Control.Monad.Writer
+  import MaybeT
+
+  problem :: (MonadWriter [String] m, MonadFail m) => m ()
+  problem = do
+    tell ["this is where i fail"]
+    fail "oops"
+\end{lstlisting}
+
+因为我们是在单子中执行的，所以可以保证\acode{tell}的效果在\acode{fail}之前发生。问题是即使在不一定需要它的时候，我们也得到了这种排序保证：编译器不能自由的重新
+排列 monadic 代码，即使这样做会提高效率。
+
 \subsubsection*{运行时开支}
+
+最后，当我们使用单子和单子转换时，我们得支付效率税。例如\acode{State}单子在闭包中携带其状态。Haskell 中的闭包可能是廉价的，但是它并不是无开销的。
+
+单子转换将自己的开销添加到下面的任何开销中。\acode{MaybeT}转换必须在每次使用\acode{(>>=)}时包装并解包\acode{Maybe}值。因此\acode{StateT}之上的
+\acode{MaybeT}堆栈对于每个\acode{(>>=)}都有大量的工作需要做。
+
+一个足够聪明的编译器可能会使这些成本部分或全部消失，但是这种复杂程度还没有广泛应用。
+
+有一些相对简单的技术可以避免这些成本。例如通过使用延续单子，可以避免在\acode{(>>=)}中进行不断的包装和解包，仅仅在使用时才支付开销。这种方法的许多复杂性已经被打包在
+库中。
 
 \subsubsection*{笨拙的接口}
 
-\subsubsection*{将全部合起来}
+如果我们将\acode{mtl}库当做黑盒使用，那么它的所有组件都可以很好的啮合在一起。然而，当我们开始开发自己的单子和单子转换时，并将它们与\acode{mtl}提供的单子转换一起
+使用时，就会发现一些不足之处。
+
+例如，如果我们创建了一个新的单子转换\acode{FooT}，并遵循\acode{mtl}相同的模式，那么则需要实现 typeclass \acode{MonadFoo}。如果还想要集成\acode{mtl}，那么
+还需要提供一大堆\acode{mtl} typeclasses 的实例。
+
+除此之外，我们还必须为每个\acode{mtl}单子转换声明\acode{MonadFoo}实例。这些实例中大多数几乎是相同的，写起来相当的枯燥。如果想继续将新的单子转换集成到\acode{mtl}
+框架中，我们必须处理的组件的数量则随着新单子转换的\textit{平方}而增加！
+
+略。
+
+\subsubsection*{整合一下}
+
+在处理副作用和类型时，单子绝不是终点。它们是迄今为止我们所达到的最实际的休息点。
+
+尽管我们在使用它时必须做出妥协，但单子和单子转换仍然提供了一定程度的灵活性和控制，这在命令式语言中是没有先例的。只需几个声明，我们就可以重新连接像分号这样基本的东西，
+并赋予它新的含义。
 
 \end{document}
