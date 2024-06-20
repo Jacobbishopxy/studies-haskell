@@ -2,6 +2,186 @@
 
 \begin{document}
 
-WIP
+\subsection*{定义并发与并行}
+
+一个\textit{并发}程序需要在同一时刻执行若干不相关的任务。假设一个游戏服务器：它由多个组件构成，每个组件都要与外界进行复杂的交互。某个组件可能是处理多用户聊天；若干个
+则是处理用户的输入，并将更新后的状态返回给用户；另外一些则是执行物理计算。
+
+一个并发程序的正确操作并不需要多核，不过多核可以增强性能与响应。
+
+相反的，一个\textit{并行}程序解决单个问题。假设一个金融模型用于预测单个股票下一分钟的价格。如果我们希望将此模型应用在交易所中的每个股票上，例如预计哪只票可以进行买卖，
+那么通过五百个核进行计算肯定比一个核计算更能快速的得到一个答案。这种情况下，并行程序通常不依靠多核也能正确工作。
+
+另一个用于区分两者差别的方法在于它们如何与外界进行交互。根据定义，一个并发程序会持续不断地进行网络协议，数据库等处理。而一个典型的并行程序则更为集中：它流式的接受数据，
+处理一段时间（进行少许 I/O），然后流式的输出数据。
+
+很多传统语言会模糊这两者之间的边界，因为它们强制程序员使用相同的方式构建这两种程序。
+
+\subsection*{使用线程的并发编程}
+
+作为并发程序的构建块，大多数编程语言都提供了创建多个独立控制线程的方法。Haskell 也不例外，尽管在 Haskell 中使用线程编程看起来与其他语言有些不同。
+
+Haskell 中，一个线程就是一个独立其它线程执行的\acode{IO}操作。要创建一个线程，我们需要导入\acode{Control.Concurrent}模块并使用\acode{forkIO}函数。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :m +Control.Concurrent
+  ghci> :t forkIO
+  forkIO :: IO () -> IO ThreadId
+  ghci> :m +System.Directory
+  ghci> forkIO (writeFile "xyzzy" "seo craic nua!") >> doesFileExist "xyzzy"
+  False
+\end{lstlisting}
+
+\subsubsection*{线程是不确定的}
+
+GHC 的运行时组件没有指定执行线程的顺序。因此，在上面的示例中，新线程创建的文件\textit{xyzzy}在原始线程检查其存在时可能已经创建，也可能还没有创建。如果我们尝试此
+示例一次，然后删除\textit{xyzzy}并再次尝试，那么第二次可能会得到不同的结果。
+
+\subsubsection*{隐藏延迟}
+
+假设有一个很大的文件需要被压缩并写入磁盘，但是又想要迅速的处理用户的输入，使用户感受到程序的快速响应。可以使用\acode{forkIO}在另一个线程中进行文件写入。
+
+\begin{lstlisting}[language=Haskell]
+  import Codec.Compression.GZip ( compress )
+  import Control.Concurrent (forkIO)
+  import Control.Exception (SomeException, handle)
+  import qualified Data.ByteString.Lazy as L
+
+  main :: IO ()
+  main = do
+    putStrLn "Enter a file to compress>"
+    name <- getLine
+    handle (print :: SomeException -> IO ()) $ do
+      content <- L.readFile name
+      _ <- forkIO $ compressFile name content
+      return ()
+    where
+      compressFile path = L.writeFile (path ++ ".gz") . compress
+\end{lstlisting}
+
+注：原文使用的\acode{readline}库不再适用，另外\acode{print}也需要显式声明类型。
+
+因为这里使用了惰性的\acode{ByteString} I/O，剩下的只需要在主线程中打开文件。实际的读取则是在另一条线程中进行。
+
+\acode{handle print}的使用提供了廉价打印错误信息的方法，例如文件名不存在。
+
+\subsection*{线程间的简单通讯}
+
+在两个线程之间共享信息的最简单方法是让它们都是用一个变量。在我们的文件压缩例子中，主线程与另一个线程共享文件的名称以及内容。因为 Haskell 数据在默认情况下是不可变的，
+所以这没有任何的风险：两个线程都不能修改另一个线程所见的文件名或内容。
+
+我们通常需要线程主动地与其他线程进行交互。例如，GHC 并没有为线程提供查看另一个线程是否正在执行、已经完成或是崩溃的方法。不过它提供了一个\textit{同步变量}类型，即
+\acode{MVar}，允许我们使用它来达到目的。
+
+\acode{MVar}的作用像是一个单元素的盒子：它要么是满的要么是空的。我们可以将某个东西放入盒子，使其满上，或是拿出使其空置。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> import Control.Concurrent
+  ghci> :t putMVar
+  putMVar :: MVar a -> a -> IO ()
+  ghci> :t takeMVar
+  takeMVar :: MVar a -> IO a
+\end{lstlisting}
+
+如果我们尝试将一个值放入已经满的\acode{MVar}中，线程则会进入睡眠直到其它线程将该值取出。同样的，如果尝试从一个空置的\acode{MVar}中取值，线程也会进入睡眠直到其它的
+线程将值放入。
+
+\begin{lstlisting}[language=Haskell]
+  import Control.Concurrent
+
+  communicate :: IO ()
+  communicate = do
+    m <- newEmptyMVar
+    _ <- forkIO $ do
+      v <- takeMVar m
+      putStrLn $ "received" ++ show v
+    putStrLn "sending"
+    putMVar m "wake up"
+\end{lstlisting}
+
+\acode{newEmptyMVar}函数有一个描述性的名称；要创建一个非空的\acode{MVar}则使用\acode{newMVar}。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t newEmptyMVar
+  newEmptyMVar :: IO (MVar a)
+  ghci> :t newMVar
+  newMVar :: a -> IO (MVar a)
+\end{lstlisting}
+
+测试：
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :l MVarExample.hs
+  [1 of 2] Compiling Main             ( MVarExample.hs, interpreted )
+  Ok, one module loaded.
+  ghci> communicate
+  sending
+  received "wake up"
+\end{lstlisting}
+
+如果你拥有传统语言中并发编程的经验，那么可以将\acode{MVar}看做是用有两个目的的助力。
+
+\begin{enumerate}
+  \item 将一个信息从一个线程发送至另一个线程，例如，消息。
+  \item 为线程间共享的可变数据提供\textit{互斥}。当数据没有被任何线程使用时，将其放入\acode{MVar}中，另一个线程将其临时取出进行读取或者修改。
+\end{enumerate}
+
+\subsection*{主线程与其它线程的等待}
+
+%
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+\subsubsection*{安全的修改 MVar}
+
+\subsubsection*{查找线程的状态}
+
+\subsubsection*{编写更紧凑的代码}
+
+\subsection*{通过隧道进行交流}
+
+\subsection*{几点重要的须知}
+
+\subsubsection*{MVar 与 Chan 是非严格的}
+
+\subsubsection*{Chan 是无边界的}
+
+\subsection*{共享状态仍然很困难}
+
+\subsubsection*{死锁}
+
+\subsubsection*{饥饿}
+
+\subsubsection*{任何希望？}
+
+\subsection*{使用多核 GHC}
+
+\subsubsection*{运行时选项}
+
+\subsubsection*{为 Haskell 寻找有效核术}
+
+\subsubsection*{使用合适的运行时}
+
+
 
 \end{document}

@@ -165,7 +165,7 @@ gen-hie > hie.yaml
 
   - Ch23 GUI programming
 
-  - Ch24 Basic concurrent and parallel programming
+  - [Ch24 Basic concurrent and parallel programming](./learn_real_world_haskell/Ch24%20Basic%20concurrent%20and%20parallel%20programming.tex)
 
   - Ch25 Profiling and tuning for performance
 
