@@ -18,13 +18,16 @@ import Control.Exception
 import Control.Monad
 import Data.Map as M
 
-newtype ThreadManager = Mgr (MVar (M.Map ThreadId (MVar ThreadStatus))) deriving (Eq)
-
 data ThreadStatus
   = Running
-  | Finished
+  | Finished -- terminated normally
   | Threw IOException -- changed from `Exception`
   deriving (Eq, Show)
+
+-- Thread map
+newtype ThreadManager
+  = Mgr (MVar (M.Map ThreadId (MVar ThreadStatus)))
+  deriving (Eq)
 
 -- Create a new thread manager
 newManager :: IO ThreadManager

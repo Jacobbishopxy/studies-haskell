@@ -128,6 +128,109 @@ GHC 的运行时组件没有指定执行线程的顺序。因此，在上面的�
 
 \subsection*{主线程与其它线程的等待}
 
+GHC 的运行时系统将程序的原始控制线程与其它线程区别对待。当该线程完成执行，运行时系统认为程序作为一个整体已经完成。如果又其它线程仍在执行，它们则会被终止。
+
+因此，当我们有不能杀死的长时间运行线程时，我们必须做出特殊安排以确保主线程在其他线程完成之前不会完成。下面是一个小库使其易于实现：
+
+\begin{lstlisting}[language=Haskell]
+  import Control.Concurrent
+  import Control.Exception
+  import Control.Monad
+  import Data.Map as M
+
+  data ThreadStatus
+    = Running
+    | Finished -- terminated normally
+    | Threw IOException -- changed from `Exception`
+    deriving (Eq, Show)
+
+    -- | Create a new thread manager.
+    newManager :: IO ThreadManager
+
+    -- | Create a new managed thread.
+    forkManaged :: ThreadManager -> IO () -> IO ThreadId
+
+    -- | Immediately return the status of a managed thread.
+    getStatus :: ThreadManager -> ThreadId -> IO (Maybe ThreadStatus)
+
+    -- | Block until a specific managed thread terminates.
+    waitFor :: ThreadManager -> ThreadId -> IO (Maybe ThreadStatus)
+
+    -- | Block until all managed threads terminate.
+    waitAll :: ThreadManager -> IO ()
+\end{lstlisting}
+
+我们使用通常的方法来保持\acode{ThreadManager}类型的抽象：我们将其包装在\acode{newtype}中，并防止用于创建该类型的值。在模块导出中，给出类型构造函数以及
+构造管理者的 IO 操作，并不导出数据构造函数。
+
+\begin{lstlisting}[language=Haskell]
+  module NiceFork
+    ( ThreadManager,
+      newManager,
+      forkManaged,
+      getStatus,
+      waitFor,
+      waitAll,
+    )
+  where
+\end{lstlisting}
+
+对于\acode{ThreadManager}的实现，我们维护一个从线程 ID 到线程状态的映射：
+
+\begin{lstlisting}[language=Haskell]
+  -- Thread map
+  newtype ThreadManager
+    = Mgr (MVar (M.Map ThreadId (MVar ThreadStatus)))
+    deriving (Eq)
+
+  -- Create a new thread manager
+  newManager :: IO ThreadManager
+  newManager = Mgr <$> newMVar M.empty
+\end{lstlisting}
+
+这里有两个级别的\acode{MVar}使用。首先是\acode{Map}，通过替换一个新版本允许我们对其进行“修改”。同时还可以确保使用\acode{Map}的任何线程看到的是一致的视图。
+
+对于管理的每个线程，我们维护一个\acode{MVar}。每个线程的\acode{MVar}开始时为空，即表明线程正在执行。当线程结束或被未捕获的异常杀死时，将该信息放入\acode{MVar}中。
+
+要创建一个线程并观察其状态，我们必须执行一点记录性的操作。
+
+\begin{lstlisting}[language=Haskell]
+  -- Create a new managed thread and watch its status
+  forkManaged :: ThreadManager -> IO () -> IO ThreadId
+  forkManaged (Mgr mgr) body =
+    -- safely modify an MVar
+    modifyMVar mgr $ \m -> do
+      state <- newEmptyMVar
+      tid <- forkIO $ do
+        result <- try body
+        putMVar state $ either Threw (const Finished) result
+      return (M.insert tid state m, tid)
+\end{lstlisting}
+
+\subsubsection*{安全的修改 MVar}
+
+在上述\acode{forkManaged}中使用的\acode{modifyMVar}函数非常有用：它是一个安全的\acode{takeMVar}与\acode{putMVar}组合。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t modifyMVar
+  ved "wake up!"
+  modifyMVar :: MVar a -> (a -> IO (a, b)) -> IO b
+\end{lstlisting}
+
+它从\acode{MVar}中取值，将其传递给一个函数。该函数可以同时生成一个新值并返回一个结果。如果该函数抛出异常，那么\acode{modifyMVar}则会将原有值放回\acode{MVar}中，
+否则将新值放入其中。它返回函数的另一个元素作为自己的结果。
+
+当我们使用\acode{modifyMVar}而不是通过\acode{takeMVar}与\acode{putMVar}来手动管理一个\acode{MVar}时，我们避免了两种常见的并行错误：
+
+\begin{enumerate}
+  \item 忘记将值放回\acode{MVar}。这可能导致\textit{死锁}，在这种情况下，一些线程永远在等待一个永远不会向其放入值的\acode{MVar}。
+  \item 未能考虑到抛出异常的可能，从而中断了代码流程。这可能导致\textit{应该}发生的对\acode{putVar}的调用实际上并没有发生，从而再次导致死锁。
+\end{enumerate}
+
+因为这些优秀的安全属性，尽可能的使用\acode{mofigyMVar}是一个明智的选择。
+
+\subsubsection*{查找线程的状态}
+
 %
 
 \begin{lstlisting}[language=Haskell]
@@ -152,9 +255,47 @@ GHC 的运行时组件没有指定执行线程的顺序。因此，在上面的�
 
 \end{lstlisting}
 
-\subsubsection*{安全的修改 MVar}
 
-\subsubsection*{查找线程的状态}
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
 
 \subsubsection*{编写更紧凑的代码}
 
