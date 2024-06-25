@@ -229,7 +229,102 @@ GHC 的运行时系统将程序的原始控制线程与其它线程区别对待�
 
 因为这些优秀的安全属性，尽可能的使用\acode{mofigyMVar}是一个明智的选择。
 
+我们可以采用\acode{modifyMVar}遵循的模式，将其应用于许多其它资源管理的情况中。以下是该模式的步骤：
+
+\begin{enumerate}
+  \item 获取资源
+  \item 将资源传递给函数进行处理
+  \item 总是释放资源，即使该函数抛出了异常。如果出现这种情况，将异常重新抛出使其能被应用代码捕获。
+\end{enumerate}
+
+除了安全之外，这种方法还有另一个好处：它可以使我们的代码更简短且更容易理解。从上面的\acode{forkManaged}中可以看出，Haskell 对于匿名函数的轻量级语法使得这种风格的
+编码在视觉上不那么突兀。
+
+以下是\acode{modifyMVar}的定义，我们可以看到这种模式的特定样式：
+
+\begin{lstlisting}[language=Haskell]
+  import Control.Concurrent (MVar, putMVar, takeMVar)
+  import Control.Exception (evaluate, mask, onException)
+
+  modifyMVar' :: MVar a -> (a -> IO (a, b)) -> IO b
+  modifyMVar' m io =
+    mask $ \restore -> do
+      a <- takeMVar m
+      (a', b) <- restore (io a >>= evaluate) `onException` putMVar m a
+      putMVar m a'
+      return b
+\end{lstlisting}
+
+注：详见\href{https://hackage.haskell.org/package/ghc-internal-9.1001.0/docs/src/GHC.Internal.Control.Concurrent.MVar.html#modifyMVar}{此处}。
+
+无论是在处理网络连接、数据库句柄还是 C 库管理的数据，它都能轻松的适应用户的特定需求。
+
 \subsubsection*{查找线程的状态}
+
+\acode{getStatus}函数能告诉我们一个线程的当前状态。如果该线程不再被管理（或者是从来没有被管理过），它返回\acode{Nothing}。
+
+\begin{lstlisting}[language=Haskell]
+  -- Immediately return the status of a managed thread
+  getStatus :: ThreadManager -> ThreadId -> IO (Maybe ThreadStatus)
+  getStatus (Mgr mgr) tid =
+    modifyMVar mgr $ \m ->
+      case M.lookup tid m of
+        Nothing -> return (m, Nothing)
+        Just st -> tryTakeMVar st >>= mst m
+    where
+      mst m' mm = case mm of
+        Nothing -> return (m', Just Running)
+        Just sth -> return (M.delete tid m', Just sth)
+\end{lstlisting}
+
+如果线程仍在运行，其返回\acode{Just Running}。否则，它表示该线程为何被终结，同时停止管理该线程。
+
+如果\acode{tryTakeMVar}函数找到\acode{MVar}是空的，它便立刻返回\acode{Nothing}而不是阻塞。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :t tryTakeMVar
+  tryTakeMVar :: MVar a -> IO (Maybe a)
+\end{lstlisting}
+
+否则，它像通常那样从\acode{MVar}中提取值。
+
+\acode{waitFor}函数的行为类似，不过并不是立刻返回，它会阻塞，直到给定的线程在返回之前终止。
+
+\begin{lstlisting}[language=Haskell]
+  -- Block until a specific managed thread terminates
+  waitFor :: ThreadManager -> ThreadId -> IO (Maybe ThreadStatus)
+  waitFor (Mgr mgr) tid =
+    join . modifyMVar mgr $ \m -> return $
+      case M.updateLookupWithKey (\_ _ -> Nothing) tid m of
+        (Nothing, _) -> (m, return Nothing)
+        (Just st, m') -> (m', Just <$> takeMVar st)
+\end{lstlisting}
+
+注：与原文不同，这里由单子库的\acode{join}简化了代码。
+
+它首先提取保存线程状态的\acode{MVar}（如果存在）。\acode{Map}类型的\acode{updateLookupWithKey}函数很有用：它将查找与修改或删除值结合起来。
+
+\begin{lstlisting}[language=Haskell]
+  ghci> :m +Data.Map
+  ghci> :t updateLookupWithKey
+  updateLookupWithKey :: (Ord k) =>
+                         (k -> a -> Maybe a) -> k -> Map k a -> (Maybe a, Map k a)
+\end{lstlisting}
+
+这种情况下，我们希望总是删除持有线程状态的\acode{MVar}（如果它存在），这样我们的线程管理器将不再管理线程。如果有要提取的值，我们从\acode{MVar}中获取线程的退出状态
+并返回它。
+
+最后一个有用的函数就是简单的等待所有管理的线程完成，并忽略它们的退出状态：
+
+\begin{lstlisting}[language=Haskell]
+  -- Block until all managed threads terminate
+  waitAll :: ThreadManager -> IO ()
+  waitAll (Mgr mgr) = modifyMVar mgr es >>= mapM_ takeMVar
+    where
+      es m = return (M.empty, M.elems m)
+\end{lstlisting}
+
+\subsubsection*{编写更紧凑的代码}
 
 %
 
@@ -260,44 +355,6 @@ GHC 的运行时系统将程序的原始控制线程与其它线程区别对待�
 \begin{lstlisting}[language=Haskell]
 
 \end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-\subsubsection*{编写更紧凑的代码}
 
 \subsection*{通过隧道进行交流}
 
