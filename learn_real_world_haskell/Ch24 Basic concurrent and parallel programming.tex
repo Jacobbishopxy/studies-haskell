@@ -417,16 +417,25 @@ fork 一个线程，在另一个核执行昂贵计算。
   {-# LANGUAGE BangPatterns #-}
 
   import Control.Concurrent (MVar, putMVar, takeMVar)
-  import Control.Exception (mask, onException)
+  import Control.Exception (IOException, catch, mask, onException, throw)
 
   modifyMVar_strict :: MVar a -> (a -> IO a) -> IO ()
   modifyMVar_strict m io = mask $ \restore -> do
     a <- takeMVar m
     !a' <- restore (io a) `onException` putMVar m a
     putMVar m a'
+
+  modifyMVar_strict' :: MVar a -> (a -> IO a) -> IO ()
+  modifyMVar_strict' m io = mask $ \restore -> do
+    a <- takeMVar m
+    !a' <-
+      restore (io a) `catch` \e ->
+        putMVar m a >> throw (e :: IOException)
+    putMVar m a'
 \end{lstlisting}
 
-% TODO: check the code above is correct
+注：原文中\acodegrn{Control.Exception}库提供的\acode{block}与\acode{unblock}已被废弃，现在改用\acode{mask}来实现。
+
 上述代码中的\acode{!}模式简单易用，但这并不总保证数据总能被计算。
 
 \subsubsection*{Chan 是无边界的}
@@ -435,6 +444,39 @@ fork 一个线程，在另一个核执行昂贵计算。
 将随着读取越来越落后而堆积起来。
 
 \subsection*{共享状态仍然很困难}
+
+尽管与其它语言相比，Haskell 在线程间共享数据有不同的原语，但它仍然面临相同的基本问题：编写正确的并发程序非常困难。实际上，其它语言中并发编程的一些缺陷同样适用
+于 Haskell。两个比较著名的问题就是\textit{死锁}与\textit{饥饿}。
+
+\subsubsection*{死锁}
+
+在\textit{死锁}的情况下，两个或多个线程在访问共享资源时永远的卡住。一个典型的多线程死锁问题就是忘记申请锁的顺序。这类型的 bug 太常见了，即：\textit{锁序反转}。
+虽然 Haskell 不提供锁，但是\acodegrn{MVar}类型仍然容易出现顺序反转的问题。下面是一个简单的例子：
+
+\begin{lstlisting}[language=Haskell]
+  import Control.Concurrent (MVar, forkIO, modifyMVar_, newMVar, yield)
+
+  nestedModification :: (Num a1, Num a2) => MVar a2 -> MVar a1 -> IO ()
+  nestedModification outer inner = do
+    modifyMVar_ outer $ \x -> do
+      yield -- force this thread to temporarily yield the CPU
+      modifyMVar_ inner $ \y -> return $ y + 1
+      return $ x + 1
+    putStrLn "done"
+
+  main :: IO ()
+  main = do
+    a <- newMVar (1 :: Int)
+    b <- newMVar (2 :: Int)
+    _ <- forkIO $ nestedModification a b
+    _ <- forkIO $ nestedModification b a
+
+    return ()
+\end{lstlisting}
+
+%
+
+\subsubsection*{饥饿}
 
 %
 
@@ -459,16 +501,6 @@ fork 一个线程，在另一个核执行昂贵计算。
 \begin{lstlisting}[language=Haskell]
 
 \end{lstlisting}
-
-
-
-\begin{lstlisting}[language=Haskell]
-
-\end{lstlisting}
-
-\subsubsection*{死锁}
-
-\subsubsection*{饥饿}
 
 \subsubsection*{任何希望？}
 
