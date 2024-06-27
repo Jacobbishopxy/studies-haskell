@@ -474,10 +474,121 @@ fork 一个线程，在另一个核执行昂贵计算。
     return ()
 \end{lstlisting}
 
-%
+如果将此运行在\textbf{ghci}中，通常（并不总是）打印不了任何东西，这表明两个线程都被卡住了。
+
+\acode{nestedModification}函数的问题很容易发现。在第一个线程中，我们取\acode{MVar a}，接着取\acode{b}；在第二个线程中，我们取\acode{b}然后取\acode{a}。
+如果第一个线程成功取到了\acode{a}，第二个线程取\acode{b}，两个线程都将阻塞：每个线程都试图取另一个线程已经清空了的\acode{MVar}，所以两个线程都不会有进展。
+
+各种语言中，解决顺序反转的常用方法是在获取资源时始终遵循一致的顺序。由于这种方法需要手动遵循编码约定，因此在实践中很容易被忽略。
+
+更复杂的是，这些反转问题在实际代码很难被发现。\acode{MVar}的获取通常分布在不同文件中的若干函数中，这使得肉眼检测变得更加棘手。更糟糕的是，这些问题往往是
+\textit{间歇性的}，这让它们变得很难复现，更不用说隔离和修复了。
 
 \subsubsection*{饥饿}
 
+并发软件也很容易出现\textit{饥饿}，即一个线程“霸占”共享资源，阻止另一个线程使用它。很容易想象这是如何发生的：一个线程用执行 100 毫秒的主体调用\acode{modifyMVar}，
+而另一个线程用执行 1 毫秒的主体在同一个\acode{MVar}上调用\acode{modifyMVar}。在第一个线程将一个值放回\acode{MVar}之前，第二个线程无法取得任何进展。
+
+\acode{MVar}类型的 non-strict 性质可能加剧或导致饥饿问题。如果我们在\acode{MVar}中放入一个计算成本很高的东西，然后把它从\acode{MVar}中取出，放到一个看起来很
+轻量的线程中，那么这个线程就会突然变得高计算成本，因为它必须计算这个东西。
+
+\subsubsection*{还有任何的希望吗？}
+
+幸运的是，在这里介绍的用于并发性的 api 并不是结局。Haskell 有一个名为软件事务性内存的功能，使用起来更容易也更安全。我们将会在第二十八中进行讨论。
+
+\subsection*{使用多核 GHC}
+
+默认情况下，GHC 生成的程序只使用一个内核，即使我们显式的编写并发代码也是如此。要使用多核，我们必须明确的选择这样做。在生成可执行程序时，我们在链接时做出此选择。
+
+\begin{enumerate}
+  \item “非线程”运行库在单个操作系统线程中运行所有的 Haskell 线程。这个运行时对于\acode{MVar}中创建线程和传递数据非常高效。
+  \item “线程”运行库使用多个操作系统线程来运行 Haskell 线程。它在创建线程和使用\acode{MVar}方面有更多的开销。
+\end{enumerate}
+
+如果我们将\acode{-thread}选项传递给编译器，它将把我们的程序链接到线程运行时库。在编译库或源文件时不需要使用\acode{-thread}，只有在最终生成可执行文件时才需要使用
+\acode{-thread}。
+
+即使我们为程序选择了线程运行时，当我们运行它时，它仍然默认只使用一个内核。我们必须明确的告诉运行时要使用多少内核。
+
+\subsubsection*{运行时选项}
+
+我们可以在程序的命令行上将选项传递给 GHC 的运行时系统。在将控制权交给代码之前，运行时扫描程序的参数，以查找特殊的命令行选项\acode{+RTS}。它将之后的所有内容，直到特殊
+选项\acode{-RTS}，解释为运行时系统的选项，而不是我们的程序。它在代码中隐藏了所有这些选项。当我们使用\acode{System.Environment}模块的\acode{getArgs}函数来
+获取我们的命令行参数，我们不会在列表中找到任何运行时选项。
+
+线程运行时接受一个选项\acode{-N}。它有一个参数，指定\acode{GHC}运行时系统应该使用的内核数量。选项解析器是挑剔的：\acode{-N}和后面的数字之间不能有空格。选项
+\acode{-N4}是可以接受的，而\acode{-N 4}则不行。
+
+\subsubsection*{为 Haskell 寻找有效核术}
+
+\acode{GHC.Conc}模块导出了一个变量，\acode{numCapabilities}，可以告诉我们运行时系统通过\acode{-N} RTS 选项分配了多少核数。
+
+\begin{lstlisting}[language=Haskell]
+  import GHC.Conc (numCapabilities)
+  import System.Environment (getArgs)
+
+  main :: IO ()
+  main = do
+    args <- getArgs
+    putStrLn $ "command line arguments: " <> show args
+    putStrLn $ "number of cores: " <> show numCapabilities
+\end{lstlisting}
+
+如果编译并运行上述程序，就可以看到运行时的选项在程序中并不可见，但是可以看到多少核可以用于运行。
+
+\begin{lstlisting}[language=Haskell]
+  $ ghc -c NumCapabilities.hs
+  $ ghc -threaded -o NumCapabilities NumCapabilities.o
+  $ ./NumCapabilities +RTS -N4 -RTS foo
+  command line arguments: ["foo"]
+  number of cores: 4
+\end{lstlisting}
+
+\subsubsection*{使用合适的运行时}
+
+使用哪个运行时的决定并不完全明确。虽然线程运行时可以使用多个内核，但它有一个代价：线程和在它们之间共享数据比使用非线程运行时更昂贵。
+
+在许多现实世界的并发程序中，单个线程将花费大部分时间等待网络请求或响应。这些情况下，如果一个 Haskell 程序为成千上万个并发客户提供服务，那么非线程运行时的较低开销可能
+会有所帮助。例如，与其让单个服务器程序在四个核上使用线程运行时，不如将服务器设计成可以同时运行它的四个副本，并使用非线程运行时。如此可能会得到更好的性能。
+
+\subsection*{Haskell 中的并行编程}
+
+%
+
+\subsubsection*{Normal form 以及 head normal form}
+
+%
+
+\subsubsection*{序列化排序}
+
+%
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+\subsubsection*{转换代码为并行代码}
+
+%
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+\subsubsection*{知道并行中是什么被计算}
+
+%
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+\subsubsection*{par 做了什么承诺}
+
+%
+
+\subsubsection*{允许代码并测量性能}
+
 %
 
 \begin{lstlisting}[language=Haskell]
@@ -502,16 +613,189 @@ fork 一个线程，在另一个核执行昂贵计算。
 
 \end{lstlisting}
 
-\subsubsection*{任何希望？}
-
-\subsection*{使用多核 GHC}
-
-\subsubsection*{运行时选项}
-
-\subsubsection*{为 Haskell 寻找有效核术}
-
-\subsubsection*{使用合适的运行时}
 
 
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+\subsubsection*{性能调优}
+
+%
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+\subsection*{并行策略以及 MapReduce}
+
+%
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+\subsubsection*{从计算中分离算法}
+
+%
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+\subsubsection*{从策略中分离算法}
+
+%
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+\subsubsection*{编写一个简单的 MapReduce 定义}
+
+%
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+\subsubsection*{MapReduce 与策略}
+
+%
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+\subsubsection*{合理规划}
+
+%
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+\subsubsection*{高效的寻找行对称的代码块}
+
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+\subsubsection*{记录行数}
+
+%
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+\subsubsection*{查找最流行的 URLs}
+
+%
+
+\begin{lstlisting}[language=Haskell]
+
+\end{lstlisting}
+
+\subsubsection*{总结}
+
+%
 
 \end{document}
