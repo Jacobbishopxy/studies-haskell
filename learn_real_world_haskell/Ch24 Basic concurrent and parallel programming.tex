@@ -500,10 +500,10 @@ fork 一个线程，在另一个核执行昂贵计算。
 
 默认情况下，GHC 生成的程序只使用一个内核，即使我们显式的编写并发代码也是如此。要使用多核，我们必须明确的选择这样做。在生成可执行程序时，我们在链接时做出此选择。
 
-\begin{enumerate}
+\begin{itemize}
   \item “非线程”运行库在单个操作系统线程中运行所有的 Haskell 线程。这个运行时对于\acode{MVar}中创建线程和传递数据非常高效。
   \item “线程”运行库使用多个操作系统线程来运行 Haskell 线程。它在创建线程和使用\acode{MVar}方面有更多的开销。
-\end{enumerate}
+\end{itemize}
 
 如果我们将\acode{-thread}选项传递给编译器，它将把我们的程序链接到线程运行时库。在编译库或源文件时不需要使用\acode{-thread}，只有在最终生成可执行文件时才需要使用
 \acode{-thread}。
@@ -553,91 +553,311 @@ fork 一个线程，在另一个核执行昂贵计算。
 
 \subsection*{Haskell 中的并行编程}
 
-%
+现在我们将重点转向并行编程。对于许多计算成本很高的问题，如果我们可以将解决方案分离，并同时在多个核上进行计算，那么就可以更快的计算出结果。
 
 \subsubsection*{Normal form 以及 head normal form}
 
-%
+熟知的\acode{seq}函数将表达式求值为我们所说的头范式（缩写 HNF）。它一旦到达最外层的构造函数（“头部”）就会停止。这与正常范式（NF）不同，在正常范式（NF）中，表达式
+是完全求值的。
+
+我们还会听到 Haskell 程序员提到的弱头范式（WHNF）。对于正常数据，若头正常范式与头正常范式相同。这种差别只出现在函数上，不过这过于深奥了，在这里不进行讨论。
 
 \subsubsection*{序列化排序}
 
-%
+以下是一个使用分治方法的普通 Haskell 函数，其用于列表排序。
 
 \begin{lstlisting}[language=Haskell]
-
+  -- divide-and-conquer
+  sort :: (Ord a) => [a] -> [a]
+  sort (x : xs) = lesser ++ x : greater
+    where
+      lesser = sort [y | y <- xs, y < x]
+      greater = sort [y | y <- xs, y >= x]
+  sort _ = []
 \end{lstlisting}
+
+这个函数的灵感来源于著名的快排算法，它是 Haskell 程序员中的经典：它经常在 Haskell 教程的早期以一行代码的形式出现，用 Haskell 的表达性来戏弄读者。这里，我们将代码
+分成几行，以便于比较串行与并行的版本。
+
+下面是\acode{sort}操作的简单介绍：
+
+\begin{enumerate}
+  \item 它从列表中选择一个元素。这被称为\textit{轴心点 pivot}。任何元素都可以是轴心点；第一种模式是最容易匹配的。
+  \item 它为小于轴心点的所有元素创建一个子列表，并对它们进行递归排序。
+  \item 它为大于或等于轴心点的所有元素创建一个子列表，并对它们进行递归排序。
+  \item 合并两个排序好的子列表。
+\end{enumerate}
 
 \subsubsection*{转换代码为并行代码}
 
-%
+并行版本的函数比初版稍微复杂了一些：
 
 \begin{lstlisting}[language=Haskell]
+  import Control.Parallel (par, pseq)
 
+  parSort :: (Ord a) => [a] -> [a]
+  parSort (x : xs) = force greater `par` (force lesser `pseq` (lesser ++ x : greater))
+    where
+      lesser = parSort [y | y <- xs, y < x]
+      greater = parSort [y | y <- xs, y >= x]
+  parSort _ = []
 \end{lstlisting}
 
-\subsubsection*{知道并行中是什么被计算}
+我们几乎没有扰乱代码：我们所添加的只是三个函数，\acode{par}，\acode{pseq}以及\acode{force}。
 
-%
+\acode{par}函数由\acode{Control.Parallel}模块提供。它的左右与\acode{seq}类似：将左参求值为弱头范式，并返回右参。顾名思义，\acode{par}可以与正在发生的任何
+其它求值并行的求其左参。
+
+至于\acode{pseq}，它与\acode{seq}类似：先将左边的表达式求值为 WHNF，然后返回右边的表达式。两者之前的区别很微妙，但对于并行程序而言很重要：如果编译器看到先求右参会
+提高性能，则不会\textit{承诺}求\acode{seq}的左参。这种灵活性对于在一个核上执行的程序而言很好，但是对于在多个核上运行的代码而言就不够强劲了。相反编译器\textit{保证}
+\acode{pseq}会先求左参，再求右参。
+
+这些对于我们代码的修改而言是值得关注的，因为我们不需要说明所有的事情。
+
+\begin{itemize}
+  \item 使用多少核
+  \item 什么线程用于彼此间的通讯
+  \item 如何在可用核中拆分任务
+  \item 什么数据是线程间共享的，什么是私有的
+  \item 所有部分完成后如何收尾
+\end{itemize}
+
+\subsubsection*{知道并行计算什么}
+
+从并行 Haskell 代码中获得良好性能的关键是找到有意义的工作块来并行执行。Non-strict 的计算会妨碍到这点，这就是在并行排序中使用\acode{force}函数的原因。为了更好的
+解释\acode{force}函数的作用，我们先来看一个错误的例子：
 
 \begin{lstlisting}[language=Haskell]
-
+  sillySort :: (Ord a) => [a] -> [a]
+  sillySort (x : xs) = greater `par` (lesser `pseq` (lesser ++ x : greater))
+    where
+      lesser = sillySort [y | y <- xs, y < x]
+      greater = sillySort [y | y <- xs, y >= x]
+  sillySort _ = []
 \end{lstlisting}
+
+看一下每个使用\acode{par}处的小改变。没有用\acode{force lesser}与\acode{force greater}，而是直接计算\acode{lesser}与\acode{greater}。
+
+请记住，对 WHNF 的求值只计算足以查看其最外层构造函数的表达式。这个错误示例中，我们将每个排序的子列表求值为 WHNF。由于每种情况下最外层的构造函数都只是一个列表构造函数，
+因此我们实际上只强制对每个排序子列表的第一个元素求值！每个列表的其它所有元素保持未求值。换言之，几乎没有并行的做任何有用的工作：\acode{sillySort}几乎是完全顺序的。
+
+我们通过\acode{force}函数强制整个列表，在返回给构造函数之前进行计算，避免上述情况发生：
+
+\begin{lstlisting}[language=Haskell]
+  force :: [a] -> ()
+  force xs = go xs `pseq` ()
+    where
+      go :: [a] -> Integer
+      go (_ : xs') = go xs'
+      go [] = 1
+\end{lstlisting}
+
+注意我们并不在乎列表中的是什么；我们遍历列表至最后，使用\acode{pseq}。这里显然没有魔法：只是使用我们对 Haskell 计算模型的理解。又因为我们将在\acode{par}或
+\acode{pseq}的左侧使用\acode{force}，我们不需要返回一个有意义的值。
+
+当然很多情况下，我们也需要强制对列表中的单个元素求值。下面，我们将讨论这个问题的基于类型的解决方案。
 
 \subsubsection*{par 做了什么承诺}
 
-%
+\acode{par}函数实际上并没有保证一个表达式与另一个表达式并行求值。相反，它承诺如果这样做“有意义”才会这么做。这种模棱两可的不承诺实际上比总是并行求值表达式的保证更有用。
+它使运行时系统在遇到\acode{par}的使用时可以自由的采取智能行动。
+
+例如，运行时可能会认为表达式太廉价而不值得并行计算，或者它可能会注意到所有内核当前都很忙，因此“触发”一个新的并行计算将导致可运行线程的数量超过可执行的内核数量。
+
+这种松散的规范反过来又影响了我们编写并行代码的方式。由于\acode{par}在运行时可能有点智能，我们几乎可以在任何喜欢的地方使用它，假设性能不会因为线程争用繁忙的内核而陷入
+困境。
 
 \subsubsection*{允许代码并测量性能}
 
-%
+为了测试代码，让我们将\acode{sort}，\acode{parSort}与\acode{parSort2}保存到一个名为\acode{Sorting.hs}的模块中。我们创建了一个小的驱动程序，我们可以使用它
+来计时其中一个排序函数的性能。
 
 \begin{lstlisting}[language=Haskell]
 
+  module Main where
+
+  import Data.Time.Clock
+  import qualified Sorting as S
+  import System.Environment (getArgs)
+  import System.Random
+
+  testFunction :: Int -> [Int] -> [Int]
+  testFunction n
+    | n == 1 = S.sort
+    | n == 2 = S.parSort
+    | n == 3 = S.seqSort
+    | n == 4 = S.parSort2 100000 -- temporary used input
+    | otherwise = error "choose n from 1 to 4"
+
+  randomInts :: Int -> StdGen -> [Int]
+  randomInts k g =
+    let result = take k (randoms g)
+     in S.force result `seq` result
+
+  -- test:
+  -- cabal run sort-main 3 500000
+  main :: IO ()
+  main = do
+    args <- getArgs
+
+    case args of
+      (sortMethod : count : _) -> do
+        input <- randomInts (read count) `fmap` getStdGen
+        putStrLn $ "We have " ++ show (length input) ++ " elements to sort."
+        start <- getCurrentTime
+        let sorted = testFunction (read sortMethod) input
+        putStrLn $ "Sorted all " ++ show (length sorted) ++ " elements."
+        end <- getCurrentTime
+        putStrLn $ show (end `diffUTCTime` start) ++ " elapsed."
+      _ -> error "SortMain <sortMethod:Int> <count:Int>"
 \end{lstlisting}
 
+简单起见，我们通过\acode{testFunction}变量选择在编译时进行基准测试的排序函数。
 
+我们的程序接受一个可选的命令行参数，即要生成的随机列表的长度。
+
+Non-strict 的计算会把性能测量和分析变成雷区。这里有一些潜在的问题，需要我们避免在我们的驱动程序中出现。
+
+\begin{itemize}
+  \item \textit{当我们认为在看待一件事物时，实际上却要衡量几件事。}Haskell 的默认伪随机数生成器（PRNG）很慢，\acode{random}函数根据需要生成随机数。
+
+        在记录开始时间之前，我们强制计算列表中的每个元素，并打印列表的长度：这确保我们提前创建了所有需要的随机数。
+
+        如果我们省略这一步，那么将把随机数的生成与并行处理随机数交织在一起。因此，既要测量排序数字的成本，也要测量生成数字的成本（不太明显）。
+
+  \item \textit{不可见的数据依赖。}当我们生成随机数列表时，简单的打印列表的长度将无法执行足够的求值。这将计算列表的主体，而不是其元素。实际的随机数在排序比较它们之前
+        不会被计算。
+
+        这可能会对性能产生严重的影响。随机数的值取决于列表中前面随机数的值，但是我们在处理器内核中随机分散了列表元素。如果我们在排序之前没有对列表元素进行计算，那么
+        我们将遭受可怕的“乒乓”效应：计算不仅会从一个核跳到另一个核，性能也会受到影响。
+
+        试着从上面的\acode{main}主体中去掉\acode{force}的应用：我们会发现并行代码很容易比非并行代码\textit{慢}三倍。
+
+  \item \textit{当我们相信代码正在执行有意义的工作时，基准测试是一种思考。}为了强制进行排序，在记录结束时间之前打印结果列表的长度。如果没有\acode{putStrLn}要求
+        列表的长度来打印它，那么排序就根本不会发生。
+\end{itemize}
+
+当我们构建程序时，我们启用了优化和 GHC 的线程运行时。
 
 \begin{lstlisting}[language=Haskell]
-
+  ghc -threaded -O2 -package parallel -package time --make SortMain
+  Loaded package environment from /Users/jacobxie/.ghc/aarch64-darwin-9.8.2/environments/default
+  [1 of 3] Compiling Sorting          ( Sorting.hs, Sorting.o )
+  [2 of 3] Compiling Main             ( SortMain.hs, SortMain.o )
+  [3 of 3] Linking SortMain
 \end{lstlisting}
 
+注：也可以通过 cabal 或 stack 配置，以下是 cabal 设置：
 
+\begin{lstlisting}
+  executable sort-main
+  import:           warnings
+  default-language: Haskell2010
+  main-is:          SortMain.hs
+  ghc-options:      -threaded -O2
+  build-depends:
+    , base
+    , my-concurrent
+    , parallel
+    , random
+    , time
+\end{lstlisting}
+
+当我们运行程序时，必须告诉 GHC 的运行时需要使用多少内核。开始我们尝试原始排序
+
+\begin{lstlisting}[language=Bash]
+  # 使用 GHC 编译后的可执行文件
+  ./SortMain +RTS -N1 -RTS 1 7000000
+  We have 7000000 elements to sort.
+  Sorted all 7000000 elements.
+  10.959195s elapsed.
+
+  # 或者使用 cabal
+  cabal run sort-main +RTS -N1 -RTS 1 7000000
+  We have 7000000 elements to sort.
+  Sorted all 7000000 elements.
+  10.884864s elapsed.
+\end{lstlisting}
+
+注：与原文不同，\acode{SortMain.hs}改造后的第一个 arg 为 1 时，为单线程运行；为 2 时，为并行运行。
+
+启用第二个核并不会太影响效率。
 
 \begin{lstlisting}[language=Haskell]
-
+  ./SortMain +RTS -N2 -RTS 1 7000000
+  We have 7000000 elements to sort.
+  Sorted all 7000000 elements.
+  11.082317s elapsed.
 \end{lstlisting}
 
-
+接下来试试\acode{parSort}，结果并不理想。
 
 \begin{lstlisting}[language=Haskell]
+  cabal run sort-main +RTS -N1 -RTS 2 7000000
+  We have 7000000 elements to sort.
+  Sorted all 7000000 elements.
+  13.192825s elapsed.
 
+  cabal run sort-main +RTS -N2 -RTS 2 7000000
+  We have 7000000 elements to sort.
+  Sorted all 7000000 elements.
+  12.038354s elapsed.
 \end{lstlisting}
 
-
+我们在效率上毫无提高，这可能是由于以下两个因素之一：要么\acode{par}本身就很昂贵，要么是我们使用的太多了。为了区分这两种可能性，这里有一个与\acode{parSort}相同的
+排序，使用\acode{pseq}而不是\acode{par}。
 
 \begin{lstlisting}[language=Haskell]
-
+  seqSort :: (Ord a) => [a] -> [a]
+  seqSort (x:xs) = lesser `pseq` (greater `pseq` (lesser ++ x:greater))
+    where
+      lesser = seqSort [y | y <- xs, y < x]
+      greater = seqSort [y|y <- xs, y >= x]
+  seqSort _ = []
 \end{lstlisting}
 
-
+我们也放弃了使用\acode{force}，所以与最初的\acode{sort}相比，我们应该只测量使用\acode{pseq}的成本。单独的\acode{pseq}对性能有什么影响？
 
 \begin{lstlisting}[language=Haskell]
-
+  cabal run sort-main +RTS -N1 -RTS 3 7000000
+  We have 7000000 elements to sort.
+  Sorted all 7000000 elements.
+  12.348779s elapsed.
 \end{lstlisting}
+
+这说明\acode{par}与\acode{pseq}的成本相似。该怎么样提高性能呢？
 
 \subsubsection*{性能调优}
 
-%
+在\acode{parSort}中，执行的\acode{par}应用程序数量是要排序的元素数量的两倍。虽然\acode{par}很\textit{廉价}，但是它并不是免费的。当递归的应用\acode{parSort}
+时，最终会对单个列表元素应用\acode{par}。在这种细颗粒度下，使用\acode{par}的成本超过了任何可能的有用性。为了减少这种影响，我们在超过某个阈值后切换到非并行排序。
 
 \begin{lstlisting}[language=Haskell]
-
+  parSort2 :: (Ord a) => Int -> [a] -> [a]
+  parSort2 d lst@(x : xs)
+    | d <= 0 = sort lst
+    | otherwise = force greater `par` (force lesser `pseq` (lesser ++ x : greater))
+    where
+      lesser = parSort2 d' [y | y <- xs, y < x]
+      greater = parSort2 d' [y | y <- xs, y >= x]
+      d' = d - 1
+  parSort2 _ _ = []
 \end{lstlisting}
 
+这里，我们停止递归并在可控深度触发新的并行计算。如果我们知道正在处理的数据大小，那么就可以停止细分并在剩余工作量足够小时切换到非并行代码。
 
+\begin{lstlisting}[language=Bash]
+  ghc -threaded -O2 -package parallel -package time --make SortMain
 
-\begin{lstlisting}[language=Haskell]
-
+  ./SortMain +RTS -N2 -RTS 4 7000000
+  We have 7000000 elements to sort.
+  Sorted all 7000000 elements.
+  7.802378s elapsed.
 \end{lstlisting}
+
+注：\acode{testFunction}的函数体中\acode{S.parSort2 100000}参数并不是最优。
+
+略。
 
 \subsection*{并行策略以及 MapReduce}
 

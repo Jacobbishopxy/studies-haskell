@@ -13,9 +13,9 @@ import System.Random
 testFunction :: Int -> [Int] -> [Int]
 testFunction n
   | n == 1 = S.sort
-  -- \| n == 2 = S.seqSort
-  | n == 3 = S.parSort
-  -- \| n == 4 = S.parSort2
+  | n == 2 = S.parSort
+  | n == 3 = S.seqSort
+  | n == 4 = S.parSort2 100000 -- temporary used input
   | otherwise = error "choose n from 1 to 4"
 
 randomInts :: Int -> StdGen -> [Int]
@@ -24,7 +24,9 @@ randomInts k g =
    in S.force result `seq` result
 
 -- test:
--- cabal run sort-main 3 500000
+-- cabal run sort-main 3 7000000
+-- cabal run sort-main +RTS -N1 -RTS 3 7000000
+-- cabal run sort-main +RTS -N2 -RTS 3 7000000
 main :: IO ()
 main = do
   args <- getArgs
