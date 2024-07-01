@@ -861,131 +861,241 @@ Non-strict 的计算会把性能测量和分析变成雷区。这里有一些潜
 
 \subsection*{并行策略以及 MapReduce}
 
-%
+编程社区中，最受函数式编程启发的著名软件系统之一是 Google 的 MapReduce 基础设施，用于并行处理大量数据。
 
-\begin{lstlisting}[language=Haskell]
+虽然我们可以创建一个简单的实现而不需耗费太多的努力，但是我们需要抵制这个诱惑。如果考虑解决一类问题而不是单个问题，我们可能会得到更广泛适用的代码。
 
-\end{lstlisting}
+\begin{itemize}
+  \item 我们的算法很快就会被划分与通信的细节所掩盖。这使得理解代码变得困难，这反过来又使得修改代码变得危险。
+  \item 选择一个“颗粒大小” -- 分配到一个核的最小工作单元 -- 是很困难的。如果颗粒度太小，内核则要花费大量时间进行记录，因此并行程序很容易变得比串行慢。如果颗粒度
+        过大，可能会导致部分内核因负载不均衡而处于空闲状态。
+\end{itemize}
 
 \subsubsection*{从计算中分离算法}
 
-%
+在并行的 Haskell 代码中，传统语言中通信代码产生的混乱被\acode{par}与\acode{pseq}所取代。例如，以下的函数操作类似于\acode{map}，但在执行时并行的将每个元素求值
+为弱头范式（WHNF）。
 
 \begin{lstlisting}[language=Haskell]
+  import Control.Parallel
 
+  parallelMap :: (a -> b) -> [a] -> [b]
+  parallelMap f (x : xs) = let r = f x in r `par` r : parallelMap f xs
+  parallelMap _ _ = []
 \end{lstlisting}
 
+类型\acode{b}可能是一个列表，或者其它类型，对\acode{WHNF}的求值不会做大量有用的工作。我们希望不必为列表和其他需要特殊处理的类型编写特殊的\acode{parallelMap}。
 
+为了解决这个问题，我们将从考虑一个更简单的问题开始：如何强制求值。下面是一个函数，它强制将列表中的每个元素求值为 WHNF。
 
 \begin{lstlisting}[language=Haskell]
-
+  forceList :: [a] -> ()
+  forceList (x:xs) = x `pseq` forceList xs
+  forceList _ = ()
 \end{lstlisting}
 
-
+我们的函数不对列表执行任何计算。（事实上，通过检查它的类型签名，我们可以知道它不能执行任何计算，因为它对列表的元素一无所知。）其唯一目的是确保列表被计算为头范式。应用
+这个函数唯一有意义的地方是\acode{seq}或\acode{par}的第一个参数，例如如下所示：
 
 \begin{lstlisting}[language=Haskell]
-
+  stricterMap :: (a -> b) -> [a] -> [b]
+  stricterMap f xs = forceList xs `seq` map f xs
 \end{lstlisting}
 
-
+这仍然给我们留下了只对 WHNF 求值的列表元素。我们通过添加一个函数作为参数来解决这个问题，该函数可以强制对元素进行更深入的求值。
 
 \begin{lstlisting}[language=Haskell]
-
+  forceListAndElts :: (a -> ()) -> [a] -> ()
+  forceListAndElts forceElt (x : xs) = forceElt x `seq` forceListAndElts forceElt xs
+  forceListAndElts _ _ = ()
 \end{lstlisting}
 
-
+\acode{Control.Parallel.Strategies}模块将这个想法概括为我们可以用做库的东西。它引入了\textit{计算策略}的概念。
 
 \begin{lstlisting}[language=Haskell]
+  type Done = ()
 
+  type Strategy a = a -> Done
 \end{lstlisting}
 
-
+求值策略不执行计算；它只是确保一个值在某种程度上被求值。最简单的策略被称为\acode{r0}，它什么都不做。
 
 \begin{lstlisting}[language=Haskell]
-
+  r0 :: Strategy a
+  r0 _ = ()
 \end{lstlisting}
 
-
+接下来是\acode{rwhnf}，它计算弱头范式的一个值。
 
 \begin{lstlisting}[language=Haskell]
-
+  rwhnf :: Strategy a
+  rwhnf x = x `seq` ()
 \end{lstlisting}
 
-
+为了计算正常范式的一个值，模块提供了一个 typeclass 名为\acode{rnf}的方法。
 
 \begin{lstlisting}[language=Haskell]
-
+  class NFData a where
+    rnf :: Strategy a
+    rnf = rwhnf
 \end{lstlisting}
 
+\begin{anote}
+  记住这些名称
 
+  如果记不住这些函数和类型的名称，将它们视为同义词即可。\acode{rwhnf}意为“reduce to weak head normal form”；而\acode{NFData}则是“normal form data”；
+  以此类推。
+\end{anote}
+
+对于基本类型，比如\acode{Int}，弱头范式和正常范式是一样的，这就是\acode{NFData} typeclass 使用\acode{rwhnf}作为\acode{rnf}的默认实现的原因。对于许多常见
+类型，\acode{Control.Parallel.Strategies}模块提供了\acode{NFData}实例。
 
 \begin{lstlisting}[language=Haskell]
+  instance NFData Char
 
+  instance NFData Int
+
+  instance (NFData a) => NFData (Maybe a) where
+    rnf Nothing = ()
+    rnf (Just x) = rnf x
+
+  {- ... and so on ... -}
 \end{lstlisting}
+
+从这些实例中，应该可以清楚的看到如何为自己的类型编写\acode{NFData}实例。用户的\acode{rnf}实现必须处理每个构造函数，并将\acode{rnf}应用于构造函数的每个字段。
 
 \subsubsection*{从策略中分离算法}
 
-%
+从这些策略构建块中可以构建更复杂的策略。许多已由\acode{Control.Parallel.Strategies}提供。例如\acode{parList}并行的对列表的每个元素应用求值策略。
 
 \begin{lstlisting}[language=Haskell]
-
+  parList :: Strategy a -> Strategy [a]
+  parList _ [] = ()
+  parList strat (x : xs) = strat x `par` (parList strat xs)
 \end{lstlisting}
 
-
+该模块使用它来定义并行的\acode{map}函数。
 
 \begin{lstlisting}[language=Haskell]
-
+  parMap :: Strategy b -> (a -> b) -> [a] -> [b]
+  parMap strat f xs = map f xs `using` parList strat
 \end{lstlisting}
 
-
+这就是代码变得有趣的地方。在\acode{using}的左侧，有一个普通的\acode{map}应用。右侧则是计算策略。\acode{using}组合子告诉我们如何将策略应用于一个值，允许我们将
+代码与计算其的求值方式分离。
 
 \begin{lstlisting}[language=Haskell]
-
+  using :: a -> Strategy a -> a
+  using x s = s x `seq` x
 \end{lstlisting}
 
-
+\acode{Control.Parallel.Strategies}模块提供了许多其他函数，这些函数提供了对求值的精细控制。例如，使用求值策略并行应用\acode{zipWith}的\acode{parZipWith}。
 
 \begin{lstlisting}[language=Haskell]
-
+  vectorSum' :: (NFData a, Num a) => [a] -> [a] -> [a]
+  vectorSum' = parZipWith rnf (+)
 \end{lstlisting}
 
 \subsubsection*{编写一个简单的 MapReduce 定义}
 
-%
+对于一个\acode{mapReduce}函数我们可以快速的了解到其需要的类型。即一个\textit{map}组件，给与它一个通常的类型\acode{a -> b}。同时还需要一个\textit{reduce}；
+该项为\textit{fold}的同义词。与其去编写一个特殊类型的 fold，我们将使用一个更泛化的类型，\acode{[b] -> c}。这个类型允许我们是有左或右折叠，这样我们可以选择一个
+符合我们数据的再进行处理。
+
+如果我们将这些类型放在一起，那么完全的类型将类似于：
 
 \begin{lstlisting}[language=Haskell]
-
+  simpleMapReduce ::
+    (a -> b) -> -- map function
+    ([b] -> c) -> -- reduce function
+    [a] -> -- list to map over
+    c
 \end{lstlisting}
 
-
+函数本身非常的简单：
 
 \begin{lstlisting}[language=Haskell]
-
+  simpleMapReduce mapFunc reduceFunc = reduceFunc . map mapFunc
 \end{lstlisting}
 
 \subsubsection*{MapReduce 与策略}
 
-%
+我们\acode{simpleMapReduce}的定义太简单了。要使其变得有用，我们希望能指定某些任务可以并行。通过策略可以达到目的，传入一个\acode{map}的策略以及\acode{reduce}
+的策略。
 
 \begin{lstlisting}[language=Haskell]
-
+  mapReduce ::
+    Strategy b -> -- evaluation strategy for mapping
+    (a -> b) -> -- map function
+    Strategy c -> -- evaluation strategy for reduction
+    ([b] -> c) -> -- reduce function
+    [a] -> -- list to map over
+    c
 \end{lstlisting}
 
-
+函数的类型和函数体都需要增大来适应策略参数。
 
 \begin{lstlisting}[language=Haskell]
-
+  mapReduce mapStrat mapFunc reduceStrat reduceFunc input =
+    mapResult `pseq` reduceResult
+    where
+      mapResult = parMap mapStrat mapFunc input
+      reduceResult = reduceFunc mapResult `using` reduceStrat
 \end{lstlisting}
 
 \subsubsection*{合理规划}
 
-%
+为了获得良好的性能，我们必须确保每个使用\acode{par}的应用都能使用理论的成本。如果是处理一个大文件，通过行切分任务对比任务整体而言只占很小部分的负载。
+
+我们将在之后的小节中开发一种处理大块文件的方式。那么这些大块是由什么构成的呢？一个 web 服务的日志文件应该只包含 ASCII 文本，我们将看到通过惰性的\acode{ByteString}
+所带来的优良性能：该类型是高效的，且在流式处理文件时仅消耗少量内存。
 
 \begin{lstlisting}[language=Haskell]
+  module LineChunks
+    ( chunkedReadWith,
+    )
+  where
 
+  import Control.Exception (bracket, finally)
+  import Control.Parallel.Strategies (NFData, rdeepseq)
+  import qualified Data.ByteString.Lazy.Char8 as LB
+  import Data.Int (Int64)
+  import GHC.Conc (numCapabilities)
+  import GHC.IO.Handle (Handle, hClose)
+
+  data ChunkSpec = CS
+    { chunkOffset :: !Int64,
+      chunkLength :: !Int64
+    }
+    deriving (Eq, Show)
+
+  withChunks ::
+    (NFData a) =>
+    (FilePath -> IO [ChunkSpec]) ->
+    ([LB.ByteString] -> a) ->
+    FilePath ->
+    IO a
+  withChunks chunkFunc process path = do
+    (chunks, handles) <- chunkedRead chunkFunc path
+    let r = process chunks
+    (rdeepseq r `seq` return r) `finally` mapM_ hClose handles
+
+  chunkedReadWith :: (NFData a) => ([LB.ByteString] -> a) -> FilePath -> IO a
+  chunkedReadWith func path =
+    withChunks (lineChunks (numCapabilities * 4)) func path
+
+  chunkedRead :: (FilePath -> IO [ChunkSpec]) -> FilePath -> IO ([LB.ByteString], [Handle])
+  chunkedRead = undefined
+
+  lineChunks :: Int -> FilePath -> IO [ChunkSpec]
+  lineChunks = undefined
 \end{lstlisting}
 
+我们并行的消费每个数据块，通过惰性 I/O 的优势确保可以安全的以流的方式，处理这些数据块。
 
+\subsubsection*{降低惰性 I/O 的风险}
+
+%
 
 \begin{lstlisting}[language=Haskell]
 
