@@ -3,6 +3,12 @@
 -- date: 2024/06/30 19:10:39 Sunday
 -- brief:
 
+module MapReduce
+  ( simpleMapReduce,
+    mapReduce,
+  )
+where
+
 import Control.Parallel (pseq)
 import Control.Parallel.Strategies (Strategy, parMap, using)
 

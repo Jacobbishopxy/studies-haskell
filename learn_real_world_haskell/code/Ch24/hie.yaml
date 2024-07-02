@@ -5,3 +5,9 @@ cradle:
 
     - path: "./SortMain.hs"
       component: "my-concurrent:exe:sort-main"
+
+    - path: "./LineCount.hs"
+      component: "my-concurrent:exe:line-count"
+
+    - path: "./CommonURLs.hs"
+      component: "my-concurrent:exe:common-urls"

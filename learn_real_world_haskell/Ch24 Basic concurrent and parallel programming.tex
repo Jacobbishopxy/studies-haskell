@@ -434,7 +434,7 @@ fork 一个线程，在另一个核执行昂贵计算。
     putMVar m a'
 \end{lstlisting}
 
-注：原文中\acodegrn{Control.Exception}库提供的\acode{block}与\acode{unblock}已被废弃，现在改用\acode{mask}来实现。
+注：原文中\acode{Control.Exception}库提供的\acode{block}与\acode{unblock}已被废弃，现在改用\acode{mask}来实现。
 
 上述代码中的\acode{!}模式简单易用，但这并不总保证数据总能被计算。
 
@@ -451,7 +451,7 @@ fork 一个线程，在另一个核执行昂贵计算。
 \subsubsection*{死锁}
 
 在\textit{死锁}的情况下，两个或多个线程在访问共享资源时永远的卡住。一个典型的多线程死锁问题就是忘记申请锁的顺序。这类型的 bug 太常见了，即：\textit{锁序反转}。
-虽然 Haskell 不提供锁，但是\acodegrn{MVar}类型仍然容易出现顺序反转的问题。下面是一个简单的例子：
+虽然 Haskell 不提供锁，但是\acode{MVar}类型仍然容易出现顺序反转的问题。下面是一个简单的例子：
 
 \begin{lstlisting}[language=Haskell]
   import Control.Concurrent (MVar, forkIO, modifyMVar_, newMVar, yield)
@@ -1095,37 +1095,146 @@ Non-strict 的计算会把性能测量和分析变成雷区。这里有一些潜
 
 \subsubsection*{降低惰性 I/O 的风险}
 
-%
+惰性 I/O 会带来一些我们希望避免的众所周知的危害。
+
+\begin{itemize}
+  \item 通过不强制从文件句柄中提取数据的计算进行评估，我们可以无形的使文件句柄打开的时间超过必要的时间。由于操作系统通常会对一次可以打开的文件数量设置一个小的固定
+        限制，如果不解决这个风险，可能会意外的使程序的其它部分缺少文件句柄。
+  \item 如果没有显式关闭文件句柄，垃圾收集器将自动为我们关闭它。可能需要很长时间才能注意到应该关闭。这就造成了与上一条一样的饥饿风险。
+  \item 我们可以通过显式关闭文件句柄来避免饥饿。但是如果太早这么做，惰性计算期望能够从关闭的句柄中提取更多数据，则会导致惰性计算失败。
+\end{itemize}
+
+除了这些众所周知的风险外，我们不能使用单个文件句柄向多线程提供数据。文件句柄有一个单独的“查找指针”来跟踪它应该读取的位置，但是当我们想要读取多个块时，每个块都需要从
+文件中的不同位置消费数据。
+
+有了上述这些概念，让我们来填写一下惰性 I/O。
 
 \begin{lstlisting}[language=Haskell]
-
+  chunkedRead :: (FilePath -> IO [ChunkSpec]) -> FilePath -> IO ([LB.ByteString], [Handle])
+  chunkedRead chunkFunc path = do
+    chunks <- chunkFunc path
+    liftM unzip . forM chunks $ \spec -> do
+      h <- openFile path ReadMode
+      hSeek h AbsoluteSeek (fromIntegral $ chunkOffset spec)
+      chunk <- LB.take (chunkLength spec) `liftM` LB.hGetContents h
+      return (chunk, h)
 \end{lstlisting}
+
+我们通过显式的关闭文件句柄来避免饥饿问题。我们允许多个线程一次读取不同的块，方法是为每个线程提供一个不同的文件句柄，所有线程读取同一个文件。
+
+最后一个需要解决的问题是，一个惰性计算有一个文件句柄在其后关闭。我们使用\acode{rnf}来强制从\acode{withChunks}返回之前完成所有的处理。然后，我们可以显式的关闭
+文件句柄，因为它们不应该再被读取。如果必须在程序中使用惰性 I/O，通常最好是像这样做成“防火墙”，这样便不会在代码没有预料到的部分发生问题。
 
 \subsubsection*{高效的寻找行对称的代码块}
 
+由于服务器日志文件是面向行的，因此我们需要一种有效的方法将文件分成大块，同时确保每个块以行边界结束。由于块的大小可能有几十兆字节，因此我们不希望扫描块中的所有数据来
+确定其最终边界的位置。
+
+无论选择固定的块大小还是固定数量的块，我们的方法都是有效的。这里我们选择后者。首先寻找块末尾的大致位置，然后向前扫描，直到找到换行符；然后在换行符之后开始下一块，
+并重复该过程。
 
 \begin{lstlisting}[language=Haskell]
-
+  lineChunks :: Int -> FilePath -> IO [ChunkSpec]
+  lineChunks numChunks path = do
+    bracket (openFile path ReadMode) hClose $ \h -> do
+      totalSize <- fromIntegral `liftM` hFileSize h
+      let chunkSize = totalSize `div` fromIntegral numChunks
+          findChunks offset = do
+            let newOffset = offset + chunkSize
+            hSeek h AbsoluteSeek (fromIntegral newOffset)
+            let findNewline off = do
+                  eof <- hIsEOF h
+                  if eof
+                    then return [CS offset (totalSize - offset)]
+                    else do
+                      bytes <- LB.hGet h 4096
+                      case LB.elemIndex '\n' bytes of
+                        Just n -> do
+                          chunks@(c : _) <- findChunks (off + n + 1)
+                          let coff = chunkOffset c
+                          return (CS offset (coff - offset) : chunks)
+                        Nothing -> findNewline (off + LB.length bytes)
+            findNewline newOffset
+      findChunks 0
 \end{lstlisting}
+
+最后一个块最终会比之前的块短一点，但在实践中这种差异是微不足道的。
 
 \subsubsection*{记录行数}
 
-%
+下面这个简单的例子说明了如何使用刚刚构建好的脚手架：
 
 \begin{lstlisting}[language=Haskell]
+  module Main where
 
+  import Control.Monad (forM_)
+  import Control.Parallel.Strategies (rdeepseq)
+  import qualified Data.ByteString.Lazy.Char8 as LB
+  import Data.Int (Int64)
+  import LineChunks
+  import MapReduce
+  import System.Environment (getArgs)
+
+  lineCount :: [LB.ByteString] -> Int64
+  lineCount = mapReduce rdeepseq (LB.count '\n') rdeepseq sum
+
+  main :: IO ()
+  main = do
+    args <- getArgs
+    forM_ args $ \path -> do
+      numLines <- chunkedReadWith lineCount path
+      putStrLn $ path <> ": " <> show numLines
 \end{lstlisting}
+
+注：原文的\acode{rnf}已由\acode{rdeepseq}替代。
+
+如果编译项目时带上\acode{ghc -O2 --make -threaded}，在初始运行“预热”文件系统缓存后，它应该可以良好的运行（运行时使用\acode{+RTS -N2}双核）。
 
 \subsubsection*{查找最流行的 URLs}
 
-%
+下面的例子中，我们统计每个 URL 被访问了多少次。
 
 \begin{lstlisting}[language=Haskell]
+  module Main where
 
+  import Control.Monad (forM_)
+  import Control.Parallel.Strategies (rseq)
+  import qualified Data.ByteString.Char8 as S
+  import qualified Data.ByteString.Lazy.Char8 as L
+  import Data.List (foldl', sortBy)
+  import qualified Data.Map as M
+  import LineChunks (chunkedReadWith)
+  import MapReduce (mapReduce)
+  import System.Environment (getArgs)
+  import Text.Regex.PCRE.Light (compile, match)
+
+  countURLs :: [L.ByteString] -> M.Map S.ByteString Int
+  countURLs = mapReduce rseq (foldl' augment M.empty . L.lines) rseq M.unions
+    where
+      augment m line =
+        case match (compile pttn []) (strict line) [] of
+          Just (_ : url : _) -> M.insertWith (+) url 1 m
+          _ -> m
+      strict = S.concat . L.toChunks
+      pttn = S.pack "\"(?:GET|POST|HEAD) ([^ ]+) HTTP/"
+
+  main :: IO ()
+  main = do
+    args <- getArgs
+    forM_ args $ \path -> do
+      m <- chunkedReadWith countURLs path
+      let mostPopular (_, a) (_, b) = compare b a
+      mapM_ print . take 10 . sortBy mostPopular . M.toList $ m
 \end{lstlisting}
+
+略。
 
 \subsubsection*{总结}
 
-%
+给定一个非常合适模型的问题，\acode{MapReduce}编程模型允许我们在 Haskell 中编写具有良好性能的“任意”并行程序，并只需要很少的额外工作量。我们可以很容易的将这个想法
+扩展到使用其他数据源，例如文件集合或者通过网络获取的数据。
+
+很多情况下，性能瓶颈将以足够高的速率流式传输数据，以跟上核心的处理能力。例如，如果我们尝试在没有缓存在内存中或从高带宽存储阵列流式传输的文件上使用上述任意一程序，我们
+将花费大部分时间等待磁盘 I/O，而不会从多核中获得任何好处。
 
 \end{document}
