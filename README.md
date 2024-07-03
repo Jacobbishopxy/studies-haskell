@@ -175,6 +175,14 @@ gen-hie > hie.yaml
 
   - Ch28 Software transactional memory
 
+- Haskell in Depth
+
+- Soar with Haskell
+
+- Effective Haskell
+
+- Production Haskell
+
 ## Exercises
 
 - [Ninety-Nine Haskell Problems](./h99/README.md)

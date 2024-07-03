@@ -57,6 +57,7 @@ executable line-count
   ghc-options:      -threaded -O2
   build-depends:
     , base
+    , bytestring
     , my-concurrent
     , parallel
 

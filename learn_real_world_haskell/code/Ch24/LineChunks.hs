@@ -9,12 +9,21 @@ module LineChunks
 where
 
 import Control.Exception (bracket, finally)
-import Control.Monad
+import Control.Monad (forM, liftM)
 import Control.Parallel.Strategies (NFData, rdeepseq)
 import qualified Data.ByteString.Lazy.Char8 as LB
 import Data.Int (Int64)
 import GHC.Conc (numCapabilities)
 import System.IO
+  ( Handle,
+    IOMode (ReadMode),
+    SeekMode (AbsoluteSeek),
+    hClose,
+    hFileSize,
+    hIsEOF,
+    hSeek,
+    openFile,
+  )
 
 data ChunkSpec = CS
   { chunkOffset :: !Int64,
@@ -54,17 +63,16 @@ lineChunks numChunks path = do
         findChunks offset = do
           let newOffset = offset + chunkSize
           hSeek h AbsoluteSeek (fromIntegral newOffset)
-          let findNewline off = do
-                eof <- hIsEOF h
-                if eof
-                  then return [CS offset (totalSize - offset)]
-                  else do
-                    bytes <- LB.hGet h 4096
-                    case LB.elemIndex '\n' bytes of
-                      Just n -> do
-                        chunks@(c : _) <- findChunks (off + n + 1)
-                        let coff = chunkOffset c
-                        return (CS offset (coff - offset) : chunks)
-                      Nothing -> findNewline (off + LB.length bytes)
+          let findNewline off =
+                hIsEOF h >>= \eof ->
+                  if eof
+                    then return [CS offset (totalSize - offset)]
+                    else do
+                      bytes <- LB.hGet h 4096
+                      case LB.elemIndex '\n' bytes of
+                        Just n -> do
+                          chunks@(c : _) <- findChunks (off + n + 1)
+                          return $ CS offset (chunkOffset c - offset) : chunks
+                        Nothing -> findNewline (off + LB.length bytes)
           findNewline newOffset
     findChunks 0
