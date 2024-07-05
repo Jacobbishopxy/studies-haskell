@@ -10,6 +10,8 @@
 
 1. [optional] set `ghcup` mirror: <https://mirrors.ustc.edu.cn/help/ghcup.html>
 
+1. [optional] set `cabal` mirror: <https://mirrors.ustc.edu.cn/help/hackage.html#cabal>
+
 ## Cabal
 
 [User Guide](https://cabal.readthedocs.io/en/stable/index.html)
