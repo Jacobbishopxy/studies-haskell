@@ -5,6 +5,7 @@ tree:
 clean-out:
 	rm -rf learn_me_a_haskell/out && \
 	rm -rf learn_real_world_haskell/out && \
+	rm -rf haskell_in_depth/out && \
 	echo done
 
 cp-pdf1:
@@ -12,6 +13,9 @@ cp-pdf1:
 
 cp-pdf2:
 	cp learn_real_world_haskell/out/main.pdf "./Learn Real World Haskell.pdf"
+
+cp-pdf3:
+	cp haskell_in_depth/out/main.pdf "./Haskell in Depth.pdf"
 
 commit:
 	git add .
