@@ -179,11 +179,43 @@ gen-hie > hie.yaml
 
 - Haskell in Depth
 
+  - Ch1 Functions and types
+
+  - Ch2 Type classes
+
+  - Ch3 Developing an application: Stock quotes
+
+  - Ch4 Haskell development with modules, packages, and projects
+
+  - Ch5 Monads as practical functionality providers
+
+  - Ch6 Structuring programs with monad transformers
+
+  - Ch7 Error handling and logging
+
+  - Ch8 Writing tests
+
+  - Ch9 Haskell data and code at run time
+
+  - Ch10 Benchmarking and profiling
+
+  - Ch11 Type system advances
+
+  - Ch12 Metaprogramming in Haskell
+
+  - Ch13 More about types
+
+  - Ch14 Data-processing pipelines
+
+  - Ch15 Working with relational databases
+
+  - Ch16 Concurrency
+
 - Soar with Haskell
 
-- Effective Haskell
-
 - Production Haskell
+
+- Effective Haskell
 
 ## Exercises
 

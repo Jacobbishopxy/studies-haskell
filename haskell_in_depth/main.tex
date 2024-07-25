@@ -1,0 +1,108 @@
+% @file:	main.tex
+% @author:	Jacob Xie
+% @date:	2024/07/25 21:19:54 Thursday
+% @brief:
+
+\PassOptionsToPackage{quiet}{fontspec}
+\documentclass[UTF8]{ctexart}
+
+\usepackage[a4paper, total={6in, 8in}]{geometry}
+\usepackage{lmodern}
+\usepackage{amsfonts}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usepackage{framed}
+\usepackage[leqno]{amsmath}
+\usepackage{hyperref}
+\usepackage{multirow}
+
+\graphicspath{\subfix{./images/}}
+
+\usepackage{blindtext}
+\usepackage{subfiles} % Best loaded last in the preamble
+
+
+
+\title{Learn Real World Haskell}
+\author{Jacob Bishop}
+\date{2024-07-25}
+
+% adding style
+\usepackage{../style}
+\lstset{style=mystyle}
+
+% adding commands
+\input{../commands}
+
+\begin{document}
+
+\maketitle
+\newpage
+
+\section{Functions and types}
+\subfile{Ch1 Functions and types}
+\newpage
+
+\section{Type classes}
+\subfile{Ch2 Type classes}
+\newpage
+
+\section{Developing an application: Stock quotes}
+\subfile{Ch3 Developing an application: Stock quotes}
+\newpage
+
+\section{Haskell development with modules, packages, and projects}
+\subfile{Ch4 Haskell development with modules, packages, and projects}
+\newpage
+
+\section{Monads as practical functionality providers}
+\subfile{Ch5 Monads as practical functionality providers}
+\newpage
+
+\section{Structuring programs with monad transformers}
+\subfile{Ch6 Structuring programs with monad transformers}
+\newpage
+
+\section{Error handling and logging}
+\subfile{Ch7 Error handling and logging}
+\newpage
+
+\section{Writing tests}
+\subfile{Ch8 Writing tests}
+\newpage
+
+\section{Haskell data and code at run time}
+\subfile{Ch9 Haskell data and code at run time}
+\newpage
+
+\section{Benchmarking and profiling}
+\subfile{Ch10 Benchmarking and profiling}
+\newpage
+
+\section{Type system advances}
+\subfile{Ch11 Type system advances}
+\newpage
+
+\section{Metaprogramming in Haskell}
+\subfile{Ch12 Metaprogramming in Haskell}
+\newpage
+
+\section{More about types}
+\subfile{Ch13 More about types}
+\newpage
+
+\section{Data-processing pipelines}
+\subfile{Ch14 Data-processing pipelines}
+\newpage
+
+\section{Working with relational databases}
+\subfile{Ch15 Working with relational databases}
+\newpage
+
+\section{Concurrency}
+\subfile{Ch16 Concurrency}
+\newpage
+
+\end{document}
